@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App.jsx'
 import LabOverview from './pages/LabOverview.jsx'
+import Explore from './pages/Explore.jsx'
+import ResearchResults from './pages/ResearchResults.jsx'
 import Suites from './pages/Suites.jsx'
 import Suite from './pages/Suite.jsx'
 import Run from './pages/Run.jsx'
@@ -25,6 +27,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Routes>
         <Route path="/" element={<App />}>
           <Route index element={<LabOverview />} />
+          <Route path="overview" element={<LabOverview />} />
+          <Route path="explore" element={<Explore />} />
+          <Route path="explore/dataset/:dataset" element={<ResearchResults mode="dataset" />} />
+          <Route path="explore/task/:task" element={<ResearchResults mode="task" />} />
           <Route path="launch" element={<Launch />} />
           <Route path="experiments" element={<Jobs />} />
           <Route path="jobs" element={<Jobs />} />

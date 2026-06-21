@@ -7,6 +7,12 @@ import pytest
 
 from qllm.config import BlockConfig, ExperimentConfig, ModelConfig, QuantumConfig, to_flat_dict, validate_config
 from qllm.dashboard.datasets import import_hf_text_dataset, list_datasets
+from qllm.dashboard.explore import (
+    domain_payload,
+    explore_payload,
+    infer_research_context,
+    result_dashboard_payload,
+)
 from qllm.dashboard.lab import (
     comparison_research_payload,
     lab_overview,
@@ -415,3 +421,73 @@ def test_comparison_payload_handles_missing_baseline(tmp_path):
     payload = comparison_payload(ResultsDB(tmp_path / "results.db"), job["id"])
     assert payload["available"] is False
     assert payload["reason"] == "no linked classical comparison"
+
+
+def test_explore_payload_maps_runs_and_jobs_to_research_context(tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit(
+        "quantum-ffn-4q", "default-text", "pair", 7, 2, 1,
+        queue_classical_comparison=True,
+    )
+    db = ResultsDB(db_path)
+    db.record(
+        "qnlp-v1", "quantum-ffn-4q", "default-text", 7, 2,
+        120, 1.0, 2.4, 1.3, 12.0,
+        config=job["config"],
+    )
+
+    payload = explore_payload(db)
+    domains = {domain["name"]: domain for domain in payload["domains"]}
+    assert "QNLP" in domains
+    assert "Language modelling" in domains["QNLP"]["tasks"]
+    datasets = {dataset["name"]: dataset for dataset in payload["datasets"]}
+    assert datasets["default-text"]["best_val_ppl"] == pytest.approx(2.4)
+    assert any(run["link"].startswith("/run/") for run in payload["runs"])
+    assert any(item["id"] == job["id"] for item in payload["jobs"])
+
+    qnlp = domain_payload(db, "qnlp")
+    assert qnlp["available"] is True
+    assert qnlp["domain"]["name"] == "QNLP"
+    assert qnlp["runs"][0]["resource"]["n_qubits"] == 4
+
+
+def test_infer_research_context_handles_synthetic_quantum_data():
+    context = infer_research_context(
+        suite="qnlp-v1",
+        variant="qrnn-small",
+        dataset="ising",
+        config={"data.kind": "monitored_ising", "model.arch": "qrnn"},
+    )
+    assert context["domain"] == "Synthetic quantum data"
+    assert context["task"] == "Quantum-generated sequence prediction"
+    assert context["confidence"] > 0.8
+
+
+def test_result_dashboard_payload_surfaces_cards_cost_and_verdicts(tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit(
+        "quantum-ffn-4q", "default-text", "pair", 8, 2, 1,
+        queue_classical_comparison=True,
+    )
+    db = ResultsDB(db_path)
+    twin = job["comparison_job"]
+    db.update_lab_job(job["id"], status="done")
+    db.update_lab_job(twin["id"], status="done")
+    db.record("lab", "quantum-ffn-4q", "default-text", 8, 2, 100, 1.0, 2.2, 1.2, 5.0, config=job["config"])
+    db.record("lab", "classical-small", "default-text", 8, 2, 120, 1.1, 2.6, 1.4, 3.0, config=twin["config"])
+
+    payload = result_dashboard_payload(db, dataset="default-text")
+    assert payload["available"] is True
+    assert any(card["label"] == "Champion model overall" and card["model"] == "quantum-ffn-4q" for card in payload["summaries"])
+    qrow = next(row for row in payload["rows"] if row["model"] == "quantum-ffn-4q")
+    assert qrow["resource"]["n_qubits"] == 4
+    assert qrow["resource"]["resource_band"] in {"low", "medium", "high", "extreme", "classical"}
+    assert qrow["verdict_label"] == "single-run candidate better"
+    assert qrow["claim_level"] == "anecdote"
+    assert qrow["comparison_link"] == f"/comparisons/{job['id']}"
+
+    task_payload = result_dashboard_payload(db, task_slug="language-modelling", domain_slug="qnlp")
+    assert task_payload["available"] is True
+    assert "Language modelling" in task_payload["tasks"]

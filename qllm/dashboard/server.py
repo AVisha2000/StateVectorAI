@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from ..resultsdb import ResultsDB
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
+from .explore import domain_payload, explore_payload, result_dashboard_payload
 from .lab import (
     comparison_research_payload,
     enrich_job,
@@ -164,6 +165,35 @@ def api_create_model_spec_job(spec_id: int, payload: dict) -> dict:
 @app.get("/api/lab/overview")
 def api_lab_overview() -> dict:
     return lab_overview(db(), environment_status(FRONTEND_DIST))
+
+
+@app.get("/api/explore")
+def api_explore() -> dict:
+    return explore_payload(db())
+
+
+@app.get("/api/explore/domain/{domain_slug}")
+def api_explore_domain(domain_slug: str) -> dict:
+    payload = domain_payload(db(), domain_slug)
+    if not payload.get("available"):
+        raise HTTPException(status_code=404, detail=payload.get("reason"))
+    return payload
+
+
+@app.get("/api/explore/dataset/{dataset_name}")
+def api_explore_dataset(dataset_name: str) -> dict:
+    payload = result_dashboard_payload(db(), dataset=dataset_name)
+    if not payload.get("available"):
+        raise HTTPException(status_code=404, detail=payload.get("reason"))
+    return payload
+
+
+@app.get("/api/explore/task/{task_slug}")
+def api_explore_task(task_slug: str, domain: str | None = None) -> dict:
+    payload = result_dashboard_payload(db(), task_slug=task_slug, domain_slug=domain)
+    if not payload.get("available"):
+        raise HTTPException(status_code=404, detail=payload.get("reason"))
+    return payload
 
 
 @app.get("/api/scaling-tests")
