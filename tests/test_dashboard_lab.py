@@ -23,6 +23,7 @@ from qllm.dashboard.lab import (
 )
 from qllm.dashboard.model_graph import model_graph_from_config
 from qllm.dashboard.model_specs import create_spec, spec_diff, update_spec, validation_payload
+from qllm.dashboard.model_tests import model_test_payload
 from qllm.dashboard.presets import build_preset, list_presets
 from qllm.dashboard.runner import ExperimentQueue
 from qllm.dashboard.studies import create_study, list_studies, study_payload
@@ -259,6 +260,28 @@ def test_queue_can_run_saved_model_spec(tmp_path):
     job = q.submit_model_spec(spec["id"], "default-text", "spec-run", 0, 2, 1)
     assert job["preset_id"] == f"model-spec:{spec['id']}"
     assert job["config"]["model.n_blocks"] == 1
+
+
+def test_model_test_payload_reports_artifact_capabilities(tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit("classical-small", "default-text", "testable", 0, 2, 1)
+    db = ResultsDB(db_path)
+    db.update_lab_job(job["id"], status="done")
+
+    out_dir = tmp_path / "results" / job["run_name"]
+    out_dir.mkdir(parents=True)
+    (out_dir / "summary.json").write_text(
+        '{"val_ppl": 2.5, "steps": 2, "n_params": 128, "wall_seconds": 1.2}'
+    )
+
+    payload = model_test_payload(db, job["id"], tmp_path / "results")
+    assert payload["supported_tests"]["summary_review"] is True
+    assert payload["supported_tests"]["prompt_generation"] is False
+    assert payload["artifacts"]["summary_exists"] is True
+    assert payload["artifacts"]["params_exists"] is False
+    assert payload["summary"]["val_ppl"] == pytest.approx(2.5)
+    assert "params.msgpack artifact is missing" in payload["unsupported_reasons"]
 
 
 def test_queue_generates_classical_analogue_for_quantum_model_spec(tmp_path):

@@ -112,12 +112,19 @@ export default function RunWorkspace() {
   const [graph, setGraph] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [testInfo, setTestInfo] = useState(null)
+  const [testResult, setTestResult] = useState(null)
+  const [testBusy, setTestBusy] = useState(false)
+  const [testPrompt, setTestPrompt] = useState('\n')
+  const [testTokens, setTestTokens] = useState(120)
+  const [testTemperature, setTestTemperature] = useState(0.8)
 
   const refresh = () => api.workspace(id).then(setPayload).catch((e) => setError(e.message))
 
   useEffect(() => {
     refresh()
     api.jobGraph(id).then(setGraph).catch(() => {})
+    api.modelTests(id).then(setTestInfo).catch(() => {})
     const timer = setInterval(refresh, 2000)
     return () => clearInterval(timer)
   }, [id])
@@ -163,6 +170,23 @@ export default function RunWorkspace() {
       refresh()
     } catch (e) {
       setError(e.message)
+    }
+  }
+
+  const runManualTest = async () => {
+    setError(''); setNotice(''); setTestResult(null); setTestBusy(true)
+    try {
+      const result = await api.runModelTest(job.id, {
+        prompt: testPrompt,
+        max_new_tokens: Number(testTokens),
+        temperature: Number(testTemperature),
+      })
+      setTestResult(result)
+      api.modelTests(id).then(setTestInfo).catch(() => {})
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setTestBusy(false)
     }
   }
 
@@ -347,6 +371,62 @@ export default function RunWorkspace() {
               </div>
             </section>
           </div>
+
+          <section className="panel">
+            <div className="workspace-header">
+              <div>
+                <h3>Trained Model Testing</h3>
+                <p className="panel-copy">Manual prompt generation is available when a completed text run has reloadable `params.msgpack` artifacts.</p>
+              </div>
+              <span className={`badge ${testInfo?.supported_tests?.prompt_generation ? 'done' : 'cancelled'}`}>
+                {testInfo?.supported_tests?.prompt_generation ? 'generation ready' : 'generation unavailable'}
+              </span>
+            </div>
+            {testInfo && (
+              <div className="kv compact">
+                <div className="k">summary artifact</div><div className="v">{testInfo.artifacts?.summary_exists ? 'found' : 'missing'}</div>
+                <div className="k">params artifact</div><div className="v">{testInfo.artifacts?.params_exists ? 'found' : 'missing'}</div>
+                <div className="k">artifact directory</div><div className="v mono">{testInfo.artifacts?.directory}</div>
+                <div className="k">summary review</div><div className="v">{testInfo.supported_tests?.summary_review ? 'available' : 'unavailable'}</div>
+              </div>
+            )}
+            {testInfo?.unsupported_reasons?.length > 0 && (
+              <div className="alert">
+                {testInfo.unsupported_reasons.join('; ')}
+              </div>
+            )}
+            {testInfo?.summary && (
+              <div className="stat-row">
+                <Stat label="Summary val ppl" value={fmt(testInfo.summary.val_ppl)} />
+                <Stat label="Summary steps" value={testInfo.summary.steps ?? '-'} />
+                <Stat label="Summary params" value={testInfo.summary.n_params?.toLocaleString?.() || '-'} />
+                <Stat label="Summary wall" value={testInfo.summary.wall_seconds == null ? '-' : `${fmt(testInfo.summary.wall_seconds, 2)}s`} />
+              </div>
+            )}
+            <div className="form-grid">
+              <label>Prompt<input value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} /></label>
+              <label>New tokens<input type="number" min="1" max="240" value={testTokens} onChange={(e) => setTestTokens(e.target.value)} /></label>
+              <label>Temperature<input type="number" min="0.1" max="2" step="0.1" value={testTemperature} onChange={(e) => setTestTemperature(e.target.value)} /></label>
+            </div>
+            <button
+              className="primary"
+              type="button"
+              disabled={!testInfo?.supported_tests?.prompt_generation || testBusy}
+              onClick={runManualTest}
+            >
+              {testBusy ? 'Running test...' : 'Generate from trained model'}
+            </button>
+            {testResult && (
+              <div className={`alert ${testResult.ok ? 'good' : 'error'}`}>
+                <b>{testResult.ok ? 'Generated sample' : 'Test unavailable'}</b>
+                {testResult.ok ? (
+                  <pre className="code-block">{testResult.generated_text}</pre>
+                ) : (
+                  <p>{testResult.reason}</p>
+                )}
+              </div>
+            )}
+          </section>
 
           <details className="panel">
             <summary className="pill">Config summary</summary>

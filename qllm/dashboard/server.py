@@ -37,6 +37,7 @@ from .model_specs import (
     update_spec,
     validation_payload,
 )
+from .model_tests import model_test_payload, run_model_test
 from .presets import list_presets
 from .presets import build_preset
 from .runner import ExperimentQueue
@@ -398,6 +399,22 @@ def api_job_model_graph(job_id: int) -> dict:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return model_graph_from_config(job.get("config") or {})
+
+
+@app.get("/api/jobs/{job_id}/model-tests")
+def api_job_model_tests(job_id: int) -> dict:
+    try:
+        return model_test_payload(db(), job_id, RESULTS_DIR)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.post("/api/jobs/{job_id}/model-tests")
+def api_run_job_model_test(job_id: int, payload: dict) -> dict:
+    try:
+        return run_model_test(db(), job_id, payload, RESULTS_DIR)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
 
 
 @app.get("/api/suites")

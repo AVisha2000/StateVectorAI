@@ -61,6 +61,8 @@ export const api = {
   queueClassicalAnalogue: (id, payload = {}) => post(`/jobs/${id}/classical-analogue`, payload),
   queueGroupClassicalAnalogues: (id) => post(`/groups/${encodeURIComponent(id)}/classical-analogues`),
   jobGraph: (id) => get(`/jobs/${id}/model-graph`),
+  modelTests: (id) => get(`/jobs/${id}/model-tests`),
+  runModelTest: (id, payload) => post(`/jobs/${id}/model-tests`, payload),
   presetGraph: (id) => get(`/presets/${encodeURIComponent(id)}/model-graph`),
   presetClassicalAnalogue: (id) => get(`/presets/${encodeURIComponent(id)}/classical-analogue`),
   modelSpecs: () => get('/model-specs'),
