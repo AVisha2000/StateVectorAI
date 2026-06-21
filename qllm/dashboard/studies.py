@@ -9,6 +9,7 @@ from typing import Any
 
 from ..resultsdb import ResultsDB
 from .datasets import get_dataset
+from .evidence import study_evidence_ladder
 from .lab import comparison_research_payload, enrich_job
 from .presets import preset_meta
 from .runner import ExperimentQueue
@@ -263,7 +264,7 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
         mean_delta = None
         std_delta = None
 
-    return {
+    evidence = {
         "label": label,
         "reason": reason,
         "candidate_count": len(candidate_jobs),
@@ -273,14 +274,9 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
         "mean_delta_val_ppl": mean_delta,
         "std_delta_val_ppl": std_delta,
         "comparisons": comparisons,
-        "ladder": [
-            {"label": "matched baseline", "ok": fair > 0, "detail": f"{fair} fair pair(s)"},
-            {"label": "multi-seed evidence", "ok": len(deltas) >= 3, "detail": f"{len(deltas)} fair completed seed(s)"},
-            {"label": "candidate better", "ok": bool(deltas) and wins > len(deltas) / 2, "detail": f"{wins}/{len(deltas) if deltas else 0} wins"},
-            {"label": "variance reviewed", "ok": std_delta is not None and len(deltas) >= 2, "detail": "-" if std_delta is None else f"std {std_delta:.3f}"},
-            {"label": "cost still required", "ok": False, "detail": "resource cost is inspected per comparison"},
-        ],
     }
+    evidence["ladder"] = study_evidence_ladder(evidence)
+    return evidence
 
 
 def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> dict:

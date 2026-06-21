@@ -509,6 +509,10 @@ def test_study_payload_summarizes_multiseed_evidence(tmp_path):
     assert payload["evidence"]["wins"] == 3
     assert payload["evidence"]["mean_delta_val_ppl"] == pytest.approx(-0.5)
     assert payload["evidence"]["std_delta_val_ppl"] == pytest.approx(0.0)
+    ladder = {item["key"]: item for item in payload["evidence"]["ladder"]}
+    assert ladder["multi_seed"]["ok"] is True
+    assert ladder["candidate_better"]["ok"] is True
+    assert ladder["ablation_supported"]["ok"] is False
 
 
 def test_gpu_requested_job_is_rejected_when_jax_has_no_gpu(monkeypatch, tmp_path):
@@ -558,6 +562,13 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     assert comparison["verdict"]["claim_level"] == "anecdote"
     assert comparison["resource_normalized"]["improvement"] == pytest.approx(0.5)
     assert comparison["resource_normalized"]["improvement_per_extra_second"] == pytest.approx(1 / 3)
+    ladder = comparison["evidence_ladder"]
+    assert ladder["label"] in {"promising run", "cost-aware promising run"}
+    by_key = {step["key"]: step for step in ladder["steps"]}
+    assert by_key["matched_baseline"]["ok"] is True
+    assert by_key["fair_protocol"]["ok"] is True
+    assert by_key["run_level_improvement"]["ok"] is True
+    assert by_key["multi_seed"]["ok"] is False
 
 
 def test_lab_overview_summarizes_jobs_and_comparisons(tmp_path):

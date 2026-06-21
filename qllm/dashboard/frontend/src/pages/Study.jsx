@@ -81,7 +81,11 @@ export default function Study() {
               <h3>Evidence Ladder</h3>
               {(payload.evidence?.ladder || []).map((item) => (
                 <div className="comparison-row" key={item.label}>
-                  <div><b>{item.label}</b><div className="muted">{item.detail}</div></div>
+                  <div>
+                    <b>{item.label}</b>
+                    <div className="muted">{item.detail}</div>
+                    {item.caution && <div className="muted">{item.caution}</div>}
+                  </div>
                   <span className={`badge ${item.ok ? 'done' : 'error'}`}>{item.ok ? 'met' : 'not met'}</span>
                 </div>
               ))}

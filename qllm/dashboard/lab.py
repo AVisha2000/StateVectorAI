@@ -7,6 +7,7 @@ from collections import Counter
 from ..research_protocol import classify_claim, resource_normalized_delta
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
+from .evidence import comparison_evidence_ladder
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 from .workspace import comparison_payload
@@ -181,6 +182,7 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
     )
     payload["verdict"] = {k: v for k, v in verdict.items() if k != "fairness"}
     payload["resource_normalized"] = _resource_normalized_for_payload(payload)
+    payload["evidence_ladder"] = comparison_evidence_ladder(payload)
     return payload
 
 

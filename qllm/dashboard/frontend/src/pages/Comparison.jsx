@@ -36,6 +36,33 @@ function Delta({ label, value, lowerBetter = true }) {
   return <div className="stat"><span className="k">{label}</span><span className={`v ${good ? 'good-text' : ''} ${bad ? 'warn-text' : ''}`}>{value == null ? '-' : `${value > 0 ? '+' : ''}${fmt(value)}`}</span></div>
 }
 
+function EvidenceLadder({ ladder }) {
+  if (!ladder) return null
+  return (
+    <section className="panel">
+      <div className="workspace-header">
+        <div>
+          <h3>Quantum Advantage Evidence Ladder</h3>
+          <p className="panel-copy">{ladder.label}: {ladder.reason}</p>
+        </div>
+        <span className="badge">{ladder.met_count}/{ladder.total_count} rungs met</span>
+      </div>
+      <div className="research-card-list">
+        {(ladder.steps || []).map((step) => (
+          <div className="comparison-row" key={step.key}>
+            <div>
+              <b>{step.label}</b>
+              <div className="muted">{step.detail}</div>
+              {step.caution && <div className="muted">{step.caution}</div>}
+            </div>
+            <span className={`badge ${step.ok ? 'done' : 'error'}`}>{step.ok ? 'met' : 'not met'}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default function Comparison() {
   const { id } = useParams()
   const [payload, setPayload] = useState(null)
@@ -136,6 +163,8 @@ export default function Comparison() {
             </div>
           </section>
 
+          <EvidenceLadder ladder={payload.evidence_ladder} />
+
           <div className="workspace-grid">
             <section className="panel"><ModelDiagram graph={graphs.candidate} title="Candidate architecture" /></section>
             <section className="panel"><ModelDiagram graph={graphs.baseline} title="Baseline architecture" /></section>
@@ -150,6 +179,8 @@ export default function Comparison() {
               <Delta label="wall time" value={payload.deltas?.wall_seconds} />
               <Delta label="parameter count" value={payload.deltas?.n_params} />
               <div className="stat"><span className="k">parameter delta ratio</span><span className="v">{flags.parameter_delta_ratio == null ? '-' : fmt(flags.parameter_delta_ratio, 3)}</span></div>
+              <div className="stat"><span className="k">resource improvement</span><span className="v">{fmt(payload.resource_normalized?.improvement)}</span></div>
+              <div className="stat"><span className="k">improvement / extra second</span><span className="v">{fmt(payload.resource_normalized?.improvement_per_extra_second)}</span></div>
             </div>
           </section>
 
