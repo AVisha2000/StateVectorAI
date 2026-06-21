@@ -1,0 +1,26 @@
+# Phase 1: classical baseline (char-level tiny-shakespeare)
+model:
+  d_model: 64
+  n_heads: 4
+  n_blocks: 2
+  d_ff: 256
+  max_seq_len: 128
+  attn_type: classical
+  ffn_type: classical
+train:
+  seed: 0
+  steps: 300
+  batch_size: 16
+  seq_len: 64
+  lr: 0.001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  eval_every: 50
+  eval_batches: 8
+data:
+  corpus_path: data/input.txt
+  val_fraction: 0.1
+tracking:
+  enabled: true
+  experiment: qllm
+  run_name: classical-small

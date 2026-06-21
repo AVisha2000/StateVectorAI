@@ -1,0 +1,41 @@
+# v0.4: sharp hybrid on quantum-generated measurement records (monitored_ising)
+model:
+  d_model: 64
+  n_heads: 4
+  n_blocks: 2
+  d_ff: 256
+  max_seq_len: 128
+  attn_type: classical
+  ffn_type: quantum
+  quantum:
+    n_qubits: 4
+    n_circuit_layers: 2
+    ansatz: reuploading
+    readout: zz
+    dressing: linear
+    init_scale: 0.3
+    n_circuits: 4
+train:
+  seed: 0
+  steps: 300
+  batch_size: 16
+  seq_len: 64
+  lr: 0.001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  eval_every: 50
+  eval_batches: 8
+data:
+  kind: monitored_ising
+  gen_qubits: 6
+  gen_measured: 1
+  gen_sequences: 64
+  gen_len: 2048
+  gen_theta_x: 0.6
+  gen_steps_per_token: 2
+  gen_seed: 0
+  markov_order: 3
+tracking:
+  enabled: true
+  experiment: qllm-data
+  run_name: ising_sharp

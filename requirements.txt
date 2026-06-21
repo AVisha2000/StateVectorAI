@@ -1,0 +1,20 @@
+PyYAML==6.0.3
+flax==0.12.7
+hypothesis==6.155.2
+jax==0.10.1
+jaxlib==0.10.1
+matplotlib==3.10.8
+mlflow-skinny==3.13.0
+mlflow-tracing==3.13.0
+mlflow==3.13.0
+numpy==2.4.4
+optax==0.2.8
+pennylane==0.45.0
+pennylane_lightning==0.45.0
+pytest==9.0.3
+pyyaml_env_tag==1.1
+
+# dashboard
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27

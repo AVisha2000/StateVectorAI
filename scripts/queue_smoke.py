@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Queue a tiny dashboard-launched run without using the browser.
+
+Useful after starting the dashboard server:
+    python scripts/queue_smoke.py
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import urllib.request
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--url", default="http://127.0.0.1:8000")
+    ap.add_argument("--preset", default="classical-small")
+    ap.add_argument("--dataset", default="default-text")
+    ap.add_argument("--run-name", default="dashboard-smoke")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--steps", type=int, default=5)
+    ap.add_argument("--eval-every", type=int, default=5)
+    ap.add_argument("--device-target", choices=["auto", "cpu", "gpu"], default="auto")
+    ap.add_argument("--compare", action="store_true",
+                    help="Queue the preset's classical twin when available.")
+    args = ap.parse_args()
+
+    payload = {
+        "preset_id": args.preset,
+        "dataset_name": args.dataset,
+        "run_name": args.run_name,
+        "seed": args.seed,
+        "steps": args.steps,
+        "eval_every": args.eval_every,
+        "device_target": args.device_target,
+        "queue_classical_comparison": args.compare,
+    }
+    req = urllib.request.Request(
+        f"{args.url.rstrip('/')}/api/jobs",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        print(resp.read().decode("utf-8"))
+
+
+if __name__ == "__main__":
+    main()

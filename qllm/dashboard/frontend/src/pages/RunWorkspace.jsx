@@ -1,0 +1,336 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts'
+import { api } from '../api'
+import ModelDiagram from '../components/ModelDiagram'
+
+const METRICS = ['train_loss', 'val_loss', 'val_ppl', 'val_bpc', 'grad_norm_ratio']
+
+function fmt(value, digits = 4) {
+  if (value == null || Number.isNaN(Number(value))) return '-'
+  const n = Number(value)
+  if (Math.abs(n) >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  if (Math.abs(n) >= 100) return n.toFixed(2)
+  return n.toFixed(digits)
+}
+
+function mergeCurve(curve = {}, names = METRICS) {
+  const byStep = new Map()
+  names.forEach((name) => {
+    ;(curve[name] || []).forEach((point) => {
+      const row = byStep.get(point.step) || { step: point.step }
+      row[name] = point.value
+      byStep.set(point.step, row)
+    })
+  })
+  return Array.from(byStep.values()).sort((a, b) => a.step - b.step)
+}
+
+function mergeComparison(candidateCurve = {}, baselineCurve = {}, metric = 'val_ppl') {
+  const byStep = new Map()
+  ;(candidateCurve[metric] || []).forEach((point) => {
+    const row = byStep.get(point.step) || { step: point.step }
+    row.candidate = point.value
+    byStep.set(point.step, row)
+  })
+  ;(baselineCurve[metric] || []).forEach((point) => {
+    const row = byStep.get(point.step) || { step: point.step }
+    row.baseline = point.value
+    byStep.set(point.step, row)
+  })
+  return Array.from(byStep.values()).sort((a, b) => a.step - b.step)
+}
+
+function canCancel(job) {
+  return job?.status === 'queued' || job?.status === 'running'
+}
+
+function Stat({ label, value, hint }) {
+  return (
+    <div className="metric-card">
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
+      {hint && <div className="muted">{hint}</div>}
+    </div>
+  )
+}
+
+function CurvePanel({ title, data, lines, empty }) {
+  if (!data.length) {
+    return (
+      <div className="panel chart-panel empty-chart">
+        <div className="pill">{title}</div>
+        <p className="muted">{empty || 'No points logged yet.'}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="panel chart-panel">
+      <div className="pill chart-title">{title}</div>
+      <ResponsiveContainer width="100%" height="92%">
+        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+          <XAxis dataKey="step" tick={{ fill: '#8b949e', fontSize: 11 }} />
+          <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
+          <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {lines.map((line) => (
+            <Line
+              key={line.key}
+              type="monotone"
+              dataKey={line.key}
+              name={line.name}
+              stroke={line.color}
+              dot={false}
+              strokeWidth={2}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function Delta({ label, value, lowerBetter = true }) {
+  const isGood = value != null && (lowerBetter ? value < 0 : value > 0)
+  const isBad = value != null && (lowerBetter ? value > 0 : value < 0)
+  return (
+    <div className="stat">
+      <span className="k">{label}</span>
+      <span className={`v ${isGood ? 'good-text' : ''} ${isBad ? 'warn-text' : ''}`}>
+        {value == null ? '-' : `${value > 0 ? '+' : ''}${fmt(value)}`}
+      </span>
+    </div>
+  )
+}
+
+export default function RunWorkspace() {
+  const { id } = useParams()
+  const [payload, setPayload] = useState(null)
+  const [graph, setGraph] = useState(null)
+  const [error, setError] = useState('')
+
+  const refresh = () => api.workspace(id).then(setPayload).catch((e) => setError(e.message))
+
+  useEffect(() => {
+    refresh()
+    api.jobGraph(id).then(setGraph).catch(() => {})
+    const timer = setInterval(refresh, 2000)
+    return () => clearInterval(timer)
+  }, [id])
+
+  const job = payload?.job
+  const live = payload?.live
+  const finalRun = payload?.final_run
+  const preset = payload?.preset
+  const dataset = payload?.dataset
+  const comparison = payload?.comparison
+  const series = useMemo(() => mergeCurve(payload?.curve), [payload])
+  const comparisonMetric = comparison?.candidate?.curve?.val_ppl?.length || comparison?.baseline?.curve?.val_ppl?.length
+    ? 'val_ppl'
+    : 'train_loss'
+  const comparisonSeries = useMemo(() => mergeComparison(
+    comparison?.candidate?.curve,
+    comparison?.baseline?.curve,
+    comparisonMetric,
+  ), [comparison, comparisonMetric])
+
+  if (!payload && !error) return <div className="loading">Loading run workspace...</div>
+
+  const progressStep = live?.current_step ?? (job?.status === 'done' ? job?.steps : 0)
+  const totalSteps = live?.total_steps ?? job?.steps ?? 1
+  const progress = Math.min(100, Math.round((100 * progressStep) / Math.max(totalSteps, 1)))
+
+  const cancel = async () => {
+    setError('')
+    try {
+      await api.cancelJob(job.id)
+      refresh()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  return (
+    <div>
+      {error && <div className="alert error">{error}</div>}
+      {job && (
+        <>
+          <div className="workspace-header">
+            <div>
+              <h1>#{job.id} {job.run_name}</h1>
+              <h2>{job.preset_id} on {job.dataset_name} - seed {job.seed} - target {job.device_target || 'auto'}</h2>
+            </div>
+            <div className="header-actions">
+              <span className={`badge ${job.status}`}>{job.status}</span>
+              {canCancel(job) && <button className="small" onClick={cancel}>Cancel</button>}
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="stat-row">
+              <Stat label="Progress" value={`${progressStep}/${totalSteps}`} hint={`${progress}% complete`} />
+              <Stat label="Dataset" value={dataset?.name || job.dataset_name} hint={dataset?.source_type} />
+              <Stat label="Preset" value={preset?.label || job.preset_id} hint={preset?.kind} />
+              <Stat label="Device target" value={job.device_target || 'auto'} hint={live ? 'active telemetry' : 'waiting for worker'} />
+            </div>
+            <div className="progress wide"><div style={{ width: `${progress}%` }} /></div>
+          </div>
+
+          {job.error && (
+            <div className="alert error">
+              <b>Job error</b>
+              <pre className="code-block">{job.error}</pre>
+            </div>
+          )}
+
+          <div className="workspace-grid">
+            <section className="panel">
+              <h3>Model description</h3>
+              <p>{preset?.description}</p>
+              <div className="kv compact">
+                <div className="k">architecture</div><div className="v">{preset?.architecture}</div>
+                <div className="k">quantum role</div><div className="v">{preset?.quantum_role}</div>
+                <div className="k">recommended use</div><div className="v">{preset?.recommended_use}</div>
+                <div className="k">risks</div><div className="v">{preset?.risks}</div>
+                <div className="k">classical twin</div><div className="v">{preset?.classical_twin_id || 'none'}</div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <ModelDiagram graph={graph} />
+            </section>
+
+            <section className="panel">
+              <h3>Results</h3>
+              <div className="kv">
+                <div className="k">current step</div><div className="v">{progressStep}</div>
+                <div className="k">last train loss</div><div className="v">{fmt(live?.last_train_loss)}</div>
+                <div className="k">last val ppl</div><div className="v">{fmt(live?.last_val_ppl)}</div>
+                <div className="k">final val loss</div><div className="v">{fmt(finalRun?.val_loss)}</div>
+                <div className="k">final val ppl</div><div className="v">{fmt(finalRun?.val_ppl)}</div>
+                <div className="k">final val bpc</div><div className="v">{fmt(finalRun?.val_bpc)}</div>
+                <div className="k">parameters</div><div className="v">{finalRun?.n_params?.toLocaleString?.() || '-'}</div>
+                <div className="k">wall time</div><div className="v">{finalRun?.wall_seconds ? `${fmt(finalRun.wall_seconds, 2)}s` : '-'}</div>
+              </div>
+            </section>
+          </div>
+
+          <div className="chart-grid">
+            <CurvePanel
+              title="Loss curves"
+              data={series}
+              lines={[
+                { key: 'train_loss', name: 'train loss', color: '#2f81f7' },
+                { key: 'val_loss', name: 'val loss', color: '#a371f7' },
+              ]}
+            />
+            <CurvePanel
+              title="Validation and quantum diagnostics"
+              data={series}
+              lines={[
+                { key: 'val_ppl', name: 'val ppl', color: '#3fb950' },
+                { key: 'val_bpc', name: 'val bpc', color: '#d29922' },
+                { key: 'grad_norm_ratio', name: 'grad norm ratio', color: '#f778ba' },
+              ]}
+            />
+          </div>
+
+          <section className="panel">
+            <h3>Classical comparison</h3>
+            {!comparison?.available && (
+              <p className="muted">{comparison?.reason || 'No comparison is linked to this job.'}</p>
+            )}
+            {comparison?.available && (
+              <div className="comparison-grid">
+                <div>
+                  <div className="pill">candidate</div>
+                  <h3>
+                    <Link to={`/jobs/${comparison.candidate.job.id}`}>
+                      #{comparison.candidate.job.id} {comparison.candidate.job.preset_id}
+                    </Link>
+                  </h3>
+                  <span className={`badge ${comparison.candidate.job.status}`}>{comparison.candidate.job.status}</span>
+                  <div className="kv compact">
+                    <div className="k">val ppl</div><div className="v">{fmt(comparison.candidate.final_run?.val_ppl)}</div>
+                    <div className="k">val loss</div><div className="v">{fmt(comparison.candidate.final_run?.val_loss)}</div>
+                    <div className="k">wall</div><div className="v">{comparison.candidate.final_run?.wall_seconds ? `${fmt(comparison.candidate.final_run.wall_seconds, 2)}s` : '-'}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="pill">classical baseline</div>
+                  <h3>
+                    <Link to={`/jobs/${comparison.baseline.job.id}`}>
+                      #{comparison.baseline.job.id} {comparison.baseline.job.preset_id}
+                    </Link>
+                  </h3>
+                  <span className={`badge ${comparison.baseline.job.status}`}>{comparison.baseline.job.status}</span>
+                  <div className="kv compact">
+                    <div className="k">val ppl</div><div className="v">{fmt(comparison.baseline.final_run?.val_ppl)}</div>
+                    <div className="k">val loss</div><div className="v">{fmt(comparison.baseline.final_run?.val_loss)}</div>
+                    <div className="k">wall</div><div className="v">{comparison.baseline.final_run?.wall_seconds ? `${fmt(comparison.baseline.final_run.wall_seconds, 2)}s` : '-'}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="pill">candidate minus baseline</div>
+                  <Delta label="val ppl" value={comparison.deltas?.val_ppl} />
+                  <Delta label="val loss" value={comparison.deltas?.val_loss} />
+                  <Delta label="val bpc" value={comparison.deltas?.val_bpc} />
+                  <Delta label="wall seconds" value={comparison.deltas?.wall_seconds} />
+                  <Delta label="parameters" value={comparison.deltas?.n_params} />
+                </div>
+              </div>
+            )}
+          </section>
+
+          {comparison?.available && (
+            <CurvePanel
+              title={`Comparison curve: ${comparisonMetric}`}
+              data={comparisonSeries}
+              empty="Comparison curves appear once either linked run starts logging."
+              lines={[
+                { key: 'candidate', name: 'candidate', color: '#a371f7' },
+                { key: 'baseline', name: 'classical baseline', color: '#2f81f7' },
+              ]}
+            />
+          )}
+
+          <div className="workspace-grid">
+            <section className="panel">
+              <h3>Dataset provenance</h3>
+              <div className="kv">
+                <div className="k">source</div><div className="v">{dataset?.source}</div>
+                <div className="k">split</div><div className="v">{dataset?.split || '-'}</div>
+                <div className="k">text column</div><div className="v">{dataset?.text_column || '-'}</div>
+                <div className="k">rows</div><div className="v">{dataset?.n_rows?.toLocaleString?.() || '-'}</div>
+                <div className="k">chars</div><div className="v">{dataset?.n_chars?.toLocaleString?.() || '-'}</div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <h3>Artifacts</h3>
+              <div className="kv">
+                <div className="k">summary</div><div className="v">results/{job.run_name}/summary.json</div>
+                <div className="k">params</div><div className="v">results/{job.run_name}/params.msgpack</div>
+                <div className="k">run key</div><div className="v">{job.run_key || '-'}</div>
+              </div>
+            </section>
+          </div>
+
+          <details className="panel">
+            <summary className="pill">Config summary</summary>
+            <div className="kv config-list">
+              {Object.entries(job.config || {}).map(([k, v]) => (
+                <div key={k} style={{ display: 'contents' }}>
+                  <div className="k">{k}</div><div className="v">{String(v)}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        </>
+      )}
+    </div>
+  )
+}

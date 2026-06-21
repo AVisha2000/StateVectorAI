@@ -1,0 +1,383 @@
+"""Single-worker local experiment queue for QLLM Lab."""
+from __future__ import annotations
+
+import dataclasses
+import json
+import queue
+import threading
+import traceback
+import uuid
+
+from ..config import DataConfig, TrackingConfig, from_dict, to_flat_dict
+from ..resultsdb import ResultsDB
+from . import with_dashboard
+from .datasets import get_dataset
+from .presets import apply_quantum_overrides, build_preset, classical_twin_id
+from .resources import quantum_resource_estimate
+
+
+class ExperimentQueue:
+    def __init__(self, db_path: str = "results/qllm_results.db", start_worker: bool = True):
+        self.db_path = db_path
+        self._q: queue.Queue[int] = queue.Queue()
+        self._cancel: set[int] = set()
+        self._lock = threading.Lock()
+        self._worker = None
+        if start_worker:
+            self._worker = threading.Thread(target=self._run, daemon=True)
+            self._worker.start()
+
+    def db(self) -> ResultsDB:
+        return ResultsDB(self.db_path)
+
+    def submit(
+        self, preset_id: str, dataset_name: str, run_name: str | None,
+        seed: int, steps: int, eval_every: int,
+        device_target: str = "auto",
+        queue_classical_comparison: bool = False,
+        quantum_overrides: dict | None = None,
+        group_id: str | None = None,
+        batch_size: int | None = None,
+        seq_len: int | None = None,
+    ) -> dict:
+        db = self.db()
+        dataset = get_dataset(db, dataset_name)
+        if dataset is None:
+            raise ValueError(f"Unknown dataset '{dataset_name}'")
+        device_target = (device_target or "auto").strip().lower()
+        if device_target not in ("auto", "cpu", "gpu"):
+            raise ValueError("Device target must be one of: auto, cpu, gpu.")
+        if device_target == "gpu" and not self.gpu_ready():
+            raise ValueError(
+                "GPU was requested, but JAX does not currently see a GPU. "
+                "Open the GPU page and follow the CUDA/JAX setup guidance."
+            )
+        allow_gpu_scale = device_target == "gpu"
+        cfg = self._config_for_source(preset_id)
+        cfg = apply_quantum_overrides(
+            preset_id, cfg, quantum_overrides, allow_gpu_scale=allow_gpu_scale
+        )
+        run_name = (run_name or cfg.tracking.run_name or preset_id).strip()
+        if not run_name:
+            raise ValueError("Run name is required.")
+        steps = int(steps)
+        eval_every = int(eval_every)
+        if steps < 1:
+            raise ValueError("Steps must be at least 1.")
+        if eval_every < 1:
+            raise ValueError("Eval interval must be at least 1.")
+        if batch_size is not None and int(batch_size) < 1:
+            raise ValueError("Batch size must be at least 1.")
+        if seq_len is not None and int(seq_len) < 8:
+            raise ValueError("Sequence length must be at least 8.")
+        seed = int(seed)
+        twin_id = None if str(preset_id).startswith("model-spec:") else classical_twin_id(preset_id)
+        wants_comparison = bool(queue_classical_comparison and twin_id)
+        cfg = self._config_for_job(
+            cfg, dataset["corpus_path"], run_name,
+            seed, steps, eval_every, batch_size, seq_len,
+        )
+        estimate = quantum_resource_estimate(cfg)
+        if estimate["band"] == "extreme" and estimate["uses_quantum_attention"]:
+            raise ValueError(
+                "This quantum-attention run is likely to exhaust GPU memory. "
+                "Try batch size 1-4, seq_len 16-32, or reduce qubits/depth. "
+                f"Current estimate: {estimate['band']}."
+            )
+        job_config = to_flat_dict(cfg)
+        if quantum_overrides:
+            job_config["lab.quantum_override.n_qubits"] = cfg.model.quantum.n_qubits
+            job_config["lab.quantum_override.n_circuit_layers"] = (
+                cfg.model.quantum.n_circuit_layers
+            )
+        if batch_size is not None:
+            job_config["lab.train_override.batch_size"] = cfg.train.batch_size
+        if seq_len is not None:
+            job_config["lab.train_override.seq_len"] = cfg.train.seq_len
+        job_config["lab.resource.band"] = estimate["band"]
+        job_config["lab.resource.score"] = estimate["score"]
+        group_id = group_id or uuid.uuid4().hex
+        job_id = db.create_lab_job({
+            "status": "queued",
+            "preset_id": preset_id,
+            "dataset_name": dataset_name,
+            "run_name": run_name,
+            "seed": seed,
+            "steps": steps,
+            "eval_every": eval_every,
+            "config": job_config,
+            "group_id": group_id,
+            "device_target": device_target,
+            "comparison_role": "candidate" if wants_comparison else "primary",
+        })
+        comparison_job = None
+        if wants_comparison and twin_id:
+            twin_cfg = build_preset(twin_id)
+            twin_name = f"{run_name}-classical"
+            twin_cfg = self._config_for_job(
+                twin_cfg, dataset["corpus_path"], twin_name,
+                seed, steps, eval_every, batch_size, seq_len)
+            twin_job_id = db.create_lab_job({
+                "status": "queued",
+                "preset_id": twin_id,
+                "dataset_name": dataset_name,
+                "run_name": twin_name,
+                "seed": seed,
+                "steps": steps,
+                "eval_every": eval_every,
+                "config": to_flat_dict(twin_cfg),
+                "group_id": group_id,
+                "parent_job_id": job_id,
+                "compare_to_job_id": job_id,
+                "device_target": device_target,
+                "comparison_role": "baseline",
+            })
+            db.update_lab_job(job_id, compare_to_job_id=twin_job_id)
+            comparison_job = self.get(twin_job_id)
+        self._q.put(job_id)
+        if comparison_job is not None:
+            self._q.put(comparison_job["id"])
+        out = self.get(job_id) or {}
+        if comparison_job is not None:
+            out["comparison_job"] = comparison_job
+        return out
+
+    def submit_scaling_sweep(
+        self, preset_id: str, dataset_name: str, run_name: str | None,
+        seed: int, steps: int, eval_every: int, device_target: str,
+        qubits: list[int], depths: list[int],
+        batch_size: int | None = None,
+        seq_len: int | None = None,
+    ) -> dict:
+        if not qubits:
+            raise ValueError("At least one qubit count is required.")
+        if not depths:
+            raise ValueError("At least one circuit depth is required.")
+        if len(qubits) * len(depths) > 64:
+            raise ValueError("Scaling sweeps are capped at 64 jobs per batch.")
+        group_id = uuid.uuid4().hex
+        label = (run_name or preset_id).strip() or preset_id
+        jobs = []
+        for qbits in qubits:
+            for depth in depths:
+                jobs.append(
+                    self.submit(
+                        preset_id=preset_id,
+                        dataset_name=dataset_name,
+                        run_name=f"{label}-q{qbits}-d{depth}",
+                        seed=seed,
+                        steps=steps,
+                        eval_every=eval_every,
+                        device_target=device_target,
+                        queue_classical_comparison=False,
+                        quantum_overrides={
+                            "n_qubits": int(qbits),
+                            "n_circuit_layers": int(depth),
+                        },
+                        group_id=group_id,
+                        batch_size=batch_size,
+                        seq_len=seq_len,
+                    )
+                )
+        return {"group_id": group_id, "count": len(jobs), "jobs": jobs}
+
+    def submit_model_spec(
+        self, spec_id: int, dataset_name: str, run_name: str | None,
+        seed: int, steps: int, eval_every: int,
+        device_target: str = "auto",
+        batch_size: int | None = None,
+        seq_len: int | None = None,
+    ) -> dict:
+        spec = self.db().get_model_spec(spec_id)
+        if spec is None:
+            raise ValueError(f"Unknown model spec {spec_id}")
+        return self.submit(
+            preset_id=f"model-spec:{spec_id}",
+            dataset_name=dataset_name,
+            run_name=run_name or spec["name"],
+            seed=seed,
+            steps=steps,
+            eval_every=eval_every,
+            device_target=device_target,
+            batch_size=batch_size,
+            seq_len=seq_len,
+        )
+
+    @staticmethod
+    def gpu_ready() -> bool:
+        try:
+            import jax
+
+            return any(d.platform in ("gpu", "cuda", "rocm", "tpu")
+                       for d in jax.devices())
+        except Exception:
+            return False
+
+    def _config_for_job(self, cfg, corpus_path: str, run_name: str,
+                        seed: int, steps: int, eval_every: int,
+                        batch_size: int | None = None,
+                        seq_len: int | None = None):
+        train_updates = {"seed": seed, "steps": steps, "eval_every": eval_every}
+        if batch_size is not None:
+            train_updates["batch_size"] = int(batch_size)
+        if seq_len is not None:
+            train_updates["seq_len"] = int(seq_len)
+        return dataclasses.replace(
+            cfg,
+            train=dataclasses.replace(cfg.train, **train_updates),
+            data=DataConfig(kind="text", corpus_path=corpus_path),
+            tracking=dataclasses.replace(
+                cfg.tracking,
+                enabled=False,
+                run_name=run_name,
+                log_quantum_diagnostics=False,
+            ),
+        )
+
+    def list(self) -> list[dict]:
+        return [self._decode(j) for j in self.db().fetch_lab_jobs()]
+
+    def get(self, job_id: int) -> dict | None:
+        row = self.db().get_lab_job(job_id)
+        return self._decode(row) if row else None
+
+    def cancel(self, job_id: int) -> dict:
+        db = self.db()
+        job = db.get_lab_job(job_id)
+        if job is None:
+            raise ValueError(f"Unknown job {job_id}")
+        if job["status"] in ("done", "error", "cancelled"):
+            return self._decode(job)
+        with self._lock:
+            self._cancel.add(job_id)
+        if job["status"] == "queued":
+            db.update_lab_job(job_id, status="cancelled", error="Cancelled before start.")
+        return self.get(job_id) or {}
+
+    def should_cancel(self, job_id: int) -> bool:
+        with self._lock:
+            return job_id in self._cancel
+
+    def _run(self) -> None:
+        while True:
+            job_id = self._q.get()
+            try:
+                self._run_one(job_id)
+            finally:
+                self._q.task_done()
+
+    def _run_one(self, job_id: int) -> None:
+        db = self.db()
+        job = db.get_lab_job(job_id)
+        if job is None or job["status"] == "cancelled":
+            return
+        try:
+            dataset = get_dataset(db, job["dataset_name"])
+            if dataset is None:
+                raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
+            cfg = self._config_for_source(job["preset_id"])
+            device_target = job.get("device_target") or "auto"
+            cfg = apply_quantum_overrides(
+                job["preset_id"], cfg, self._quantum_overrides_from_job(job),
+                allow_gpu_scale=device_target == "gpu",
+            )
+            if device_target == "gpu" and not self.gpu_ready():
+                raise ValueError(
+                    "GPU was requested, but JAX does not currently see a GPU."
+                )
+            cfg = self._config_for_job(
+                cfg, dataset["corpus_path"], job["run_name"],
+                int(job["seed"]), int(job["steps"]), int(job["eval_every"]),
+                *self._train_overrides_from_job(job),
+            )
+            variant = self._variant_for_job(job)
+            cfg = with_dashboard(
+                cfg,
+                suite="lab",
+                variant=variant,
+                dataset=job["dataset_name"],
+                seed=int(job["seed"]),
+                db=self.db_path,
+            )
+            run_key = (
+                f"lab/{variant}/{job['dataset_name']}/"
+                f"{job['seed']}/{job['steps']}"
+            )
+            db.update_lab_job(job_id, status="running", run_key=run_key,
+                              config=to_flat_dict(cfg), error=None)
+            from ..train.loop import fit
+
+            result = fit(
+                cfg,
+                verbose=False,
+                should_cancel=lambda: self.should_cancel(job_id),
+            )
+            status = "cancelled" if result["summary"].get("cancelled") else "done"
+            db.update_lab_job(job_id, status=status)
+        except Exception as exc:  # pragma: no cover - defensive worker boundary
+            latest = db.get_lab_job(job_id)
+            if latest and latest.get("run_key"):
+                try:
+                    db.finish_run(latest["run_key"], status="error")
+                except Exception:
+                    pass
+            db.update_lab_job(
+                job_id,
+                status="error",
+                error=f"{exc}\n{traceback.format_exc(limit=6)}",
+            )
+
+    def _decode(self, job: dict) -> dict:
+        out = dict(job)
+        try:
+            out["config"] = json.loads(out.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            out["config"] = {}
+        return out
+
+    def _config_for_source(self, preset_id: str):
+        if str(preset_id).startswith("model-spec:"):
+            spec_id = int(str(preset_id).split(":", 1)[1])
+            spec = self.db().get_model_spec(spec_id)
+            if spec is None:
+                raise ValueError(f"Unknown model spec {spec_id}")
+            return from_dict(spec["config"])
+        return build_preset(preset_id)
+
+    @staticmethod
+    def _quantum_overrides_from_job(job: dict) -> dict[str, int] | None:
+        try:
+            config = json.loads(job.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            return None
+        overrides = {}
+        for key, field in (
+            ("lab.quantum_override.n_qubits", "n_qubits"),
+            ("lab.quantum_override.n_circuit_layers", "n_circuit_layers"),
+        ):
+            if key in config:
+                overrides[field] = int(config[key])
+        return overrides or None
+
+    @staticmethod
+    def _train_overrides_from_job(job: dict) -> tuple[int | None, int | None]:
+        try:
+            config = json.loads(job.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            return None, None
+        batch_size = config.get("lab.train_override.batch_size")
+        seq_len = config.get("lab.train_override.seq_len")
+        return (
+            int(batch_size) if batch_size is not None else None,
+            int(seq_len) if seq_len is not None else None,
+        )
+
+    @staticmethod
+    def _variant_for_job(job: dict) -> str:
+        overrides = ExperimentQueue._quantum_overrides_from_job(job) or {}
+        if {"n_qubits", "n_circuit_layers"} <= set(overrides):
+            return (
+                f"{job['preset_id']}-q{overrides['n_qubits']}"
+                f"-d{overrides['n_circuit_layers']}"
+            )
+        return job["preset_id"]

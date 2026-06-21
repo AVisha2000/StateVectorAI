@@ -1,0 +1,38 @@
+# v0.3 "sharp" hybrid: the quantum block must earn its keep.
+#   - linear dressing: circuit is the ONLY nonlinearity in the FFN path
+#   - zz readout: 4 + 6 = 10 features per circuit (low-weight observables)
+#   - 4 parallel circuits: scale by blocks, not qubits (40-dim quantum interface)
+#   - small-angle init: near-identity start, keeps early gradients alive
+model:
+  d_model: 64
+  n_heads: 4
+  n_blocks: 2
+  d_ff: 256
+  max_seq_len: 128
+  attn_type: classical
+  ffn_type: quantum
+  quantum:
+    n_qubits: 4
+    n_circuit_layers: 2
+    ansatz: reuploading
+    readout: zz
+    dressing: linear
+    init_scale: 0.3
+    n_circuits: 4
+train:
+  seed: 0
+  steps: 300
+  batch_size: 16
+  seq_len: 64
+  lr: 0.001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  eval_every: 50
+  eval_batches: 8
+data:
+  corpus_path: data/input.txt
+  val_fraction: 0.1
+tracking:
+  enabled: true
+  experiment: qllm
+  run_name: quantum-ffn-sharp
