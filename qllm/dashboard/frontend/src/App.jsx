@@ -36,7 +36,7 @@ export default function App() {
           <NavLink to="/explore">Explore</NavLink>
           <NavLink to="/experiments">Experiments</NavLink>
           <NavLink to="/models">Model Builder</NavLink>
-          <NavLink to="/scaling">Studies</NavLink>
+          <NavLink to="/studies">Studies</NavLink>
           <NavLink to="/results">Results</NavLink>
           <NavLink to="/datasets">Datasets & Tasks</NavLink>
           <NavLink to="/gpu">System</NavLink>

@@ -17,6 +17,8 @@ import RunWorkspace from './pages/RunWorkspace.jsx'
 import GPU from './pages/GPU.jsx'
 import Comparison from './pages/Comparison.jsx'
 import Models from './pages/Models.jsx'
+import Studies from './pages/Studies.jsx'
+import Study from './pages/Study.jsx'
 import ScalingTest from './pages/ScalingTest.jsx'
 import ScalingTests from './pages/ScalingTests.jsx'
 import './styles.css'
@@ -36,6 +38,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="jobs" element={<Jobs />} />
           <Route path="jobs/:id" element={<RunWorkspace />} />
           <Route path="comparisons/:id" element={<Comparison />} />
+          <Route path="studies" element={<Studies />} />
+          <Route path="studies/:id" element={<Study />} />
           <Route path="scaling" element={<ScalingTests />} />
           <Route path="scaling/:groupId" element={<ScalingTest />} />
           <Route path="models" element={<Models />} />

@@ -25,6 +25,7 @@ from qllm.dashboard.model_graph import model_graph_from_config
 from qllm.dashboard.model_specs import create_spec, spec_diff, update_spec, validation_payload
 from qllm.dashboard.presets import build_preset, list_presets
 from qllm.dashboard.runner import ExperimentQueue
+from qllm.dashboard.studies import create_study, list_studies, study_payload
 from qllm.dashboard.workspace import comparison_payload, workspace_payload
 from qllm.resultsdb import ResultsDB
 
@@ -445,6 +446,69 @@ def test_scaling_test_payload_collects_scale_results(monkeypatch, tmp_path):
     assert payload["complete_count"] == 1
     assert payload["best"]["val_ppl"] == pytest.approx(3.0)
     assert {point["n_qubits"] for point in payload["points"]} == {4, 8}
+
+
+def test_study_creation_queues_candidates_baselines_and_controls(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, q, {
+        "name": "ffn-study",
+        "research_question": "Does quantum FFN win across seeds?",
+        "task": "Language modelling",
+        "dataset_names": ["default-text"],
+        "candidate_preset_id": "quantum-ffn-4q",
+        "control_preset_ids": ["classical-small"],
+        "seeds": [0, 1],
+        "steps": 2,
+        "eval_every": 1,
+        "sweep": {"qubits": [4], "depths": [2]},
+    })
+    assert study["status"] == "queued"
+    assert study["job_count"] == 6
+    assert study["role_counts"]["candidate"] == 2
+    assert study["role_counts"]["baseline"] == 2
+    assert study["role_counts"]["control"] == 2
+    assert list_studies(db)[0]["name"] == "ffn-study"
+    assert all(job["group_id"] == study["group_id"] for job in study["jobs"])
+
+
+def test_study_payload_summarizes_multiseed_evidence(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, q, {
+        "name": "evidence-study",
+        "dataset_names": ["default-text"],
+        "candidate_preset_id": "quantum-ffn-4q",
+        "seeds": [0, 1, 2],
+        "steps": 2,
+        "eval_every": 1,
+        "sweep": {"qubits": [4], "depths": [2]},
+    })
+    for row in db.fetch_study_jobs(study["id"]):
+        db.update_lab_job(row["id"], status="done")
+        val_ppl = 2.0 if row["role"] == "candidate" else 2.5
+        db.record(
+            "lab",
+            row["preset_id"],
+            row["dataset_name"],
+            int(row["seed"]),
+            int(row["steps"]),
+            100,
+            1.0,
+            val_ppl,
+            1.2,
+            5.0 if row["role"] == "candidate" else 3.0,
+            config=row.get("config") or {},
+        )
+
+    payload = study_payload(db, study["id"])
+    assert payload["evidence"]["label"] == "promising study"
+    assert payload["evidence"]["fair_pairs"] == 3
+    assert payload["evidence"]["wins"] == 3
+    assert payload["evidence"]["mean_delta_val_ppl"] == pytest.approx(-0.5)
+    assert payload["evidence"]["std_delta_val_ppl"] == pytest.approx(0.0)
 
 
 def test_gpu_requested_job_is_rejected_when_jax_has_no_gpu(monkeypatch, tmp_path):

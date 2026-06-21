@@ -109,6 +109,31 @@ CREATE TABLE IF NOT EXISTS model_specs (
     config_json TEXT NOT NULL,
     graph_json TEXT
 );
+CREATE TABLE IF NOT EXISTS studies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    updated_ts TEXT NOT NULL,
+    name TEXT NOT NULL,
+    research_question TEXT,
+    task TEXT,
+    description TEXT,
+    dataset_names_json TEXT NOT NULL,
+    candidate_preset_id TEXT NOT NULL,
+    baseline_policy TEXT NOT NULL DEFAULT 'analogue',
+    control_preset_ids_json TEXT,
+    seeds_json TEXT NOT NULL,
+    sweep_json TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    group_id TEXT NOT NULL,
+    protocol_json TEXT
+);
+CREATE TABLE IF NOT EXISTS study_jobs (
+    study_id INTEGER NOT NULL,
+    job_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    sweep_json TEXT,
+    PRIMARY KEY(study_id, job_id)
+);
 """
 
 
@@ -423,6 +448,119 @@ class ResultsDB:
             row["graph"] = json.loads(row.get("graph_json") or "{}")
         except json.JSONDecodeError:
             row["graph"] = {}
+        return row
+
+    # ---- studies: first-class research protocols over lab jobs ----
+    def create_study(self, study: dict) -> int:
+        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with self._conn() as con:
+            cur = con.execute(
+                "INSERT INTO studies "
+                "(ts, updated_ts, name, research_question, task, description, "
+                " dataset_names_json, candidate_preset_id, baseline_policy, "
+                " control_preset_ids_json, seeds_json, sweep_json, status, group_id, protocol_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    now,
+                    now,
+                    study["name"],
+                    study.get("research_question"),
+                    study.get("task"),
+                    study.get("description"),
+                    json.dumps(study.get("dataset_names") or []),
+                    study["candidate_preset_id"],
+                    study.get("baseline_policy") or "analogue",
+                    json.dumps(study.get("control_preset_ids") or []),
+                    json.dumps(study.get("seeds") or []),
+                    json.dumps(study.get("sweep") or {}),
+                    study.get("status") or "draft",
+                    study["group_id"],
+                    json.dumps(study.get("protocol") or {}),
+                ),
+            )
+            return int(cur.lastrowid)
+
+    def update_study(self, study_id: int, **fields) -> None:
+        if not fields:
+            return
+        fields["updated_ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        json_fields = {
+            "dataset_names": "dataset_names_json",
+            "control_preset_ids": "control_preset_ids_json",
+            "seeds": "seeds_json",
+            "sweep": "sweep_json",
+            "protocol": "protocol_json",
+        }
+        for key, column in list(json_fields.items()):
+            if key in fields:
+                fields[column] = json.dumps(fields.pop(key) or ([] if key in {"dataset_names", "control_preset_ids", "seeds"} else {}))
+        allowed = {
+            "updated_ts", "name", "research_question", "task", "description",
+            "dataset_names_json", "candidate_preset_id", "baseline_policy",
+            "control_preset_ids_json", "seeds_json", "sweep_json",
+            "status", "group_id", "protocol_json",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_sql = ", ".join(f"{k}=?" for k in updates)
+        with self._conn() as con:
+            con.execute(
+                f"UPDATE studies SET {set_sql} WHERE id=?",
+                [*updates.values(), study_id],
+            )
+
+    def fetch_studies(self) -> list[dict]:
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT * FROM studies ORDER BY updated_ts DESC, id DESC"
+            ).fetchall()
+        return [self._decode_study(dict(r)) for r in rows]
+
+    def get_study(self, study_id: int) -> dict | None:
+        with self._conn() as con:
+            row = con.execute("SELECT * FROM studies WHERE id=?", (study_id,)).fetchone()
+        return self._decode_study(dict(row)) if row is not None else None
+
+    def add_study_job(self, study_id: int, job_id: int, role: str, sweep: dict | None = None) -> None:
+        with self._conn() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO study_jobs (study_id, job_id, role, sweep_json) "
+                "VALUES (?,?,?,?)",
+                (int(study_id), int(job_id), role, json.dumps(sweep or {})),
+            )
+
+    def fetch_study_jobs(self, study_id: int) -> list[dict]:
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT sj.*, j.* FROM study_jobs sj "
+                "JOIN lab_jobs j ON j.id=sj.job_id "
+                "WHERE sj.study_id=? ORDER BY j.id",
+                (int(study_id),),
+            ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["study_sweep"] = json.loads(item.get("sweep_json") or "{}")
+            except json.JSONDecodeError:
+                item["study_sweep"] = {}
+            out.append(item)
+        return out
+
+    @staticmethod
+    def _decode_study(row: dict) -> dict:
+        for column, key, default in (
+            ("dataset_names_json", "dataset_names", []),
+            ("control_preset_ids_json", "control_preset_ids", []),
+            ("seeds_json", "seeds", []),
+            ("sweep_json", "sweep", {}),
+            ("protocol_json", "protocol", {}),
+        ):
+            try:
+                row[key] = json.loads(row.get(column) or json.dumps(default))
+            except json.JSONDecodeError:
+                row[key] = default
         return row
 
     def record_metrics(

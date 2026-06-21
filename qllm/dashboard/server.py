@@ -41,6 +41,7 @@ from .presets import list_presets
 from .presets import build_preset
 from .runner import ExperimentQueue
 from .status import environment_status
+from .studies import create_study, list_studies, queue_study, study_payload
 from .workspace import comparison_payload, workspace_payload
 
 DB_PATH = os.environ.get("QLLM_DB", "results/qllm_results.db")
@@ -225,6 +226,35 @@ def api_scaling_test(group_id: str) -> dict:
     if not payload.get("available"):
         raise HTTPException(status_code=404, detail=payload.get("reason"))
     return payload
+
+
+@app.get("/api/studies")
+def api_studies() -> list[dict]:
+    return list_studies(db())
+
+
+@app.post("/api/studies")
+def api_create_study(payload: dict) -> dict:
+    try:
+        return create_study(db(), QUEUE, payload)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.get("/api/studies/{study_id}")
+def api_study(study_id: int) -> dict:
+    try:
+        return study_payload(db(), study_id)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.post("/api/studies/{study_id}/queue")
+def api_queue_study(study_id: int) -> dict:
+    try:
+        return queue_study(db(), QUEUE, study_id)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
 
 
 @app.get("/api/datasets")

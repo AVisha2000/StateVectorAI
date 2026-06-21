@@ -71,6 +71,10 @@ export const api = {
   modelSpecDiff: (id, base) => get(`/model-specs/${id}/diff${base ? `?base=${base}` : ''}`),
   createJob: (payload) => post('/jobs', payload),
   createSweep: (payload) => post('/jobs/sweep', payload),
+  studies: () => get('/studies'),
+  study: (id) => get(`/studies/${id}`),
+  createStudy: (payload) => post('/studies', payload),
+  queueStudy: (id) => post(`/studies/${id}/queue`),
   cancelJob: (id) => post(`/jobs/${id}/cancel`),
   suites: () => get('/suites'),
   suite: (name, dataset) =>

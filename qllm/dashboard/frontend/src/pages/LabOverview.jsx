@@ -41,7 +41,8 @@ export default function LabOverview() {
       <div className="action-grid">
         <Link className="action-card" to="/launch"><b>New Experiment</b><span>Queue a preset or matched classical comparison.</span></Link>
         <Link className="action-card" to="/experiments"><b>Manage Experiments</b><span>Filter, cancel, open, rerun, and compare jobs.</span></Link>
-        <Link className="action-card" to="/scaling"><b>Scaling Tests</b><span>Review qubit/depth sweeps for the same model.</span></Link>
+        <Link className="action-card" to="/studies"><b>Create Study</b><span>Queue multi-seed protocols with baselines, controls, and sweeps.</span></Link>
+        <Link className="action-card" to="/scaling"><b>Scaling Tests</b><span>Review legacy qubit/depth sweep groups.</span></Link>
         <Link className="action-card" to="/models"><b>Browse Models</b><span>Inspect preset architectures before running them.</span></Link>
         <Link className="action-card" to="/results"><b>Review Results</b><span>Open leaderboards and study-style summaries.</span></Link>
       </div>
