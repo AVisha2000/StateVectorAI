@@ -74,17 +74,17 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    # Exponential decay fit: log(var) ~ a*n + b  ->  var shrinks by e^a per qubit.
+    # Exponential decay fit: log(var) ~ a*n + b -> var shrinks by e^a/qubit.
     # Use the MEAN variance over parameters: individual params can be
-    # structurally zero (e.g. the first RZ acts on |0> and only phases it),
-    # which would corrupt a single-parameter fit.
+    # structurally zero (e.g. the first RZ acts on |0> and only phases it).
     ns = np.array([r["n_qubits"] for r in rows], dtype=float)
     log_var = np.log(np.array([r["grad_var_mean"] for r in rows]))
-    slope, intercept = np.polyfit(ns, log_var, 1)
-    decay_per_qubit = float(np.exp(slope))
+    fit_info = qmetrics.gradient_variance_scaling_fit(rows)
+    slope = fit_info["log_var_slope"]
+    intercept = fit_info["log_var_intercept"]
+    decay_per_qubit = fit_info["variance_decay_factor_per_qubit"]
     fit_info = {
-        "log_var_slope": float(slope),
-        "variance_decay_factor_per_qubit": decay_per_qubit,
+        **fit_info,
         "interpretation": (
             f"Var[grad] shrinks by ~{(1 - decay_per_qubit) * 100:.0f}% per added "
             "qubit (exponential decay => barren-plateau signature)"

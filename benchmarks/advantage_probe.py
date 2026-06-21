@@ -42,6 +42,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="results")
     parser.add_argument("--mlflow", action="store_true")
+    parser.add_argument(
+        "--dequantization",
+        action="store_true",
+        help="Run RFF surrogate challenge for the engineered labels",
+    )
     args = parser.parse_args()
 
     rows = []
@@ -53,6 +58,7 @@ def main() -> None:
             n_layers=args.layers,
             ansatz=args.ansatz,
             seed=args.seed,
+            run_dequantization=args.dequantization,
         )
         row = {
             "n_qubits": n,
@@ -66,8 +72,17 @@ def main() -> None:
             ),
             "kq_offdiag_mean": rep.kq_offdiag_mean,
             "kq_offdiag_std": rep.kq_offdiag_std,
+            "kq_offdiag_cv": rep.kernel_diagnostics["offdiag_cv"],
+            "kq_effective_rank": rep.kernel_diagnostics["effective_rank"],
+            "kq_target_alignment": rep.kernel_diagnostics["target_alignment"],
             "wall_seconds": round(time.time() - t0, 2),
         }
+        if rep.dequantization is not None:
+            row["deq_best_surrogate_r2"] = rep.dequantization.best_surrogate_score
+            row["deq_gap"] = rep.dequantization.gap
+            row["deq_matched_within_tolerance"] = float(
+                rep.dequantization.matched_within_tolerance
+            )
         rows.append(row)
         print(
             f"n={n:2d}  g_min={row['g_min']:6.2f} (sqrt(N)={row['sqrt_N']:.1f})  "

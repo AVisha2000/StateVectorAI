@@ -13,9 +13,14 @@ from qllm.quantum.advantage import (
     advantage_experiment,
     best_classical_r2,
     classical_kernel_family,
+    dequantization_challenge,
     geometric_difference,
+    kernel_diagnostics,
+    kernel_target_alignment,
     normalize_trace,
+    psd_repair,
     quantum_fidelity_kernel,
+    shot_noise_ladder,
 )
 from qllm.quantum.backends import readout_dim
 from qllm.quantum.layers import QuantumCore
@@ -46,18 +51,74 @@ def test_geometric_difference_self_is_small():
     assert g < 1.5
 
 
-def test_advantage_controls_separate():
+def test_advantage_controls_separate_over_seed_grid():
     """The detector's contract: quantum wins on quantum-engineered labels,
     classical wins/ties on classically-engineered labels."""
-    rep = advantage_experiment(n_qubits=4, n_samples=120, n_layers=2, seed=0)
-    assert rep.g_min > 1.0
+    reports = [
+        advantage_experiment(n_qubits=4, n_samples=120, n_layers=2, seed=seed)
+        for seed in (0, 1)
+    ]
+    assert all(rep.g_min > 1.0 for rep in reports)
     # positive control
-    assert rep.r2_engineered["quantum"] > best_classical_r2(rep.r2_engineered)
+    assert all(
+        rep.r2_engineered["quantum"] > best_classical_r2(rep.r2_engineered)
+        for rep in reports
+    )
     # negative control (allow ties within tolerance)
-    assert (
+    assert all(
         best_classical_r2(rep.r2_classical_natural)
         >= rep.r2_classical_natural["quantum"] - 0.05
+        for rep in reports
     )
+    assert all(rep.kernel_diagnostics["effective_rank"] > 1.0 for rep in reports)
+
+
+def test_kernel_diagnostics_alignment_and_psd_repair():
+    rng = np.random.default_rng(4)
+    X = rng.uniform(-1.0, 1.0, size=(24, 3))
+    K = normalize_trace(quantum_fidelity_kernel(X, n_layers=1, seed=4))
+    y = X[:, 0] - X[:, 1]
+    diag = kernel_diagnostics(K, y)
+    assert diag["effective_rank"] > 1.0
+    assert diag["offdiag_cv"] > 0.0
+    assert np.isfinite(diag["target_alignment"])
+
+    shuffled = rng.permutation(y)
+    assert kernel_target_alignment(K, y) != kernel_target_alignment(K, shuffled)
+
+    broken = K - 0.2 * np.eye(len(K))
+    repaired, info = psd_repair(broken)
+    assert info["n_clipped"] > 0
+    assert np.linalg.eigvalsh(repaired).min() >= -1e-8
+
+
+def test_shot_noise_ladder_reports_robustness_rungs():
+    rng = np.random.default_rng(5)
+    X = rng.uniform(-1.0, 1.0, size=(18, 3))
+    K = normalize_trace(quantum_fidelity_kernel(X, n_layers=1, seed=5))
+    ladder = shot_noise_ladder(K, shots_grid=(64,), noise_levels=(0.1,), seed=0)
+    by_name = {row["rung"]: row for row in ladder}
+    assert by_name["analytic"]["mean_abs_diff_from_exact"] == 0.0
+    assert by_name["finite_shot_64"]["mean_abs_diff_from_exact"] > 0.0
+    assert by_name["noisy_0.1"]["offdiag_std"] < by_name["analytic"]["offdiag_std"]
+    assert "psd_repair_count" in by_name["finite_shot_64"]
+
+
+def test_dequantization_challenge_reports_classical_surrogate_gap():
+    rng = np.random.default_rng(6)
+    X = rng.uniform(-1.0, 1.0, size=(40, 3))
+    K = normalize_trace(quantum_fidelity_kernel(X, n_layers=1, seed=6))
+    y = X[:, 0] ** 2 - 0.5 * X[:, 1]
+    idx = rng.permutation(len(X))
+    train_idx, test_idx = idx[:28], idx[28:]
+    rep = dequantization_challenge(
+        X, y, K, train_idx, test_idx, feature_counts=(16, 32), seed=6
+    )
+    assert np.isfinite(rep.quantum_score)
+    assert np.isfinite(rep.best_surrogate_score)
+    assert np.isfinite(rep.gap)
+    assert isinstance(rep.matched_within_tolerance, bool)
+    assert set(rep.surrogate_scores) == {"rff_16", "rff_32"}
 
 
 # ---------------------------------------------------------------------------
