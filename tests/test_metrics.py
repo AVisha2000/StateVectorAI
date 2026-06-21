@@ -7,8 +7,10 @@ import numpy as np
 from qllm.quantum.metrics import (
     average_meyer_wallach,
     expressibility_kl,
+    gradient_variance_scaling_fit,
     gradient_variance,
     meyer_wallach_q,
+    parameter_shift_gradient_snr,
 )
 
 
@@ -50,3 +52,25 @@ def test_gradient_variance_keys_and_positivity():
         assert key in out
         assert np.isfinite(out[key])
         assert out[key] > 0
+
+
+def test_parameter_shift_gradient_snr_reports_trainability_fields():
+    out = parameter_shift_gradient_snr(2, 1, shots=512, seed=0)
+    assert out["n_parameters"] == 2 * 1 * 3
+    assert np.isfinite(out["median_snr"])
+    assert np.isfinite(out["mean_snr"])
+    assert 0.0 <= out["fraction_above_2se"] <= 1.0
+    assert out["mean_abs_grad"] > 0.0
+    assert out["median_se"] > 0.0
+
+
+def test_gradient_variance_scaling_fit_detects_exponential_decay():
+    rows = [
+        {"n_qubits": 2, "grad_var_mean": 0.25},
+        {"n_qubits": 3, "grad_var_mean": 0.125},
+        {"n_qubits": 4, "grad_var_mean": 0.0625},
+    ]
+    fit = gradient_variance_scaling_fit(rows)
+    assert fit["log_var_slope"] < 0.0
+    assert 0.0 < fit["variance_decay_factor_per_qubit"] < 1.0
+    assert fit["exponential_decay_detected"] is True

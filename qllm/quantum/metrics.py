@@ -159,6 +159,80 @@ def gradient_variance(
     }
 
 
+def parameter_shift_gradient_snr(
+    n_qubits: int,
+    n_layers: int,
+    ansatz: str = "reuploading",
+    backend: str = "pennylane",
+    device: str = "default.qubit",
+    shots: int = 1024,
+    seed: int = 0,
+) -> dict[str, float]:
+    """Gradient signal-to-shot-noise estimate at one random initialization.
+
+    Uses analytic expvals for the shifted circuits, then estimates the
+    standard error that finite-shot Pauli-Z measurements would have had. This
+    gives a cheap hardware-realism gate without making the test stochastic.
+    """
+    if shots <= 0:
+        raise ValueError("shots must be positive")
+    circuit = get_expval_circuit(
+        backend, device, "backprop", None, n_qubits, n_layers, ansatz
+    )
+    key = jax.random.PRNGKey(seed)
+    kx, kw = jax.random.split(key)
+    inputs = jax.random.uniform(kx, (n_qubits,), minval=-1.0, maxval=1.0)
+    weights = jax.random.uniform(
+        kw, weight_shape(n_layers, n_qubits), minval=0.0, maxval=2.0 * math.pi
+    )
+
+    flat = np.asarray(weights).reshape(-1)
+    grads, ses = [], []
+    for idx in range(len(flat)):
+        bump = np.zeros_like(flat)
+        bump[idx] = math.pi / 2.0
+        wp = jnp.asarray((flat + bump).reshape(weights.shape))
+        wm = jnp.asarray((flat - bump).reshape(weights.shape))
+        fp = float(circuit(inputs, wp)[0])
+        fm = float(circuit(inputs, wm)[0])
+        grad = 0.5 * (fp - fm)
+        se_p = math.sqrt(max(1.0 - fp * fp, 0.0) / shots)
+        se_m = math.sqrt(max(1.0 - fm * fm, 0.0) / shots)
+        se = 0.5 * math.sqrt(se_p * se_p + se_m * se_m)
+        grads.append(grad)
+        ses.append(se)
+
+    grads_arr = np.asarray(grads)
+    ses_arr = np.asarray(ses)
+    snr = np.abs(grads_arr) / np.maximum(ses_arr, 1e-12)
+    return {
+        "median_snr": float(np.median(snr)),
+        "mean_snr": float(np.mean(snr)),
+        "fraction_above_2se": float(np.mean(snr > 2.0)),
+        "mean_abs_grad": float(np.mean(np.abs(grads_arr))),
+        "median_se": float(np.median(ses_arr)),
+        "n_parameters": int(len(flat)),
+    }
+
+
+def gradient_variance_scaling_fit(rows: list[dict[str, float]]) -> dict[str, float]:
+    """Fit log Var[grad] against qubit count for plateau diagnostics."""
+    if len(rows) < 2:
+        raise ValueError("at least two rows are required for a scaling fit")
+    ns = np.asarray([r["n_qubits"] for r in rows], dtype=np.float64)
+    var = np.asarray([r["grad_var_mean"] for r in rows], dtype=np.float64)
+    if np.any(var <= 0) or not np.isfinite(var).all():
+        raise ValueError("gradient variances must be positive and finite")
+    slope, intercept = np.polyfit(ns, np.log(var), 1)
+    decay = float(np.exp(slope))
+    return {
+        "log_var_slope": float(slope),
+        "log_var_intercept": float(intercept),
+        "variance_decay_factor_per_qubit": decay,
+        "exponential_decay_detected": bool(decay < 1.0),
+    }
+
+
 def scaling_sweep(
     qubit_counts: list[int],
     n_layers: int = 2,

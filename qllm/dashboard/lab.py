@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
+from ..research_protocol import classify_claim, resource_normalized_delta
 from ..resultsdb import ResultsDB
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
@@ -82,6 +83,24 @@ def fairness_flags(candidate: dict | None, baseline: dict | None) -> dict:
     cjob, bjob = candidate["job"], baseline["job"]
     cparams = (candidate.get("final_run") or {}).get("n_params")
     bparams = (baseline.get("final_run") or {}).get("n_params")
+    cconfig = cjob.get("config") or {}
+    bconfig = bjob.get("config") or {}
+    training_fields = (
+        "train.batch_size",
+        "train.seq_len",
+        "train.lr",
+        "train.weight_decay",
+        "train.grad_clip",
+    )
+    preprocessing_fields = (
+        "data.kind",
+        "data.corpus_path",
+        "data.val_fraction",
+    )
+    matched_config_fields = {
+        key: cconfig.get(key) == bconfig.get(key)
+        for key in (*training_fields, *preprocessing_fields)
+    }
     ratio = None
     if cparams is not None and bparams:
         ratio = (cparams - bparams) / max(abs(bparams), 1)
@@ -92,6 +111,13 @@ def fairness_flags(candidate: dict | None, baseline: dict | None) -> dict:
         "same_steps": int(cjob.get("steps", -1)) == int(bjob.get("steps", -2)),
         "same_eval_interval": int(cjob.get("eval_every", -1)) == int(bjob.get("eval_every", -2)),
         "same_device_target": (cjob.get("device_target") or "auto") == (bjob.get("device_target") or "auto"),
+        "same_training_budget": all(
+            matched_config_fields[key] for key in training_fields
+        ),
+        "same_preprocessing": all(
+            matched_config_fields[key] for key in preprocessing_fields
+        ),
+        "matched_config_fields": matched_config_fields,
         "role_validation": (
             cjob.get("comparison_role") == "candidate"
             and bjob.get("comparison_role") == "baseline"
@@ -106,7 +132,8 @@ def verdict_for_comparison(payload: dict) -> dict:
     flags = fairness_flags(payload.get("candidate"), payload.get("baseline"))
     required = [
         "same_dataset", "same_seed", "same_steps", "same_eval_interval",
-        "same_device_target", "role_validation",
+        "same_device_target", "same_training_budget", "same_preprocessing",
+        "role_validation",
     ]
     if not flags["complete"]:
         return {"label": "incomplete", "reason": "one or both runs have not finished", "fairness": flags}
@@ -115,11 +142,31 @@ def verdict_for_comparison(payload: dict) -> dict:
     delta = (payload.get("deltas") or {}).get("val_ppl")
     if delta is None:
         return {"label": "needs review", "reason": "validation perplexity is unavailable", "fairness": flags}
-    if delta < 0:
-        return {"label": "candidate better on this run", "reason": "candidate validation perplexity is lower", "fairness": flags}
-    if delta > 0:
-        return {"label": "baseline better on this run", "reason": "baseline validation perplexity is lower", "fairness": flags}
-    return {"label": "tie on this run", "reason": "validation perplexity delta is zero", "fairness": flags}
+    verdict = classify_claim(
+        fairness=flags,
+        single_delta=-float(delta),  # val_ppl is lower-is-better.
+        metric_name="validation perplexity",
+    )
+    verdict["fairness"] = flags
+    return verdict
+
+
+def _resource_normalized_for_payload(payload: dict) -> dict | None:
+    candidate = payload.get("candidate") or {}
+    baseline = payload.get("baseline") or {}
+    crun = candidate.get("final_run")
+    brun = baseline.get("final_run")
+    if not crun or not brun:
+        return None
+    if crun.get("val_ppl") is None or brun.get("val_ppl") is None:
+        return None
+    return resource_normalized_delta(
+        candidate_metric=float(crun["val_ppl"]),
+        baseline_metric=float(brun["val_ppl"]),
+        candidate_wall_seconds=crun.get("wall_seconds"),
+        baseline_wall_seconds=brun.get("wall_seconds"),
+        lower_is_better=True,
+    )
 
 
 def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
@@ -129,6 +176,7 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
         payload.get("candidate"), payload.get("baseline")
     )
     payload["verdict"] = {k: v for k, v in verdict.items() if k != "fairness"}
+    payload["resource_normalized"] = _resource_normalized_for_payload(payload)
     return payload
 
 

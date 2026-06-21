@@ -385,7 +385,13 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     comparison = comparison_research_payload(db, job["id"])
     assert comparison["fairness"]["same_dataset"] is True
     assert comparison["fairness"]["same_seed"] is True
-    assert comparison["verdict"]["label"] == "candidate better on this run"
+    assert comparison["fairness"]["same_training_budget"] is True
+    assert comparison["fairness"]["same_preprocessing"] is True
+    assert comparison["fairness"]["matched_config_fields"]["train.batch_size"] is True
+    assert comparison["verdict"]["label"] == "single-run candidate better"
+    assert comparison["verdict"]["claim_level"] == "anecdote"
+    assert comparison["resource_normalized"]["improvement"] == pytest.approx(0.5)
+    assert comparison["resource_normalized"]["improvement_per_extra_second"] == pytest.approx(1 / 3)
 
 
 def test_lab_overview_summarizes_jobs_and_comparisons(tmp_path):
