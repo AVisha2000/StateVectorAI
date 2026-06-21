@@ -5,7 +5,9 @@ import json
 from collections import defaultdict
 
 from ..resultsdb import ResultsDB
+from .analogues import analogue_status_for_job
 from .datasets import get_dataset
+from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 
 
@@ -66,13 +68,53 @@ def _job(db: ResultsDB, job_id: int | None) -> dict | None:
     if not row:
         return None
     row["config"] = _decode_config(row)
+    row.update(analogue_status_for_job(db, row))
     return row
+
+
+def _model_spec_meta(db: ResultsDB, preset_id: str, config: dict) -> dict:
+    spec = None
+    if str(preset_id).startswith("model-spec:"):
+        try:
+            spec_id = int(str(preset_id).split(":", 1)[1])
+            spec = db.get_model_spec(spec_id)
+        except ValueError:
+            spec = None
+    label = spec["name"] if spec else preset_id
+    uses_quantum = uses_quantum_config(config)
+    family = model_family(config)
+    return {
+        "id": preset_id,
+        "label": label,
+        "kind": "quantum" if uses_quantum else "classical",
+        "cost": "Generated model spec",
+        "summary": f"Editable {family} model spec.",
+        "description": (spec.get("notes") if spec else None) or "Model spec generated from the editable model builder.",
+        "architecture": family,
+        "quantum_role": "Config-driven quantum components." if uses_quantum else "None. Classical analogue or baseline.",
+        "recommended_use": "Use with matched dataset, seed, steps, preprocessing, and resource-cost context.",
+        "risks": "Generated specs should be interpreted through the fairness and comparison panels.",
+        "classical_twin_id": None,
+        "classical_analogue": None,
+        "comparison_policy": "none",
+        "quantum_controls": {"enabled": False},
+        "defaults": {
+            "steps": config.get("train.steps"),
+            "seed": config.get("train.seed"),
+            "eval_every": config.get("train.eval_every"),
+            "run_name": config.get("tracking.run_name"),
+        },
+        "config": config,
+    }
 
 
 def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
     if not job:
         return None
-    preset = preset_meta(job["preset_id"])
+    try:
+        preset = preset_meta(job["preset_id"])
+    except Exception:
+        preset = _model_spec_meta(db, job["preset_id"], job.get("config") or {})
     return {
         "job": job,
         "preset": preset,

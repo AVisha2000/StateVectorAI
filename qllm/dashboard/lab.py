@@ -6,6 +6,7 @@ from collections import Counter
 
 from ..research_protocol import classify_claim, resource_normalized_delta
 from ..resultsdb import ResultsDB
+from .analogues import analogue_status_for_job
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 from .workspace import comparison_payload
@@ -42,7 +43,7 @@ def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
     )
 
 
-def enrich_job(job: dict) -> dict:
+def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
     out = dict(job)
     config = out.get("config")
     if config is None:
@@ -58,8 +59,11 @@ def enrich_job(job: dict) -> dict:
     out["kind"] = preset.get("kind", "unknown")
     out["uses_quantum"] = uses_quantum_config(config)
     out["model_family"] = model_family(config)
+    out.update(analogue_status_for_job(db, out))
     if out.get("compare_to_job_id"):
         out["comparison_state"] = "linked"
+    elif out.get("analogue_state") == "missing":
+        out["comparison_state"] = "missing"
     elif preset.get("classical_twin_id"):
         out["comparison_state"] = "available"
     else:
@@ -181,7 +185,7 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
 
 
 def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
-    jobs = [enrich_job(j) for j in db.fetch_lab_jobs(limit=200)]
+    jobs = [enrich_job(j, db) for j in db.fetch_lab_jobs(limit=200)]
     counts = Counter(j["status"] for j in jobs)
     active = [j for j in jobs if j["status"] in {"queued", "running"}][:8]
     failed = [j for j in jobs if j["status"] == "error"][:6]
@@ -213,7 +217,7 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
 
 
 def scaling_tests_overview(db: ResultsDB) -> list[dict]:
-    jobs = [enrich_job(j) for j in db.fetch_lab_jobs(limit=500)]
+    jobs = [enrich_job(j, db) for j in db.fetch_lab_jobs(limit=500)]
     groups: dict[str, list[dict]] = {}
     for job in jobs:
         if not job.get("group_id") or not _quantum_scale(job):
@@ -243,8 +247,8 @@ def scaling_tests_overview(db: ResultsDB) -> list[dict]:
 
 def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
     jobs = [
-        enrich_job(j) for j in db.fetch_lab_jobs(limit=500)
-        if j.get("group_id") == group_id and _quantum_scale(enrich_job(j))
+        enrich_job(j, db) for j in db.fetch_lab_jobs(limit=500)
+        if j.get("group_id") == group_id and _quantum_scale(enrich_job(j, db))
     ]
     if not jobs:
         return {"available": False, "reason": "scaling test not found", "group_id": group_id}

@@ -7,6 +7,7 @@ import pytest
 
 from qllm.config import BlockConfig, ExperimentConfig, ModelConfig, QuantumConfig, to_flat_dict, validate_config
 from qllm.dashboard.datasets import import_hf_text_dataset, list_datasets
+from qllm.dashboard.analogues import classical_analogue_for_config, classical_analogue_for_preset
 from qllm.dashboard.explore import (
     domain_payload,
     explore_payload,
@@ -15,6 +16,7 @@ from qllm.dashboard.explore import (
 )
 from qllm.dashboard.lab import (
     comparison_research_payload,
+    enrich_job,
     lab_overview,
     scaling_test_payload,
     scaling_tests_overview,
@@ -99,6 +101,29 @@ def test_quantum_presets_expose_tuning_controls():
         "n_qubits", "n_circuit_layers",
     }
     assert classical["enabled"] is False
+
+
+def test_classical_analogue_resolver_uses_curated_twins_and_component_swaps():
+    preset = classical_analogue_for_preset("quantum-ffn-4q")
+    assert preset is not None
+    assert preset.resolver == "curated_twin"
+    assert preset.analogue_preset_id == "classical-small"
+
+    cfg = ExperimentConfig(
+        model=ModelConfig(
+            n_blocks=2,
+            blocks=(
+                BlockConfig("classical", "classical"),
+                BlockConfig("quantum_proj", "quantum", QuantumConfig(n_qubits=5)),
+            ),
+        )
+    )
+    analogue = classical_analogue_for_config(cfg)
+    assert analogue is not None
+    assert analogue.resolver == "automatic_component_swap"
+    assert analogue.config.model.blocks[1].attn_type == "classical"
+    assert analogue.config.model.blocks[1].ffn_type == "classical"
+    assert "same_dataset" in analogue.fairness_requirements
 
 
 def test_model_spec_crud_validate_and_diff(tmp_path):
@@ -226,6 +251,46 @@ def test_queue_can_run_saved_model_spec(tmp_path):
     assert job["config"]["model.n_blocks"] == 1
 
 
+def test_queue_generates_classical_analogue_for_quantum_model_spec(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    config = {
+        "model": {
+            "d_model": 64,
+            "n_heads": 4,
+            "n_blocks": 1,
+            "d_ff": 256,
+            "max_seq_len": 128,
+            "attn_type": "classical",
+            "ffn_type": "quantum",
+            "quantum": {"n_qubits": 4, "n_circuit_layers": 2},
+        },
+        "train": {},
+        "data": {},
+        "tracking": {},
+    }
+    spec = create_spec(db, {"name": "quantum-spec", "config": config})
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit_model_spec(
+        spec["id"], "default-text", "spec-run", 3, 4, 1,
+        queue_classical_comparison=True,
+        batch_size=2,
+        seq_len=16,
+    )
+    twin = job["comparison_job"]
+    assert twin["preset_id"].startswith("model-spec:")
+    assert twin["comparison_role"] == "baseline"
+    assert twin["config"]["model.ffn_type"] == "classical"
+    assert twin["config"]["train.batch_size"] == 2
+    assert twin["config"]["train.seq_len"] == 16
+    assert twin["config"]["lab.analogue.resolver"] == "automatic_component_swap"
+    assert q.get(job["id"])["compare_to_job_id"] == twin["id"]
+
+    payload = workspace_payload(ResultsDB(db_path), job["id"])
+    assert payload["comparison"]["available"] is True
+    assert payload["comparison"]["baseline"]["preset"]["kind"] == "classical"
+
+
 def test_queue_creates_linked_classical_comparison(tmp_path):
     db_path = tmp_path / "results.db"
     q = ExperimentQueue(str(db_path), start_worker=False)
@@ -243,6 +308,28 @@ def test_queue_creates_linked_classical_comparison(tmp_path):
     assert primary["compare_to_job_id"] == baseline["id"]
     assert baseline["compare_to_job_id"] == primary["id"]
     assert baseline["parent_job_id"] == primary["id"]
+
+
+def test_queue_missing_classical_analogue_after_quantum_job(tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit("quantum-ffn-4q", "default-text", "solo-quantum", 4, 3, 1)
+    db = ResultsDB(db_path)
+
+    enriched = enrich_job(q.get(job["id"]), db)
+    assert enriched["analogue_state"] == "missing"
+    missing = comparison_research_payload(db, job["id"])
+    assert missing["available"] is False
+    assert missing["verdict"]["label"] == "incomplete"
+
+    queued = q.queue_classical_analogue(job["id"])
+    twin = queued["comparison_job"]
+    primary = q.get(job["id"])
+    assert twin["preset_id"] == "classical-small"
+    assert primary["comparison_role"] == "candidate"
+    assert primary["compare_to_job_id"] == twin["id"]
+    assert primary["config"]["lab.analogue.state"] == "queued"
+    assert enrich_job(primary, db)["analogue_state"] == "queued"
 
 
 def test_queue_applies_quantum_overrides_to_primary_job(tmp_path):

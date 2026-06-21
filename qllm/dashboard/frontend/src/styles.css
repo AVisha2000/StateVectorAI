@@ -138,6 +138,8 @@ button.small { padding: 4px 8px; font-size: 12px; background: var(--hover); colo
 .comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
 .comparison-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .comparison-row:last-child { border-bottom: 0; }
+.analogue-panel { border-left: 3px solid var(--accent); padding-left: 16px; }
+.analogue-panel .chips { align-items: flex-start; }
 .flag-list { display: flex; gap: 8px; align-content: flex-start; flex-wrap: wrap; }
 .model-diagram { min-width: 0; }
 .diagram-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 12px; }

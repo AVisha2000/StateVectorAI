@@ -41,6 +41,7 @@ export default function Comparison() {
   const [payload, setPayload] = useState(null)
   const [graphs, setGraphs] = useState({})
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     api.comparison(id).then((data) => {
@@ -62,12 +63,36 @@ export default function Comparison() {
   const b = payload?.baseline
   const flags = payload?.fairness || {}
 
+  const queueAnalogue = async () => {
+    const candidateId = c?.job?.id || id
+    setError(''); setNotice('')
+    try {
+      const updated = await api.queueClassicalAnalogue(candidateId)
+      setNotice(`Queued classical analogue job #${updated.comparison_job?.id || updated.analogue_job_id}.`)
+      const next = await api.comparison(candidateId)
+      setPayload(next)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   return (
     <div>
       <h1>Comparison</h1>
       <h2>Quantum/classical protocol, architecture, metric deltas, and run-level verdict.</h2>
       {error && <div className="alert error">{error}</div>}
-      {!payload?.available && <div className="alert error">{payload?.reason || 'Comparison unavailable.'}</div>}
+      {notice && <div className="alert good">{notice}</div>}
+      {!payload?.available && (
+        <div className="alert error">
+          <b>{payload?.verdict?.label || 'incomplete'}</b>
+          <p className="panel-copy">
+            {payload?.reason || 'Comparison unavailable.'} Queue a matched classical analogue before treating this run as evidence.
+          </p>
+          {c?.job?.analogue_state === 'missing' && (
+            <button className="primary" type="button" onClick={queueAnalogue}>Queue matched classical analogue</button>
+          )}
+        </div>
+      )}
 
       {payload?.available && (
         <>

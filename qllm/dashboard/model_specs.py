@@ -9,6 +9,7 @@ from ..config import ExperimentConfig, from_dict, to_flat_dict, validate_config
 from ..resultsdb import ResultsDB
 from .model_graph import model_graph_from_config
 from .resources import quantum_resource_estimate
+from .analogues import classical_analogue_for_config
 
 
 def config_payload(cfg: ExperimentConfig) -> dict:
@@ -51,6 +52,7 @@ def validation_payload(config: dict) -> dict:
     errors = validate_config(cfg)
     warnings = quantum_resource_estimate(cfg)["advice"]
     graph = _graph_with_circuits(cfg)
+    analogue = classical_analogue_for_config(cfg)
     return {
         "ok": not errors,
         "errors": errors,
@@ -58,6 +60,9 @@ def validation_payload(config: dict) -> dict:
         "resource": quantum_resource_estimate(cfg),
         "graph": graph,
         "flat_config": to_flat_dict(cfg),
+        "classical_analogue": (
+            analogue.to_payload(include_config=False) if analogue else None
+        ),
     }
 
 

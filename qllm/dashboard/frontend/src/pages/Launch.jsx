@@ -52,7 +52,7 @@ export default function Launch() {
   const [batchSize, setBatchSize] = useState(16)
   const [seqLen, setSeqLen] = useState(64)
   const [deviceTarget, setDeviceTarget] = useState('auto')
-  const [queueComparison, setQueueComparison] = useState(false)
+  const [analogueMode, setAnalogueMode] = useState('candidate_only')
   const [quantumOverrides, setQuantumOverrides] = useState({})
   const [status, setStatus] = useState(null)
   const [queuedJob, setQueuedJob] = useState(null)
@@ -94,13 +94,13 @@ export default function Launch() {
     setRunName(p.defaults.run_name || p.id)
     setSteps(p.id === 'classical-small' ? 50 : 25)
     setEvalEvery(p.id === 'classical-small' ? 10 : 5)
-    setQueueComparison(Boolean(p.classical_twin_id))
+    setAnalogueMode(p.classical_analogue ? 'with_analogue' : 'candidate_only')
     setQuantumOverrides(quantumDefaults(p))
   }
 
   useEffect(() => {
     if (selected) {
-      setQueueComparison(Boolean(selected.classical_twin_id))
+      setAnalogueMode(selected.classical_analogue ? 'with_analogue' : 'candidate_only')
       setQuantumOverrides(quantumDefaults(selected))
     }
   }, [selected?.id])
@@ -120,24 +120,29 @@ export default function Launch() {
   const depthGrid = parseGrid(sweepDepths)
   const sweepCount = qubitGrid.length * depthGrid.length
   const gpuReady = Boolean(status?.gpu?.ready)
+  const analogue = selected?.classical_analogue
+  const queueComparison = analogueMode === 'with_analogue' && Boolean(analogue)
 
   const submit = async (e) => {
     e.preventDefault()
     setBusy(true); setError(''); setQueuedJob(null); setQueuedSweep(null)
     try {
+      const launchPreset = analogueMode === 'analogue_only' && analogue?.analogue_preset_id
+        ? analogue.analogue_preset_id
+        : preset
       const payload = {
-        preset_id: preset,
+        preset_id: launchPreset,
         dataset_name: dataset,
-        run_name: runName,
+        run_name: analogueMode === 'analogue_only' ? `${runName}-classical` : runName,
         seed: Number(seed),
         steps: Number(steps),
         eval_every: Number(evalEvery),
         batch_size: Number(batchSize),
         seq_len: Number(seqLen),
         device_target: deviceTarget,
-        queue_classical_comparison: queueComparison,
+        queue_classical_comparison: analogueMode === 'with_analogue',
       }
-      if (selected?.quantum_controls?.enabled) {
+      if (analogueMode !== 'analogue_only' && selected?.quantum_controls?.enabled) {
         payload.quantum_overrides = Object.fromEntries(
           quantumFields.map((field) => [field.key, Number(quantumOverrides[field.key])]),
         )
@@ -168,6 +173,7 @@ export default function Launch() {
         device_target: deviceTarget === 'cpu' ? 'cpu' : 'gpu',
         qubits: qubitGrid,
         depths: depthGrid,
+        queue_classical_comparison: queueComparison,
       })
       setQueuedSweep(job)
     } catch (err) {
@@ -249,11 +255,76 @@ export default function Launch() {
                 <div className="k">architecture</div><div className="v">{selected.architecture}</div>
                 <div className="k">quantum role</div><div className="v">{selected.quantum_role}</div>
                 <div className="k">recommended</div><div className="v">{selected.recommended_use}</div>
-                <div className="k">classical twin</div><div className="v">{selected.classical_twin_id || 'none'}</div>
+                <div className="k">classical analogue</div><div className="v">{analogue?.analogue_preset_id || analogue?.label || 'none'}</div>
               </div>
             </div>
           )}
         </div>
+
+        {analogue && (
+          <div className="panel analogue-panel">
+            <h3>Classical analogue</h3>
+            <div className="comparison-grid">
+              <div>
+                <div className="pill">detected analogue</div>
+                <h3>{analogue.label}</h3>
+                <p className="panel-copy">{analogue.reason}</p>
+                <p className="pill">
+                  {analogue.analogue_preset_id
+                    ? `Preset: ${analogue.analogue_preset_id}`
+                    : 'Automatic model spec will be generated at queue time'}
+                </p>
+              </div>
+              <div>
+                <div className="pill">fairness checks</div>
+                <div className="chips">
+                  {(analogue.fairness_requirements || []).map((item) => (
+                    <span className="badge" key={item}>{item.replaceAll('_', ' ')}</span>
+                  ))}
+                </div>
+                {(analogue.known_limitations || []).map((item) => (
+                  <p className="muted" key={item}>{item}</p>
+                ))}
+              </div>
+              <div>
+                <div className="pill">launch mode</div>
+                <label className="check-row">
+                  <input
+                    type="radio"
+                    name="analogue-mode"
+                    checked={analogueMode === 'with_analogue'}
+                    onChange={() => setAnalogueMode('with_analogue')}
+                  />
+                  Run with classical analogue
+                </label>
+                <label className="check-row">
+                  <input
+                    type="radio"
+                    name="analogue-mode"
+                    checked={analogueMode === 'candidate_only'}
+                    onChange={() => setAnalogueMode('candidate_only')}
+                  />
+                  Run quantum/hybrid only
+                </label>
+                <label className="check-row">
+                  <input
+                    type="radio"
+                    name="analogue-mode"
+                    checked={analogueMode === 'analogue_only'}
+                    onChange={() => setAnalogueMode('analogue_only')}
+                    disabled={!analogue.analogue_preset_id}
+                  />
+                  Run classical analogue only
+                </label>
+              </div>
+            </div>
+            {analogueMode === 'candidate_only' && (
+              <div className="alert">
+                This run will not be evidence of advantage until a matched classical analogue is queued.
+              </div>
+            )}
+          </div>
+        )}
 
         {selected?.quantum_controls?.enabled && (
           <div className="panel">
@@ -383,16 +454,6 @@ export default function Launch() {
               </select>
             </label>
           </div>
-          {selected?.classical_twin_id && (
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={queueComparison}
-                onChange={(e) => setQueueComparison(e.target.checked)}
-              />
-              Queue classical comparison ({selected.classical_twin_id})
-            </label>
-          )}
           {deviceTarget === 'gpu' && status?.gpu && !status.gpu.ready && (
             <div className="alert error">
               GPU target is blocked because JAX currently reports {status.gpu.jax_backend || 'no'} backend.
@@ -405,8 +466,11 @@ export default function Launch() {
               then increase once the curves look sane.
             </p>
           )}
-          <button className="primary" disabled={busy || !preset || !dataset || gpuBlocked}>
-            {busy ? 'Queueing...' : queueComparison ? 'Queue experiment + comparison' : 'Queue experiment'}
+          <button
+            className="primary"
+            disabled={busy || !preset || !dataset || gpuBlocked || (analogueMode === 'analogue_only' && !analogue?.analogue_preset_id)}
+          >
+            {busy ? 'Queueing...' : analogueMode === 'analogue_only' ? 'Queue classical analogue' : queueComparison ? 'Queue experiment + analogue' : 'Queue experiment'}
           </button>
         </div>
       </form>

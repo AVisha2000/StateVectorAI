@@ -111,6 +111,7 @@ export default function RunWorkspace() {
   const [payload, setPayload] = useState(null)
   const [graph, setGraph] = useState(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   const refresh = () => api.workspace(id).then(setPayload).catch((e) => setError(e.message))
 
@@ -127,6 +128,7 @@ export default function RunWorkspace() {
   const preset = payload?.preset
   const dataset = payload?.dataset
   const comparison = payload?.comparison
+  const analogue = job?.analogue
   const series = useMemo(() => mergeCurve(payload?.curve), [payload])
   const comparisonMetric = comparison?.candidate?.curve?.val_ppl?.length || comparison?.baseline?.curve?.val_ppl?.length
     ? 'val_ppl'
@@ -153,9 +155,21 @@ export default function RunWorkspace() {
     }
   }
 
+  const queueAnalogue = async () => {
+    setError(''); setNotice('')
+    try {
+      const updated = await api.queueClassicalAnalogue(job.id)
+      setNotice(`Queued classical analogue job #${updated.comparison_job?.id || updated.analogue_job_id}.`)
+      refresh()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   return (
     <div>
       {error && <div className="alert error">{error}</div>}
+      {notice && <div className="alert good">{notice}</div>}
       {job && (
         <>
           <div className="workspace-header">
@@ -165,6 +179,9 @@ export default function RunWorkspace() {
             </div>
             <div className="header-actions">
               <span className={`badge ${job.status}`}>{job.status}</span>
+              <span className={`badge ${job.analogue_state === 'missing' ? 'error' : job.analogue_state === 'done' ? 'done' : ''}`}>
+                analogue: {job.analogue_state || 'none'}
+              </span>
               {canCancel(job) && <button className="small" onClick={cancel}>Cancel</button>}
             </div>
           </div>
@@ -195,7 +212,7 @@ export default function RunWorkspace() {
                 <div className="k">quantum role</div><div className="v">{preset?.quantum_role}</div>
                 <div className="k">recommended use</div><div className="v">{preset?.recommended_use}</div>
                 <div className="k">risks</div><div className="v">{preset?.risks}</div>
-                <div className="k">classical twin</div><div className="v">{preset?.classical_twin_id || 'none'}</div>
+                <div className="k">classical analogue</div><div className="v">{job.analogue_preset_id || job.analogue_model_spec_id || preset?.classical_twin_id || 'none'}</div>
               </div>
             </section>
 
@@ -241,7 +258,19 @@ export default function RunWorkspace() {
           <section className="panel">
             <h3>Classical comparison</h3>
             {!comparison?.available && (
-              <p className="muted">{comparison?.reason || 'No comparison is linked to this job.'}</p>
+              <>
+                <p className="muted">{comparison?.reason || 'No comparison is linked to this job.'}</p>
+                {job.analogue_state === 'missing' && (
+                  <div className="alert">
+                    <b>Matched classical analogue is missing.</b>
+                    <p className="panel-copy">
+                      Queue one before treating this run as evidence of quantum advantage.
+                      {analogue?.reason ? ` ${analogue.reason}` : ''}
+                    </p>
+                    <button className="primary" type="button" onClick={queueAnalogue}>Queue matched classical analogue</button>
+                  </div>
+                )}
+              </>
             )}
             {comparison?.available && (
               <div className="comparison-grid">

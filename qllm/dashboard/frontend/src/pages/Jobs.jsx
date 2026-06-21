@@ -14,6 +14,7 @@ export default function Jobs() {
   const [preset, setPreset] = useState('all')
   const [family, setFamily] = useState('all')
   const [group, setGroup] = useState('all')
+  const [notice, setNotice] = useState('')
 
   const refresh = () => api.jobs().then(setJobs).catch((e) => setError(e.message))
 
@@ -56,11 +57,35 @@ export default function Jobs() {
     }
   }
 
+  const queueAnalogue = async (jobId) => {
+    setError(''); setNotice('')
+    try {
+      const job = await api.queueClassicalAnalogue(jobId)
+      setNotice(`Queued classical analogue for job #${job.id}.`)
+      refresh()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  const queueGroupAnalogues = async () => {
+    if (group === 'all') return
+    setError(''); setNotice('')
+    try {
+      const payload = await api.queueGroupClassicalAnalogues(group)
+      setNotice(`Queued ${payload.count} classical analogue job(s) for group ${group.slice(0, 8)}.`)
+      refresh()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   return (
     <div>
       <h1>Experiments</h1>
       <h2>{counts.running} running - {counts.queued} queued - {counts.done} done - {counts.error} failed - {counts.cancelled} cancelled</h2>
       {error && <div className="alert error">{error}</div>}
+      {notice && <div className="alert good">{notice}</div>}
 
       <div className="action-grid">
         <Link className="action-card" to="/launch">
@@ -113,6 +138,11 @@ export default function Jobs() {
             </select>
           </label>
         </div>
+        {group !== 'all' && (
+          <button className="small" type="button" onClick={queueGroupAnalogues}>
+            Queue missing classical analogues for this group
+          </button>
+        )}
       </div>
 
       <div className="panel table-panel">
@@ -126,6 +156,7 @@ export default function Jobs() {
               <th>Dataset</th>
               <th className="num">Seed</th>
               <th className="num">Steps</th>
+              <th>Analogue</th>
               <th>Target</th>
               <th></th>
             </tr>
@@ -143,6 +174,15 @@ export default function Jobs() {
                 <td>{j.dataset_name}</td>
                 <td className="num">{j.seed}</td>
                 <td className="num">{j.steps}</td>
+                <td>
+                  <span className={`badge ${j.analogue_state === 'missing' ? 'error' : j.analogue_state === 'done' ? 'done' : ''}`}>
+                    {j.analogue_state || 'none'}
+                  </span>
+                  {j.analogue_job_id && <div><Link className="small-link" to={`/jobs/${j.analogue_job_id}`}>analogue #{j.analogue_job_id}</Link></div>}
+                  {j.analogue_state === 'missing' && (
+                    <button className="small" type="button" onClick={() => queueAnalogue(j.id)}>Queue analogue</button>
+                  )}
+                </td>
                 <td>{j.device_target || 'auto'}</td>
                 <td className="num">
                   {j.compare_to_job_id && <Link className="small-link" to={`/comparisons/${j.id}`}>Compare</Link>}
@@ -160,7 +200,7 @@ export default function Jobs() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan="9">No lab jobs yet. Queue one from Run.</td></tr>
+              <tr><td colSpan="10">No lab jobs yet. Queue one from Run.</td></tr>
             )}
           </tbody>
         </table>

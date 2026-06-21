@@ -347,6 +347,7 @@ def preset_meta(preset_id: str) -> dict:
         "recommended_use": payload["recommended_use"],
         "risks": payload["risks"],
         "classical_twin_id": payload["classical_twin_id"],
+        "classical_analogue": _classical_analogue_meta(preset_id, payload),
         "comparison_policy": payload["comparison_policy"],
         "quantum_controls": _quantum_controls(preset_id, cfg),
         "defaults": {
@@ -367,6 +368,61 @@ def build_preset(preset_id: str) -> ExperimentConfig:
     if preset_id not in PRESETS:
         raise KeyError(f"Unknown preset '{preset_id}'")
     return PRESETS[preset_id]["config"]
+
+
+def _classical_analogue_meta(preset_id: str, payload: dict) -> dict | None:
+    twin_id = payload["classical_twin_id"]
+    if twin_id:
+        twin = PRESETS[twin_id]
+        return {
+            "kind": "classical_analogue",
+            "analogue_type": "component_swap",
+            "resolver": "curated_twin",
+            "label": twin["label"],
+            "source_preset_id": preset_id,
+            "analogue_preset_id": twin_id,
+            "reason": (
+                f"Uses curated classical twin '{twin_id}' from preset metadata. "
+                "Queueing preserves dataset, seed, steps, eval cadence, preprocessing, batch size, and sequence length."
+            ),
+            "fairness_requirements": [
+                "same_dataset",
+                "same_seed",
+                "same_steps",
+                "same_eval_every",
+                "same_train_split",
+                "same_preprocessing",
+                "same_batch_size",
+                "same_sequence_length",
+            ],
+            "known_limitations": [
+                "Curated twin is the repository-defined fair comparison, not necessarily exact parameter matching before training."
+            ],
+        }
+    if payload["kind"] in {"quantum", "hybrid"}:
+        return {
+            "kind": "classical_analogue",
+            "analogue_type": "component_swap",
+            "resolver": "automatic_component_swap",
+            "label": "Automatic classical analogue",
+            "source_preset_id": preset_id,
+            "analogue_preset_id": None,
+            "reason": "Quantum components are replaced by classical components while preserving the surrounding model and training protocol.",
+            "fairness_requirements": [
+                "same_dataset",
+                "same_seed",
+                "same_steps",
+                "same_eval_every",
+                "same_train_split",
+                "same_preprocessing",
+                "same_batch_size",
+                "same_sequence_length",
+            ],
+            "known_limitations": [
+                "Parameter matching is verified after training metrics are recorded."
+            ],
+        }
+    return None
 
 
 def classical_twin_id(preset_id: str) -> str | None:

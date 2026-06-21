@@ -89,6 +89,7 @@ export default function Models() {
   const [selectedLayer, setSelectedLayer] = useState(0)
   const [validation, setValidation] = useState(null)
   const [runSettings, setRunSettings] = useState({ dataset_name: 'default-text', seed: 0, steps: 50, eval_every: 10, device_target: 'auto', batch_size: 16, seq_len: 64 })
+  const [queueAnalogue, setQueueAnalogue] = useState(false)
   const [queued, setQueued] = useState(null)
   const [error, setError] = useState('')
 
@@ -115,6 +116,11 @@ export default function Models() {
   const changes = useMemo(() => diffConfigs(draft || {}, baseDraft || {}), [draft, baseDraft])
   const qnodes = quantumNodes(graph)
   const layer = draft?.model?.blocks?.[selectedLayer]
+  const analogue = validation?.classical_analogue
+
+  useEffect(() => {
+    setQueueAnalogue(Boolean(analogue))
+  }, [analogue?.reason])
 
   function loadPreset(preset) {
     const config = ensureBlocks(flatToNested(preset.config))
@@ -192,7 +198,11 @@ export default function Models() {
     try {
       const spec = savedSpec || await api.createModelSpec({ name, notes, source: source ? `${source.type}:${source.id}` : undefined, config: draft })
       setSavedSpec(spec)
-      const job = await api.runModelSpec(spec.id, { ...runSettings, run_name: `${spec.name}-run` })
+      const job = await api.runModelSpec(spec.id, {
+        ...runSettings,
+        run_name: `${spec.name}-run`,
+        queue_classical_comparison: Boolean(queueAnalogue && analogue),
+      })
       setQueued(job)
       await refreshSpecs()
     } catch (e) {
@@ -217,7 +227,14 @@ export default function Models() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
-      {queued && <div className="alert good">Queued <Link to={`/jobs/${queued.id}`}>job #{queued.id}: {queued.run_name}</Link></div>}
+      {queued && (
+        <div className="alert good">
+          Queued <Link to={`/jobs/${queued.id}`}>job #{queued.id}: {queued.run_name}</Link>
+          {queued.comparison_job && (
+            <> with classical analogue <Link to={`/jobs/${queued.comparison_job.id}`}>#{queued.comparison_job.id}</Link></>
+          )}
+        </div>
+      )}
 
       <div className="builder-shell">
         <aside className="builder-sidebar">
@@ -276,6 +293,7 @@ export default function Models() {
               <span className={`badge quantum-band ${validation?.resource?.band || 'low'}`}>memory {validation?.resource?.band || 'unknown'}</span>
               <span className="badge">{changes.length} pending changes</span>
               <span className="badge">{qnodes.length} quantum components</span>
+              <span className={`badge ${analogue ? 'done' : ''}`}>{analogue ? 'analogue available' : 'no analogue needed'}</span>
             </div>
             {validation?.errors?.length > 0 && <div className="alert error">{validation.errors.join(' ')}</div>}
             {validation?.warnings?.length > 0 && <div className="alert">{validation.warnings.join(' ')}</div>}
@@ -359,6 +377,38 @@ export default function Models() {
           {tab === 'runs' && (
             <section className="panel">
               <h3>Run From Spec</h3>
+              {analogue && (
+                <div className="analogue-panel">
+                  <div className="comparison-grid">
+                    <div>
+                      <div className="pill">automatic classical analogue</div>
+                      <h3>{analogue.label}</h3>
+                      <p className="panel-copy">{analogue.reason}</p>
+                    </div>
+                    <div>
+                      <div className="pill">fairness checks</div>
+                      <div className="chips">
+                        {(analogue.fairness_requirements || []).map((item) => (
+                          <span className="badge" key={item}>{item.replaceAll('_', ' ')}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={queueAnalogue}
+                      onChange={(e) => setQueueAnalogue(e.target.checked)}
+                    />
+                    Run with generated classical analogue
+                  </label>
+                  {!queueAnalogue && (
+                    <div className="alert">
+                      This custom quantum/hybrid run will need a matched analogue before it can support an advantage claim.
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="form-grid">
                 <label>Dataset<select value={runSettings.dataset_name} onChange={(e) => setRunSettings((p) => ({ ...p, dataset_name: e.target.value }))}>{datasets.map((d) => <option key={d.name} value={d.name}>{d.name}</option>)}</select></label>
                 <label>Seed<input type="number" value={runSettings.seed} onChange={(e) => setRunSettings((p) => ({ ...p, seed: Number(e.target.value) }))} /></label>
@@ -368,7 +418,9 @@ export default function Models() {
                 <label>Batch<input type="number" min="1" value={runSettings.batch_size} onChange={(e) => setRunSettings((p) => ({ ...p, batch_size: Number(e.target.value) }))} /></label>
                 <label>Seq len<input type="number" min="8" value={runSettings.seq_len} onChange={(e) => setRunSettings((p) => ({ ...p, seq_len: Number(e.target.value) }))} /></label>
               </div>
-              <button className="primary" onClick={runSpec}>Save if needed and queue run</button>
+              <button className="primary" onClick={runSpec}>
+                {queueAnalogue && analogue ? 'Save and queue run + analogue' : 'Save if needed and queue run'}
+              </button>
             </section>
           )}
 

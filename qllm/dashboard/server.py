@@ -87,6 +87,21 @@ def api_preset_model_graph(preset_id: str) -> dict:
         raise _payload_error(exc) from exc
 
 
+@app.get("/api/presets/{preset_id}/classical-analogue")
+def api_preset_classical_analogue(preset_id: str) -> dict:
+    try:
+        from .analogues import classical_analogue_for_preset
+
+        analogue = classical_analogue_for_preset(preset_id)
+        if analogue is None:
+            return {"available": False, "reason": "No classical analogue is defined."}
+        payload = analogue.to_payload(include_config=False)
+        payload["available"] = True
+        return payload
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
 @app.get("/api/model-specs")
 def api_model_specs() -> list[dict]:
     return list_specs(db())
@@ -151,6 +166,9 @@ def api_create_model_spec_job(spec_id: int, payload: dict) -> dict:
             steps=int(payload.get("steps") or 100),
             eval_every=int(payload.get("eval_every") or 20),
             device_target=payload.get("device_target") or "auto",
+            queue_classical_comparison=bool(
+                payload.get("queue_classical_comparison", False)
+            ),
             batch_size=(
                 int(payload["batch_size"]) if payload.get("batch_size") not in (None, "") else None
             ),
@@ -231,7 +249,8 @@ def api_import_hf(payload: dict) -> dict:
 
 @app.get("/api/jobs")
 def api_jobs() -> list[dict]:
-    return [enrich_job(j) for j in QUEUE.list()]
+    store = db()
+    return [enrich_job(j, store) for j in QUEUE.list()]
 
 
 @app.get("/api/jobs/{job_id}")
@@ -239,7 +258,7 @@ def api_job(job_id: int) -> dict:
     job = QUEUE.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    return enrich_job(job)
+    return enrich_job(job, db())
 
 
 @app.post("/api/jobs")
@@ -281,6 +300,9 @@ def api_create_scaling_sweep(payload: dict) -> dict:
             device_target=payload.get("device_target") or "gpu",
             qubits=[int(v) for v in payload.get("qubits", [])],
             depths=[int(v) for v in payload.get("depths", [])],
+            queue_classical_comparison=bool(
+                payload.get("queue_classical_comparison", False)
+            ),
             batch_size=(
                 int(payload["batch_size"]) if payload.get("batch_size") not in (None, "") else None
             ),
@@ -296,6 +318,33 @@ def api_create_scaling_sweep(payload: dict) -> dict:
 def api_cancel_job(job_id: int) -> dict:
     try:
         return QUEUE.cancel(job_id)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.get("/api/jobs/{job_id}/classical-analogue")
+def api_job_classical_analogue(job_id: int) -> dict:
+    try:
+        return QUEUE.classical_analogue_for_job(job_id)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.post("/api/jobs/{job_id}/classical-analogue")
+def api_queue_job_classical_analogue(job_id: int, payload: dict | None = None) -> dict:
+    try:
+        return QUEUE.queue_classical_analogue(
+            job_id,
+            rerun=bool((payload or {}).get("rerun", False)),
+        )
+    except Exception as exc:
+        raise _payload_error(exc) from exc
+
+
+@app.post("/api/groups/{group_id}/classical-analogues")
+def api_queue_group_classical_analogues(group_id: str) -> dict:
+    try:
+        return QUEUE.queue_classical_analogues_for_group(group_id)
     except Exception as exc:
         raise _payload_error(exc) from exc
 
