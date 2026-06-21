@@ -35,14 +35,86 @@ def _quantum_dict(cfg: ModelConfig | dict) -> dict:
     return dataclasses.asdict(qcfg)
 
 
-def _node(node_id: str, label: str, kind: str, **meta) -> dict:
-    return {"id": node_id, "label": label, "kind": kind, "meta": meta}
+def _node(node_id: str, label: str, kind: str, level: str = "component", **meta) -> dict:
+    return {"id": node_id, "label": label, "kind": kind, "level": level, "meta": meta}
 
 
 def _kind_for_component(value: str) -> str:
     if value in {"quantum", "quantum_linear", "quantum_proj", "quantum_qkv"}:
         return "quantum"
     return "classical"
+
+
+def _level_payload(nodes: list[dict]) -> list[dict]:
+    quantum_ids = [node["id"] for node in nodes if node["kind"] == "quantum"]
+    block_ids = [
+        node["id"] for node in nodes
+        if node["id"].startswith("block_")
+        or node["id"] in {"q_memory", "gru", "sentence_encoder"}
+    ]
+    return [
+        {
+            "id": "overview",
+            "label": "Overview",
+            "description": "End-to-end token flow.",
+            "node_ids": [node["id"] for node in nodes],
+        },
+        {
+            "id": "blocks",
+            "label": "Blocks",
+            "description": "Layer and recurrent block view.",
+            "node_ids": block_ids,
+        },
+        {
+            "id": "components",
+            "label": "Components",
+            "description": "Embedding, attention, FFN, encoder, recurrent cell, and head components.",
+            "node_ids": [
+                node["id"] for node in nodes
+                if node["kind"] not in {"input", "output"}
+            ],
+        },
+        {
+            "id": "quantum",
+            "label": "Quantum",
+            "description": "Quantum components with circuit/resource metadata.",
+            "node_ids": quantum_ids,
+        },
+    ]
+
+
+def _component_payload(nodes: list[dict]) -> list[dict]:
+    out = []
+    for node in nodes:
+        meta = node.get("meta") or {}
+        if node["kind"] in {"input", "output"}:
+            continue
+        out.append({
+            "id": node["id"],
+            "label": node["label"],
+            "kind": node["kind"],
+            "level": node.get("level", "component"),
+            "component_type": meta.get("component_type"),
+            "block_index": meta.get("block_index"),
+            "config_path": meta.get("config_path"),
+            "resource": meta.get("resource"),
+        })
+    return out
+
+
+def _quantum_resource(quantum: dict, component_multiplier: int = 1) -> dict:
+    n_qubits = int(quantum.get("n_qubits") or 0)
+    depth = int(quantum.get("n_circuit_layers") or 0)
+    return {
+        "n_qubits": n_qubits,
+        "n_circuit_layers": depth,
+        "backend": quantum.get("backend"),
+        "device": quantum.get("device"),
+        "shots": quantum.get("shots"),
+        "trainable": quantum.get("trainable"),
+        "component_multiplier": component_multiplier,
+        "state_dimension": 2 ** n_qubits if n_qubits >= 0 else None,
+    }
 
 
 def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
@@ -60,25 +132,45 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
         return node["id"]
 
     if arch == "gru":
-        prev = add(_node("tokens", "Tokens", "input"))
+        prev = add(_node("tokens", "Tokens", "input", level="overview",
+                         component_type="tokens"))
         prev = add(_node("embed", "Classical Embedding", "classical",
+                         component_type="embedding",
+                         config_path="model.rnn_hidden",
                          d_model=_get(model, "rnn_hidden", 16)), prev)
         prev = add(_node("gru", "GRU Recurrent Core", "classical",
+                         component_type="recurrent_cell",
+                         config_path="model.arch",
                          hidden=_get(model, "rnn_hidden", 16)), prev)
         add(_node("head", "LM Head", "output",
+                  level="overview",
+                  component_type="head",
+                  config_path="model.head_type",
                   head_type=_get(model, "head_type", "linear")), prev)
     elif arch == "qrnn":
-        prev = add(_node("tokens", "Tokens", "input"))
-        prev = add(_node("embed", "Classical Embedding", "classical"), prev)
+        prev = add(_node("tokens", "Tokens", "input", level="overview",
+                         component_type="tokens"))
+        prev = add(_node("embed", "Classical Embedding", "classical",
+                         component_type="embedding",
+                         config_path="model.embed_type"), prev)
         prev = add(_node("q_memory", "Quantum Memory Cell", "quantum",
+                         component_type="recurrent_cell",
+                         config_path="model.arch",
                          n_qubits=quantum["n_qubits"],
                          circuit_depth=quantum["n_circuit_layers"],
-                         trainable=quantum["trainable"]), prev)
+                         trainable=quantum["trainable"],
+                         resource=_quantum_resource(quantum)), prev)
         add(_node("head", "LM Head", "output",
+                  level="overview",
+                  component_type="head",
+                  config_path="model.head_type",
                   head_type=_get(model, "head_type", "linear")), prev)
     else:
-        prev = add(_node("tokens", "Tokens", "input"))
+        prev = add(_node("tokens", "Tokens", "input", level="overview",
+                         component_type="tokens"))
         prev = add(_node("embed", "Classical Embedding", "classical",
+                         component_type="embedding",
+                         config_path="model.embed_type",
                          d_model=_get(model, "d_model", 64),
                          max_seq_len=_get(model, "max_seq_len", 128)), prev)
         encoder_kind = _get(model, "encoder_kind", "none")
@@ -88,9 +180,12 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
                 "sentence_encoder",
                 f"{encoder_kind.title()} Sentence Encoder",
                 enc_kind,
+                component_type="sentence_encoder",
+                config_path="model.encoder_kind",
                 condition=_get(model, "condition", "film"),
                 d_sent=_get(model, "d_sent", 8),
                 n_qubits=quantum["n_qubits"] if enc_kind == "quantum" else None,
+                resource=_quantum_resource(quantum) if enc_kind == "quantum" else None,
             ), prev)
         n_blocks = int(_get(model, "n_blocks", 2) or 2)
         blocks = _get(model, "blocks")
@@ -118,22 +213,37 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
                 f"block_{i}_attn",
                 f"Block {i + 1} {'Quantum' if attn_kind == 'quantum' else 'Classical'} Attention",
                 attn_kind,
+                component_type="attention",
+                block_index=i,
+                config_path=(
+                    f"model.blocks.{i}.attn_type" if blocks is not None else "model.attn_type"
+                ),
                 attn_type=attn_type,
                 heads=_get(model, "n_heads", 4),
                 d_model=_get(model, "d_model", 64),
                 n_qubits=quantum["n_qubits"] if attn_kind == "quantum" else None,
+                resource=_quantum_resource(quantum, n_blocks) if attn_kind == "quantum" else None,
             ), prev)
             ffn_kind = _kind_for_component(ffn_type)
             prev = add(_node(
                 f"block_{i}_ffn",
                 f"Block {i + 1} {'Quantum' if ffn_kind == 'quantum' else 'Classical'} FFN",
                 ffn_kind,
+                component_type="ffn",
+                block_index=i,
+                config_path=(
+                    f"model.blocks.{i}.ffn_type" if blocks is not None else "model.ffn_type"
+                ),
                 ffn_type=ffn_type,
                 d_ff=_get(model, "d_ff", 256),
                 n_qubits=quantum["n_qubits"] if ffn_kind == "quantum" else None,
                 circuit_depth=quantum["n_circuit_layers"] if ffn_kind == "quantum" else None,
+                resource=_quantum_resource(quantum, n_blocks) if ffn_kind == "quantum" else None,
             ), prev)
         add(_node("head", "LM Head", "output",
+                  level="overview",
+                  component_type="head",
+                  config_path="model.head_type",
                   head_type=_get(model, "head_type", "linear")), prev)
 
     has_quantum = any(n["kind"] == "quantum" for n in nodes)
@@ -141,6 +251,12 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
         "nodes": nodes,
         "edges": edges,
         "quantum": quantum if has_quantum else None,
+        "levels": _level_payload(nodes),
+        "components": _component_payload(nodes),
+        "resources": {
+            "quantum": quantum if has_quantum else None,
+            "quantum_component_count": len([n for n in nodes if n["kind"] == "quantum"]),
+        },
         "summary": {
             "arch": arch,
             "uses_quantum": has_quantum,

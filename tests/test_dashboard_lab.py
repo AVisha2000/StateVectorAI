@@ -60,8 +60,15 @@ def test_model_graph_marks_quantum_components():
     graph = model_graph_from_config(build_preset("quantum-ffn-4q"))
     assert graph["summary"]["uses_quantum"] is True
     assert graph["summary"]["model_family"] == "quantum-ffn"
+    assert {level["id"] for level in graph["levels"]} == {
+        "overview", "blocks", "components", "quantum",
+    }
     quantum_nodes = [node for node in graph["nodes"] if node["kind"] == "quantum"]
     assert quantum_nodes
+    assert quantum_nodes[0]["meta"]["component_type"] == "ffn"
+    assert quantum_nodes[0]["meta"]["config_path"] == "model.ffn_type"
+    assert quantum_nodes[0]["meta"]["resource"]["n_qubits"] == 4
+    assert any(component["id"] == quantum_nodes[0]["id"] for component in graph["components"])
     assert graph["quantum"]["n_qubits"] == 4
 
     classical = model_graph_from_config(build_preset("classical-small"))
@@ -85,6 +92,8 @@ def test_per_layer_config_validates_and_serializes():
     assert flat["model.blocks.1.quantum.n_qubits"] == 5
     graph = model_graph_from_config(cfg)
     assert "block_1_attn" in graph["summary"]["quantum_components"]
+    quantum_level = next(level for level in graph["levels"] if level["id"] == "quantum")
+    assert "block_1_attn" in quantum_level["node_ids"]
 
 
 def test_per_layer_config_rejects_bad_block_count():
