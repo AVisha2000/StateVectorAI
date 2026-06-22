@@ -1,9 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import StatusPanel from '../components/StatusPanel'
 
+const TASK_DESCRIPTIONS = {
+  'Language modelling': 'General next-token modeling on a text corpus. Useful as a baseline, but not enough by itself for a quantum-advantage claim.',
+  'Sequence memory': 'Stress-tests long-range memory and recurrent inductive bias. Compare QRNN-style candidates against recurrent classical controls.',
+  'Contextual parity': 'A structured probe where contextual information should matter more than local token statistics.',
+  'Quantum-generated sequence prediction': 'Generated sequence tasks with explicit quantum structure. Best used with cautious baselines and multi-seed studies.',
+  'Interference/cancellation': 'Looks for settings where cancellation structure matters and naive local predictors should struggle.',
+  'Two-stream semantic conditioning': 'Tests whether the conditioning pathway adds signal beyond the classical two-stream control.',
+}
+
 export default function Datasets() {
   const [datasets, setDatasets] = useState([])
+  const [explore, setExplore] = useState(null)
   const [form, setForm] = useState({
     source: 'roneneldan/TinyStories',
     split: 'train',
@@ -16,7 +27,17 @@ export default function Datasets() {
   const [message, setMessage] = useState('')
 
   const refresh = () => api.datasets().then(setDatasets).catch((e) => setError(e.message))
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+    api.explore().then(setExplore).catch((e) => setError(e.message))
+  }, [])
+
+  const taskCards = useMemo(() => (
+    (explore?.tasks || []).map((task) => ({
+      ...task,
+      description: TASK_DESCRIPTIONS[task.name] || 'Task-level result slices help separate a dataset score from a stronger scientific claim.',
+    }))
+  ), [explore])
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }))
   const submit = async (e) => {
@@ -39,10 +60,32 @@ export default function Datasets() {
   return (
     <div>
       <h1>Datasets</h1>
-      <h2>Import public Hugging Face text datasets into local training corpora.</h2>
+      <h2>Import local corpora and connect them to the task probes used for cautious quantum-advantage evaluation.</h2>
       <StatusPanel />
       {error && <div className="alert error">{error}</div>}
       {message && <div className="alert good">{message}</div>}
+
+      <section className="panel">
+        <div className="workspace-header">
+          <div>
+            <h3>Task Cards</h3>
+            <p className="panel-copy">Datasets are the data source. Tasks are the scientific probe. Read task views before turning a good score into a broader claim.</p>
+          </div>
+          <Link className="small-link" to="/explore">Open task map</Link>
+        </div>
+        <div className="grid">
+          {taskCards.map((task) => (
+            <Link key={`${task.domain_slug}-${task.slug}`} className="card" to={`/explore/task/${task.slug}?domain=${encodeURIComponent(task.domain_slug)}`}>
+              <h3>{task.name}</h3>
+              <div className="muted">{task.domain}</div>
+              <p className="panel-copy">{task.description}</p>
+              <div className="stat"><span className="k">datasets</span><span className="v">{task.datasets.length}</span></div>
+              <div className="stat"><span className="k">evidence</span><span className="v">{task.runs} runs / {task.jobs} jobs</span></div>
+            </Link>
+          ))}
+          {taskCards.length === 0 && <p className="muted">Task cards will populate once runs or jobs establish a research map.</p>}
+        </div>
+      </section>
 
       <form className="panel" onSubmit={submit}>
         <h3>Hugging Face import</h3>
