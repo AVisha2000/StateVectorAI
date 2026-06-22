@@ -8,6 +8,7 @@ from ..research_protocol import classify_claim, resource_normalized_delta
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
 from .evidence import comparison_evidence_ladder
+from .gpu_reservation import gpu_reservation_status, job_reservation
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 from .workspace import comparison_payload
@@ -60,6 +61,9 @@ def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
     out["kind"] = preset.get("kind", "unknown")
     out["uses_quantum"] = uses_quantum_config(config)
     out["model_family"] = model_family(config)
+    out["resource_band"] = config.get("lab.resource.band")
+    out["resource_score"] = config.get("lab.resource.score")
+    out["gpu_reservation"] = job_reservation(out)
     out.update(analogue_status_for_job(db, out))
     if out.get("compare_to_job_id"):
         out["comparison_state"] = "linked"
@@ -214,6 +218,7 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
         "recent_failed_jobs": failed,
         "recent_comparisons": recent_comparisons,
         "gpu_status": status_payload.get("gpu", {}),
+        "gpu_reservation": gpu_reservation_status(db),
         "leaderboard_highlights": [dict(r) for r in rows],
     }
 

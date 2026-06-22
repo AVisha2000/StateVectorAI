@@ -14,6 +14,7 @@ function fmt(value) {
 export default function LabOverview() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const reservation = data?.gpu_reservation
 
   const refresh = () => api.overview().then(setData).catch((e) => setError(e.message))
   useEffect(() => {
@@ -36,7 +37,33 @@ export default function LabOverview() {
         <div className="metric-card"><div className="metric-label">Done</div><div className="metric-value">{count(data?.counts, 'done')}</div></div>
         <div className="metric-card"><div className="metric-label">Failed</div><div className="metric-value">{count(data?.counts, 'error')}</div></div>
         <div className="metric-card"><div className="metric-label">GPU</div><div className="metric-value">{data?.gpu_status?.ready ? 'ready' : 'cpu'}</div><div className="muted">{data?.gpu_status?.jax_backend || 'JAX unknown'}</div></div>
+        <div className="metric-card"><div className="metric-label">GPU lane</div><div className="metric-value">{reservation?.state || 'idle'}</div><div className="muted">{reservation?.waiting_count || 0} waiting</div></div>
       </div>
+
+      {reservation && (
+        <section className="panel">
+          <div className="workspace-header">
+            <div>
+              <h3>GPU Reservation Lane</h3>
+              <p className="panel-copy">{reservation.summary}</p>
+            </div>
+            <span className={`badge ${reservation.state === 'active' ? 'running' : reservation.state === 'waiting' ? 'queued' : 'done'}`}>
+              {reservation.mode} / {reservation.state}
+            </span>
+          </div>
+          {reservation.owner && (
+            <div className="alert">
+              <b>Reserved by active job</b>{' '}
+              <Link to={`/jobs/${reservation.owner.id}`}>#{reservation.owner.id} {reservation.owner.run_name}</Link>
+            </div>
+          )}
+          {reservation.high_memory_count > 0 && (
+            <div className="alert">
+              {reservation.high_memory_count} queued/running high-memory quantum job(s) need extra review before expanding qubits, depth, batch size, or sequence length.
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="action-grid">
         <Link className="action-card" to="/launch"><b>New Experiment</b><span>Queue a preset or matched classical comparison.</span></Link>

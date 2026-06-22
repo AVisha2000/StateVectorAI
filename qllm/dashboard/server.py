@@ -21,6 +21,7 @@ from ..resultsdb import ResultsDB
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
 from .explore import domain_payload, explore_payload, result_dashboard_payload
+from .gpu_reservation import gpu_reservation_status
 from .lab import (
     comparison_research_payload,
     enrich_job,
@@ -73,7 +74,9 @@ def health() -> dict:
 
 @app.get("/api/status")
 def api_status() -> dict:
-    return environment_status(FRONTEND_DIST)
+    payload = environment_status(FRONTEND_DIST)
+    payload.setdefault("gpu", {})["reservation"] = gpu_reservation_status(db())
+    return payload
 
 
 @app.get("/api/presets")

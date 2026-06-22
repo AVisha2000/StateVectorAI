@@ -14,6 +14,7 @@ from qllm.dashboard.explore import (
     infer_research_context,
     result_dashboard_payload,
 )
+from qllm.dashboard.gpu_reservation import gpu_reservation_status
 from qllm.dashboard.lab import (
     comparison_research_payload,
     enrich_job,
@@ -424,6 +425,37 @@ def test_quantum_attention_memory_shape_can_be_reduced(monkeypatch, tmp_path):
     assert job["config"]["train.seq_len"] == 16
     assert job["config"]["lab.train_override.batch_size"] == 1
     assert job["config"]["lab.resource.band"] != "extreme"
+
+
+def test_gpu_jobs_reserve_exclusive_lane_and_surface_memory_warning(monkeypatch, tmp_path):
+    monkeypatch.setattr(ExperimentQueue, "gpu_ready", staticmethod(lambda: True))
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    job = q.submit(
+        "quantum-ffn-4q", "default-text", "reserved", 0, 2, 1,
+        device_target="gpu",
+        quantum_overrides={"n_qubits": 12, "n_circuit_layers": 12},
+    )
+    db = ResultsDB(db_path)
+
+    assert job["config"]["lab.gpu_reservation.required"] is True
+    assert job["config"]["lab.gpu_reservation.lane"] == "exclusive-gpu"
+    assert job["config"]["lab.resource.high_memory"] is True
+
+    waiting = gpu_reservation_status(db)
+    assert waiting["state"] == "waiting"
+    assert waiting["waiting_count"] == 1
+    assert waiting["high_memory_count"] == 1
+
+    enriched = enrich_job(q.get(job["id"]), db)
+    assert enriched["gpu_reservation"]["required"] is True
+    assert enriched["gpu_reservation"]["high_memory"] is True
+    assert enriched["gpu_reservation"]["state"] == "queued"
+
+    db.update_lab_job(job["id"], status="running")
+    active = gpu_reservation_status(db)
+    assert active["state"] == "active"
+    assert active["owner"]["id"] == job["id"]
 
 
 def test_scaling_sweep_queues_grid_with_one_group(monkeypatch, tmp_path):

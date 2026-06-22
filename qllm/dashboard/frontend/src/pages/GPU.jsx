@@ -10,6 +10,7 @@ export default function GPU() {
   }, [])
 
   const gpu = status?.gpu
+  const reservation = gpu?.reservation
 
   return (
     <div>
@@ -42,6 +43,42 @@ export default function GPU() {
               </p>
             )}
           </div>
+
+          {reservation && (
+            <section className="panel">
+              <div className="workspace-header">
+                <div>
+                  <h3>GPU reservation lane</h3>
+                  <p className="panel-copy">{reservation.summary}</p>
+                </div>
+                <span className={`badge ${reservation.state === 'active' ? 'running' : reservation.state === 'waiting' ? 'queued' : 'done'}`}>
+                  {reservation.mode} / {reservation.state}
+                </span>
+              </div>
+              <div className="stat-row">
+                <div className="metric-card">
+                  <div className="metric-label">Lane owner</div>
+                  <div className="metric-value">{reservation.owner ? `#${reservation.owner.id}` : 'none'}</div>
+                  <div className="muted">{reservation.owner?.run_name || 'no active GPU reservation'}</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Waiting</div>
+                  <div className="metric-value">{reservation.waiting_count || 0}</div>
+                  <div className="muted">queued GPU jobs</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">High memory</div>
+                  <div className="metric-value">{reservation.high_memory_count || 0}</div>
+                  <div className="muted">queued/running warnings</div>
+                </div>
+              </div>
+              {reservation.high_memory_count > 0 && (
+                <div className="alert">
+                  High-memory jobs should keep batch size and sequence length small while scaling qubits or depth.
+                </div>
+              )}
+            </section>
+          )}
 
           <section className="panel table-panel">
             <h3>JAX devices</h3>

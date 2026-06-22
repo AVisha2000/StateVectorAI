@@ -19,6 +19,11 @@ from .analogues import (
     config_from_flat_payload,
 )
 from .datasets import get_dataset
+from .gpu_reservation import (
+    apply_reservation_config,
+    reservation_metadata,
+    update_reservation_state,
+)
 from .model_specs import config_payload, create_spec
 from .presets import apply_quantum_overrides, build_preset
 from .resources import quantum_resource_estimate
@@ -104,6 +109,10 @@ class ExperimentQueue:
             job_config["lab.train_override.seq_len"] = cfg.train.seq_len
         job_config["lab.resource.band"] = estimate["band"]
         job_config["lab.resource.score"] = estimate["score"]
+        job_config = apply_reservation_config(
+            job_config,
+            reservation_metadata(device_target, estimate),
+        )
         job_config.update(
             analogue_config_fields(
                 analogue,
@@ -135,6 +144,13 @@ class ExperimentQueue:
                 twin_cfg, dataset["corpus_path"], twin_name,
                 seed, steps, eval_every, batch_size, seq_len)
             twin_config = to_flat_dict(twin_cfg)
+            twin_estimate = quantum_resource_estimate(twin_cfg)
+            twin_config["lab.resource.band"] = twin_estimate["band"]
+            twin_config["lab.resource.score"] = twin_estimate["score"]
+            twin_config = apply_reservation_config(
+                twin_config,
+                reservation_metadata(device_target, twin_estimate),
+            )
             twin_config.update(
                 analogue_config_fields(
                     analogue,
@@ -295,6 +311,13 @@ class ExperimentQueue:
             batch_size, seq_len,
         )
         twin_config = to_flat_dict(twin_cfg)
+        twin_estimate = quantum_resource_estimate(twin_cfg)
+        twin_config["lab.resource.band"] = twin_estimate["band"]
+        twin_config["lab.resource.score"] = twin_estimate["score"]
+        twin_config = apply_reservation_config(
+            twin_config,
+            reservation_metadata(job.get("device_target") or "auto", twin_estimate),
+        )
         twin_config.update(
             analogue_config_fields(
                 analogue,
@@ -465,8 +488,19 @@ class ExperimentQueue:
                 f"lab/{variant}/{job['dataset_name']}/"
                 f"{job['seed']}/{job['steps']}"
             )
+            try:
+                existing_config = json.loads(job.get("config_json") or "{}")
+            except json.JSONDecodeError:
+                existing_config = {}
+            running_config = {
+                **existing_config,
+                **to_flat_dict(cfg),
+            }
+            running_config = update_reservation_state(
+                running_config, "active", job_id
+            )
             db.update_lab_job(job_id, status="running", run_key=run_key,
-                              config=to_flat_dict(cfg), error=None)
+                              config=running_config, error=None)
             from ..train.loop import fit
 
             result = fit(
@@ -475,7 +509,8 @@ class ExperimentQueue:
                 should_cancel=lambda: self.should_cancel(job_id),
             )
             status = "cancelled" if result["summary"].get("cancelled") else "done"
-            db.update_lab_job(job_id, status=status)
+            done_config = update_reservation_state(running_config, "released")
+            db.update_lab_job(job_id, status=status, config=done_config)
         except Exception as exc:  # pragma: no cover - defensive worker boundary
             latest = db.get_lab_job(job_id)
             if latest and latest.get("run_key"):
@@ -483,9 +518,17 @@ class ExperimentQueue:
                     db.finish_run(latest["run_key"], status="error")
                 except Exception:
                     pass
+            try:
+                error_config = update_reservation_state(
+                    json.loads((latest or job).get("config_json") or "{}"),
+                    "released",
+                )
+            except json.JSONDecodeError:
+                error_config = {}
             db.update_lab_job(
                 job_id,
                 status="error",
+                config=error_config,
                 error=f"{exc}\n{traceback.format_exc(limit=6)}",
             )
 

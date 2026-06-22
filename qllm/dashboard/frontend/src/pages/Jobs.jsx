@@ -45,6 +45,12 @@ export default function Jobs() {
     acc[job.group_id] = (acc[job.group_id] || 0) + 1
     return acc
   }, {}), [jobs])
+  const activeGpuReservations = jobs.filter((j) => (
+    ['queued', 'running'].includes(j.status) && j.gpu_reservation?.required
+  ))
+  const activeHighMemory = jobs.filter((j) => (
+    ['queued', 'running'].includes(j.status) && j.gpu_reservation?.high_memory
+  ))
   const isScaled = (job) => job.config?.['lab.quantum_override.n_qubits'] && job.config?.['lab.quantum_override.n_circuit_layers']
 
   const cancel = async (jobId) => {
@@ -105,6 +111,25 @@ export default function Jobs() {
           <span>Confirm JAX can see CUDA before requesting GPU runs.</span>
         </Link>
       </div>
+
+      <section className="panel">
+        <div className="workspace-header">
+          <div>
+            <h3>GPU Reservation and Memory Warnings</h3>
+            <p className="panel-copy">
+              GPU-targeted jobs reserve the repo-managed exclusive execution lane. High-memory quantum simulations are flagged before they run.
+            </p>
+          </div>
+          <span className={`badge ${activeGpuReservations.some((j) => j.status === 'running') ? 'running' : activeGpuReservations.length ? 'queued' : 'done'}`}>
+            {activeGpuReservations.length ? `${activeGpuReservations.length} reserved/waiting` : 'lane idle'}
+          </span>
+        </div>
+        {activeHighMemory.length > 0 && (
+          <div className="alert">
+            {activeHighMemory.length} active high-memory quantum job(s). Keep batch size and sequence length conservative before scaling qubits or depth.
+          </div>
+        )}
+      </section>
 
       <div className="panel">
         <div className="chips">
@@ -183,7 +208,15 @@ export default function Jobs() {
                     <button className="small" type="button" onClick={() => queueAnalogue(j.id)}>Queue analogue</button>
                   )}
                 </td>
-                <td>{j.device_target || 'auto'}</td>
+                <td>
+                  {j.device_target || 'auto'}
+                  {j.gpu_reservation?.required && (
+                    <div><span className={`badge ${j.gpu_reservation.state === 'active' ? 'running' : 'queued'}`}>gpu lane {j.gpu_reservation.state}</span></div>
+                  )}
+                  {j.gpu_reservation?.high_memory && (
+                    <div><span className={`badge quantum-band ${j.gpu_reservation.resource_band || 'high'}`}>memory {j.gpu_reservation.resource_band || 'high'}</span></div>
+                  )}
+                </td>
                 <td className="num">
                   {j.compare_to_job_id && <Link className="small-link" to={`/comparisons/${j.id}`}>Compare</Link>}
                   {' '}
