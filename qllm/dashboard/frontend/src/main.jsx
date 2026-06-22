@@ -5,6 +5,7 @@ import App from './App.jsx'
 import LabOverview from './pages/LabOverview.jsx'
 import Explore from './pages/Explore.jsx'
 import ResearchResults from './pages/ResearchResults.jsx'
+import ResultsHub from './pages/ResultsHub.jsx'
 import Suites from './pages/Suites.jsx'
 import Suite from './pages/Suite.jsx'
 import Run from './pages/Run.jsx'
@@ -46,7 +47,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="scaling/:groupId" element={<ScalingTest />} />
           <Route path="models" element={<Models />} />
           <Route path="datasets" element={<Datasets />} />
-          <Route path="results" element={<Suites />} />
+          <Route path="results" element={<ResultsHub />} />
+          <Route path="results/legacy" element={<Suites />} />
           <Route path="suite/:name" element={<Suite />} />
           <Route path="run/:id" element={<Run />} />
           <Route path="live" element={<Live />} />
