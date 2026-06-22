@@ -75,6 +75,17 @@ function quantumNodes(graph) {
   return (graph?.nodes || []).filter((node) => node.kind === 'quantum')
 }
 
+function applyRange(config, start, end, transform) {
+  const next = clone(config)
+  const lo = Math.max(0, Math.min(Number(start), Number(end)))
+  const hi = Math.min((next.model.blocks || []).length - 1, Math.max(Number(start), Number(end)))
+  for (let index = lo; index <= hi; index += 1) {
+    const block = next.model.blocks[index]
+    next.model.blocks[index] = transform(clone(block), index)
+  }
+  return next
+}
+
 export default function Models() {
   const [presets, setPresets] = useState([])
   const [specs, setSpecs] = useState([])
@@ -87,6 +98,11 @@ export default function Models() {
   const [notes, setNotes] = useState('')
   const [tab, setTab] = useState('overview')
   const [selectedLayer, setSelectedLayer] = useState(0)
+  const [rangeStart, setRangeStart] = useState(0)
+  const [rangeEnd, setRangeEnd] = useState(0)
+  const [bulkAttnType, setBulkAttnType] = useState('classical')
+  const [bulkFfnType, setBulkFfnType] = useState('classical')
+  const [bulkTrainable, setBulkTrainable] = useState('true')
   const [validation, setValidation] = useState(null)
   const [runSettings, setRunSettings] = useState({ dataset_name: 'default-text', seed: 0, steps: 50, eval_every: 10, device_target: 'auto', batch_size: 16, seq_len: 64 })
   const [queueAnalogue, setQueueAnalogue] = useState(false)
@@ -117,10 +133,18 @@ export default function Models() {
   const qnodes = quantumNodes(graph)
   const layer = draft?.model?.blocks?.[selectedLayer]
   const analogue = validation?.classical_analogue
+  const blockCount = draft?.model?.blocks?.length || 0
 
   useEffect(() => {
     setQueueAnalogue(Boolean(analogue))
   }, [analogue?.reason])
+
+  useEffect(() => {
+    const last = Math.max(blockCount - 1, 0)
+    setSelectedLayer((prev) => Math.min(prev, last))
+    setRangeStart((prev) => Math.min(prev, last))
+    setRangeEnd((prev) => Math.min(prev, last))
+  }, [blockCount])
 
   function loadPreset(preset) {
     const config = ensureBlocks(flatToNested(preset.config))
@@ -131,6 +155,8 @@ export default function Models() {
     setName(`${preset.label} editable`)
     setNotes('')
     setSelectedLayer(0)
+    setRangeStart(0)
+    setRangeEnd(Math.max(config.model.blocks.length - 1, 0))
     setQueued(null)
   }
 
@@ -143,6 +169,8 @@ export default function Models() {
     setName(spec.name)
     setNotes(spec.notes || '')
     setSelectedLayer(0)
+    setRangeStart(0)
+    setRangeEnd(Math.max(config.model.blocks.length - 1, 0))
     setQueued(null)
   }
 
@@ -157,6 +185,24 @@ export default function Models() {
 
   function editBool(path, value) {
     edit(path, Boolean(value))
+  }
+
+  function applyBulkSwap() {
+    setDraft((prev) => applyRange(prev, rangeStart, rangeEnd, (block) => ({
+      ...block,
+      attn_type: bulkAttnType,
+      ffn_type: bulkFfnType,
+    })))
+  }
+
+  function applyBulkQuantumSettings() {
+    setDraft((prev) => applyRange(prev, rangeStart, rangeEnd, (block) => ({
+      ...block,
+      quantum: {
+        ...(block.quantum || clone(prev.model.quantum)),
+        trainable: bulkTrainable === 'true',
+      },
+    })))
   }
 
   async function saveSpec() {
@@ -292,11 +338,57 @@ export default function Models() {
               <span className={`badge ${validation?.ok ? 'done' : 'error'}`}>{validation?.ok ? 'valid' : 'invalid'}</span>
               <span className={`badge quantum-band ${validation?.resource?.band || 'low'}`}>memory {validation?.resource?.band || 'unknown'}</span>
               <span className="badge">{changes.length} pending changes</span>
-              <span className="badge">{qnodes.length} quantum components</span>
+              <span className="badge">{validation?.layer_summary?.quantum_layers ?? qnodes.length} quantum layers</span>
               <span className={`badge ${analogue ? 'done' : ''}`}>{analogue ? 'analogue available' : 'no analogue needed'}</span>
             </div>
             {validation?.errors?.length > 0 && <div className="alert error">{validation.errors.join(' ')}</div>}
             {validation?.warnings?.length > 0 && <div className="alert">{validation.warnings.join(' ')}</div>}
+          </section>
+
+          <section className="panel">
+            <div className="workspace-header">
+              <div>
+                <h3>Review Before Save/Run</h3>
+                <p className="panel-copy">Use this step to sanity-check layer coverage, resource cost, and whether a matched analogue exists before queueing experiments.</p>
+              </div>
+              <span className={`badge ${validation?.fairness_review?.analogue_available ? 'done' : 'error'}`}>
+                {validation?.fairness_review?.claim_readiness || 'review'}
+              </span>
+            </div>
+            <div className="stat-row">
+              <div className="metric-card">
+                <div className="metric-label">Layers</div>
+                <div className="metric-value">{validation?.layer_summary?.count ?? blockCount}</div>
+                <div className="muted">{validation?.layer_summary?.quantum_layers ?? 0} quantum / {validation?.layer_summary?.frozen_quantum_layers ?? 0} frozen</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Resource band</div>
+                <div className="metric-value">{validation?.resource_review?.band || '-'}</div>
+                <div className="muted">score {validation?.resource_review?.score ? Math.round(validation.resource_review.score).toLocaleString() : '-'}</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Fair comparison</div>
+                <div className="metric-value">{validation?.fairness_review?.analogue_available ? 'ready' : 'missing'}</div>
+                <div className="muted">{(validation?.fairness_review?.requirements || []).length} protocol checks</div>
+              </div>
+            </div>
+            {validation?.resource_review?.summary && (
+              <div className={`alert ${validation?.resource_review?.high_memory ? 'error' : ''}`}>
+                {validation.resource_review.summary}
+              </div>
+            )}
+            {validation?.fairness_review?.summary && (
+              <div className={`alert ${validation?.fairness_review?.analogue_available ? '' : 'error'}`}>
+                {validation.fairness_review.summary}
+              </div>
+            )}
+            {(validation?.fairness_review?.requirements || []).length > 0 && (
+              <div className="chips">
+                {validation.fairness_review.requirements.map((item) => (
+                  <span className="badge" key={item}>{item.replaceAll('_', ' ')}</span>
+                ))}
+              </div>
+            )}
           </section>
 
           {tab === 'overview' && (
@@ -307,6 +399,38 @@ export default function Models() {
 
           {tab === 'layers' && (
             <section className="panel table-panel">
+              <div className="workspace-header">
+                <div>
+                  <h3>Layer Range Editor</h3>
+                  <p className="panel-copy">Select a contiguous layer range and apply controlled component swaps before fine-tuning a specific block.</p>
+                </div>
+              </div>
+              <div className="form-grid">
+                <label>Range start
+                  <select value={rangeStart} onChange={(e) => setRangeStart(Number(e.target.value))}>
+                    {(draft.model.blocks || []).map((_, i) => <option key={i} value={i}>Block {i + 1}</option>)}
+                  </select>
+                </label>
+                <label>Range end
+                  <select value={rangeEnd} onChange={(e) => setRangeEnd(Number(e.target.value))}>
+                    {(draft.model.blocks || []).map((_, i) => <option key={i} value={i}>Block {i + 1}</option>)}
+                  </select>
+                </label>
+                <label>Bulk attention
+                  <select value={bulkAttnType} onChange={(e) => setBulkAttnType(e.target.value)}>
+                    {ATTN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </label>
+                <label>Bulk FFN
+                  <select value={bulkFfnType} onChange={(e) => setBulkFfnType(e.target.value)}>
+                    {FFN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="header-actions">
+                <button className="small" type="button" onClick={applyBulkSwap}>Apply component swap to range</button>
+                <button className="small" type="button" onClick={() => { setRangeStart(0); setRangeEnd(Math.max(blockCount - 1, 0)) }}>Select all layers</button>
+              </div>
               <table>
                 <thead><tr><th>Layer</th><th>Attention</th><th>FFN</th><th>Quantum</th></tr></thead>
                 <tbody>
@@ -341,6 +465,19 @@ export default function Models() {
                     {(draft.model.blocks || []).map((_, i) => <option key={i} value={i}>Block {i + 1}</option>)}
                   </select>
                 </label>
+                <label>Range trainable
+                  <select value={bulkTrainable} onChange={(e) => setBulkTrainable(e.target.value)}>
+                    <option value="true">trainable</option>
+                    <option value="false">frozen control</option>
+                  </select>
+                </label>
+                <label className="check-row">
+                  <input type="checkbox" checked={rangeStart === 0 && rangeEnd === Math.max(blockCount - 1, 0)} readOnly />
+                  Layer range currently covers {Math.abs(rangeEnd - rangeStart) + 1} block(s)
+                </label>
+                <div className="header-actions">
+                  <button className="small" type="button" onClick={applyBulkQuantumSettings}>Apply trainable/frozen to range</button>
+                </div>
                 <label>Qubits<input type="number" min="2" value={layer?.quantum?.n_qubits || draft.model.quantum.n_qubits} onChange={(e) => editNumber(`model.blocks.${selectedLayer}.quantum.n_qubits`, e.target.value)} /></label>
                 <label>Depth<input type="number" min="1" value={layer?.quantum?.n_circuit_layers || draft.model.quantum.n_circuit_layers} onChange={(e) => editNumber(`model.blocks.${selectedLayer}.quantum.n_circuit_layers`, e.target.value)} /></label>
                 <label>Ansatz<select value={layer?.quantum?.ansatz || draft.model.quantum.ansatz} onChange={(e) => edit(`model.blocks.${selectedLayer}.quantum.ansatz`, e.target.value)}>{ANSATZ.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>

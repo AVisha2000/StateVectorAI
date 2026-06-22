@@ -47,22 +47,94 @@ def _graph_with_circuits(cfg: ExperimentConfig) -> dict:
     return graph
 
 
+def _layer_summary(cfg: ExperimentConfig) -> dict:
+    blocks = cfg.model.blocks or ()
+    rows = []
+    quantum_layers = 0
+    frozen_layers = 0
+    for index, block in enumerate(blocks):
+        qcfg = block.quantum or cfg.model.quantum
+        uses_quantum = (
+            block.attn_type.startswith("quantum")
+            or block.ffn_type.startswith("quantum")
+        )
+        if uses_quantum:
+            quantum_layers += 1
+            if not qcfg.trainable:
+                frozen_layers += 1
+        rows.append({
+            "index": index,
+            "label": f"Block {index + 1}",
+            "attn_type": block.attn_type,
+            "ffn_type": block.ffn_type,
+            "uses_quantum": uses_quantum,
+            "trainable_quantum": bool(uses_quantum and qcfg.trainable),
+            "n_qubits": qcfg.n_qubits if uses_quantum else None,
+            "n_circuit_layers": qcfg.n_circuit_layers if uses_quantum else None,
+        })
+    return {
+        "count": len(rows),
+        "quantum_layers": quantum_layers,
+        "frozen_quantum_layers": frozen_layers,
+        "rows": rows,
+    }
+
+
+def _resource_review(estimate: dict) -> dict:
+    band = estimate["band"]
+    high_memory = band in {"high", "extreme"}
+    return {
+        "band": band,
+        "score": estimate["score"],
+        "high_memory": high_memory,
+        "summary": (
+            "High-memory quantum configuration; review batch size, sequence length, and circuit scale before running."
+            if high_memory else
+            "Resource estimate is within the current local review range."
+        ),
+        "warnings": list(estimate["advice"]),
+    }
+
+
+def _fairness_review(analogue) -> dict:
+    if analogue is None:
+        return {
+            "analogue_available": False,
+            "claim_readiness": "incomplete",
+            "summary": (
+                "No matched classical analogue was detected. Save/run is still allowed, "
+                "but quantum-advantage evidence will remain incomplete until a fair baseline exists."
+            ),
+            "requirements": [],
+        }
+    return {
+        "analogue_available": True,
+        "claim_readiness": "paired-ready",
+        "summary": analogue.reason,
+        "requirements": list(analogue.fairness_requirements or []),
+    }
+
+
 def validation_payload(config: dict) -> dict:
     cfg = cfg_from_payload(config)
     errors = validate_config(cfg)
-    warnings = quantum_resource_estimate(cfg)["advice"]
+    estimate = quantum_resource_estimate(cfg)
+    warnings = estimate["advice"]
     graph = _graph_with_circuits(cfg)
     analogue = classical_analogue_for_config(cfg)
     return {
         "ok": not errors,
         "errors": errors,
         "warnings": warnings,
-        "resource": quantum_resource_estimate(cfg),
+        "resource": estimate,
+        "resource_review": _resource_review(estimate),
+        "layer_summary": _layer_summary(cfg),
         "graph": graph,
         "flat_config": to_flat_dict(cfg),
         "classical_analogue": (
             analogue.to_payload(include_config=False) if analogue else None
         ),
+        "fairness_review": _fairness_review(analogue),
     }
 
 

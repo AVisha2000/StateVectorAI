@@ -172,6 +172,38 @@ def test_model_spec_crud_validate_and_diff(tmp_path):
     assert any(change["path"] == "model.ffn_type" for change in diff["changes"])
 
 
+def test_model_spec_validation_surfaces_layer_resource_and_fairness_review():
+    config = {
+        "model": {
+            "arch": "transformer",
+            "d_model": 64,
+            "n_heads": 4,
+            "n_blocks": 2,
+            "d_ff": 256,
+            "max_seq_len": 128,
+            "attn_type": "classical",
+            "ffn_type": "classical",
+            "quantum": {"n_qubits": 4, "n_circuit_layers": 2, "trainable": True},
+            "blocks": [
+                {"attn_type": "classical", "ffn_type": "classical", "quantum": {"n_qubits": 4, "n_circuit_layers": 2, "trainable": True}},
+                {"attn_type": "classical", "ffn_type": "quantum", "quantum": {"n_qubits": 4, "n_circuit_layers": 2, "trainable": False}},
+            ],
+        },
+        "train": {},
+        "data": {},
+        "tracking": {},
+    }
+    validation = validation_payload(config)
+    assert validation["ok"] is True
+    assert validation["layer_summary"]["count"] == 2
+    assert validation["layer_summary"]["quantum_layers"] == 1
+    assert validation["layer_summary"]["frozen_quantum_layers"] == 1
+    assert validation["resource_review"]["band"] in {"low", "medium", "high", "extreme"}
+    assert validation["fairness_review"]["analogue_available"] is True
+    assert validation["fairness_review"]["claim_readiness"] == "paired-ready"
+    assert "same_dataset" in validation["fairness_review"]["requirements"]
+
+
 def test_hf_import_validation_requires_source(tmp_path):
     db = ResultsDB(tmp_path / "results.db")
     with pytest.raises(ValueError, match="required"):
