@@ -231,7 +231,7 @@ export default function Studies() {
                 <td>{(study.dataset_names || []).join(', ')}</td>
                 <td>{(study.seeds || []).join(', ')}</td>
                 <td>{study.job_count}</td>
-                <td><span className="badge">{study.evidence?.label || 'pending'}</span></td>
+                <td><span className="badge">{study.evidence?.label || 'pending'}</span><div><Link className="small-link" to={`/studies/${study.id}/report`}>report</Link></div></td>
               </tr>
             ))}
             {studies.length === 0 && <tr><td colSpan="6">No studies yet. Create a protocol above.</td></tr>}

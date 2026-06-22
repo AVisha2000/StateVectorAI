@@ -27,7 +27,12 @@ from qllm.dashboard.model_specs import create_spec, spec_diff, update_spec, vali
 from qllm.dashboard.model_tests import model_test_payload
 from qllm.dashboard.presets import build_preset, list_presets
 from qllm.dashboard.runner import ExperimentQueue
-from qllm.dashboard.studies import create_study, list_studies, study_payload
+from qllm.dashboard.studies import (
+    create_study,
+    list_studies,
+    study_payload,
+    study_report_payload,
+)
 from qllm.dashboard.workspace import comparison_payload, workspace_payload
 from qllm.resultsdb import ResultsDB
 
@@ -600,6 +605,50 @@ def test_study_payload_summarizes_multiseed_evidence(tmp_path):
     assert ladder["multi_seed"]["ok"] is True
     assert ladder["candidate_better"]["ok"] is True
     assert ladder["ablation_supported"]["ok"] is False
+
+
+def test_study_report_payload_surfaces_verdict_cost_and_limitations(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, q, {
+        "name": "report-study",
+        "research_question": "Does the quantum FFN retain a repeated edge across seeds?",
+        "task": "Language modelling",
+        "dataset_names": ["default-text"],
+        "candidate_preset_id": "quantum-ffn-4q",
+        "seeds": [0, 1, 2],
+        "steps": 2,
+        "eval_every": 1,
+        "sweep": {"qubits": [4], "depths": [2]},
+    })
+    for row in db.fetch_study_jobs(study["id"]):
+        db.update_lab_job(row["id"], status="done")
+        val_ppl = 2.0 if row["role"] == "candidate" else 2.6
+        wall = 6.0 if row["role"] == "candidate" else 3.0
+        db.record(
+            "lab",
+            row["preset_id"],
+            row["dataset_name"],
+            int(row["seed"]),
+            int(row["steps"]),
+            100,
+            1.0,
+            val_ppl,
+            1.2,
+            wall,
+            config=row.get("config") or {},
+        )
+
+    report = study_report_payload(db, study["id"])
+    assert report["verdict"]["label"] == "promising study"
+    assert report["statistics"]["fair_pairs"] == 3
+    assert report["statistics"]["wins"] == 3
+    assert report["resource_summary"]["candidate"]["completed_jobs"] == 3
+    assert report["candidate"]["label"]
+    assert report["pair_rows"][0]["comparison_link"].startswith("/comparisons/")
+    assert "## Verdict" in report["markdown"]
+    assert any("Ablation-supported evidence" in item for item in report["limitations"])
 
 
 def test_gpu_requested_job_is_rejected_when_jax_has_no_gpu(monkeypatch, tmp_path):

@@ -279,6 +279,130 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
     return evidence
 
 
+def _resource_band_counts(jobs: list[dict]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for job in jobs:
+        band = (job.get("config") or {}).get("lab.resource.band")
+        if band:
+            counts[str(band)] += 1
+    return dict(counts)
+
+
+def _mean(values: list[float]) -> float | None:
+    return mean(values) if values else None
+
+
+def _completed_role_summary(jobs: list[dict], role: str) -> dict:
+    rows = [job for job in jobs if job.get("study_role") == role and job.get("final_run")]
+    walls = [float(job["final_run"]["wall_seconds"]) for job in rows if job["final_run"].get("wall_seconds") is not None]
+    params = [float(job["final_run"]["n_params"]) for job in rows if job["final_run"].get("n_params") is not None]
+    qubits = []
+    depths = []
+    for job in rows:
+        config = job.get("config") or {}
+        if config.get("model.quantum.n_qubits") is not None:
+            qubits.append(float(config["model.quantum.n_qubits"]))
+        if config.get("model.quantum.n_circuit_layers") is not None:
+            depths.append(float(config["model.quantum.n_circuit_layers"]))
+    return {
+        "role": role,
+        "completed_jobs": len(rows),
+        "mean_wall_seconds": _mean(walls),
+        "mean_n_params": _mean(params),
+        "mean_qubits": _mean(qubits),
+        "mean_depth": _mean(depths),
+        "resource_bands": _resource_band_counts(rows),
+    }
+
+
+def _study_limitations(study: dict, jobs: list[dict], evidence: dict) -> list[str]:
+    limitations: list[str] = []
+    for step in evidence.get("ladder") or []:
+        if not step.get("ok"):
+            limitations.append(f"{step['label']}: {step['detail']}")
+    active = [job for job in jobs if job.get("status") in {"queued", "running"}]
+    if active:
+        limitations.append(f"{len(active)} study job(s) are still queued or running.")
+    failures = [job for job in jobs if job.get("status") == "error"]
+    if failures:
+        limitations.append(f"{len(failures)} study job(s) failed and need review.")
+    analogue_notes: list[str] = []
+    for job in jobs:
+        for item in ((job.get("analogue") or {}).get("known_limitations") or []):
+            if item not in analogue_notes:
+                analogue_notes.append(item)
+    limitations.extend(analogue_notes)
+    if not study.get("task"):
+        limitations.append("Task-specific framing is missing; interpret evidence as model/dataset-specific rather than a general quantum advantage claim.")
+    return limitations
+
+
+def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
+    rows = []
+    for job in jobs:
+        if job.get("study_role") != "candidate":
+            continue
+        payload = comparison_research_payload(db, int(job["id"]))
+        candidate = payload.get("candidate") or {}
+        baseline = payload.get("baseline") or {}
+        cjob = candidate.get("job") or {}
+        bjob = baseline.get("job") or {}
+        crun = candidate.get("final_run") or {}
+        brun = baseline.get("final_run") or {}
+        rows.append({
+            "candidate_job_id": cjob.get("id") or job["id"],
+            "baseline_job_id": bjob.get("id"),
+            "dataset": cjob.get("dataset_name") or job.get("dataset_name"),
+            "seed": cjob.get("seed") or job.get("seed"),
+            "grid": job.get("study_sweep") or {},
+            "available": payload.get("available", False),
+            "fair": bool((payload.get("fairness") or {}).get("same_dataset")) and (payload.get("verdict") or {}).get("label") != "insufficient fairness",
+            "verdict_label": (payload.get("verdict") or {}).get("label"),
+            "delta_val_ppl": (payload.get("deltas") or {}).get("val_ppl"),
+            "delta_wall_seconds": (payload.get("deltas") or {}).get("wall_seconds"),
+            "candidate_val_ppl": crun.get("val_ppl"),
+            "baseline_val_ppl": brun.get("val_ppl"),
+            "comparison_link": f"/comparisons/{job['id']}" if payload.get("available") else None,
+            "reason": payload.get("reason") or (payload.get("verdict") or {}).get("reason"),
+        })
+    return rows
+
+
+def _report_markdown(report: dict) -> str:
+    protocol = report["protocol"]
+    verdict = report["verdict"]
+    stats = report["statistics"]
+    lines = [
+        f"# Study Report: {report['name']}",
+        "",
+        f"Research question: {report['research_question'] or 'Multi-run quantum/classical study'}",
+        "",
+        "## Verdict",
+        f"- Label: {verdict['label']}",
+        f"- Reason: {verdict['reason']}",
+        f"- Fair pairs: {stats['fair_pairs']}",
+        f"- Candidate wins: {stats['wins']}",
+        f"- Mean delta val ppl: {stats['mean_delta_val_ppl'] if stats['mean_delta_val_ppl'] is not None else '-'}",
+        f"- Std delta val ppl: {stats['std_delta_val_ppl'] if stats['std_delta_val_ppl'] is not None else '-'}",
+        "",
+        "## Protocol",
+        f"- Candidate preset: {protocol['candidate_preset_id']}",
+        f"- Task: {protocol['task'] or '-'}",
+        f"- Datasets: {', '.join(protocol['dataset_names']) or '-'}",
+        f"- Seeds: {', '.join(str(v) for v in protocol['seeds']) or '-'}",
+        f"- Device target: {protocol['device_target']}",
+        f"- Steps / eval: {protocol['steps']} / {protocol['eval_every']}",
+        f"- Batch / seq len: {protocol['batch_size'] or '-'} / {protocol['seq_len'] or '-'}",
+        f"- Sweep qubits: {', '.join(str(v) for v in protocol['sweep'].get('qubits') or []) or '-'}",
+        f"- Sweep depths: {', '.join(str(v) for v in protocol['sweep'].get('depths') or []) or '-'}",
+        "",
+        "## Limitations",
+    ]
+    limitations = report.get("limitations") or ["No additional limitations recorded."]
+    lines.extend(f"- {item}" for item in limitations)
+    return "\n".join(lines)
+
+
 def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> dict:
     study = db.get_study(study_id)
     if study is None:
@@ -319,3 +443,82 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         "jobs": jobs,
         "evidence": evidence,
     }
+
+
+def study_report_payload(db: ResultsDB, study_id: int) -> dict:
+    payload = study_payload(db, study_id, include_jobs=True)
+    candidate_meta = preset_meta(payload["candidate_preset_id"])
+    controls_meta = [preset_meta(item) for item in payload.get("control_preset_ids") or []]
+    jobs = payload["jobs"]
+    evidence = payload["evidence"]
+    pair_rows = _pair_report_rows(db, jobs)
+    statistics = {
+        "candidate_jobs": payload["role_counts"].get("candidate", 0),
+        "baseline_jobs": payload["role_counts"].get("baseline", 0),
+        "control_jobs": payload["role_counts"].get("control", 0),
+        "fair_pairs": evidence.get("fair_pairs", 0),
+        "complete_pairs": evidence.get("complete_pairs", 0),
+        "wins": evidence.get("wins", 0),
+        "win_rate": (
+            float(evidence.get("wins", 0)) / float(evidence.get("fair_pairs", 1))
+            if evidence.get("fair_pairs") else None
+        ),
+        "mean_delta_val_ppl": evidence.get("mean_delta_val_ppl"),
+        "std_delta_val_ppl": evidence.get("std_delta_val_ppl"),
+    }
+    resource_summary = {
+        "candidate": _completed_role_summary(jobs, "candidate"),
+        "baseline": _completed_role_summary(jobs, "baseline"),
+        "control": _completed_role_summary(jobs, "control"),
+    }
+    report = {
+        "id": payload["id"],
+        "name": payload["name"],
+        "status": payload["status"],
+        "research_question": payload.get("research_question"),
+        "protocol": {
+            "task": payload.get("task"),
+            "dataset_names": payload.get("dataset_names") or [],
+            "candidate_preset_id": payload["candidate_preset_id"],
+            "baseline_policy": payload["baseline_policy"],
+            "control_preset_ids": payload.get("control_preset_ids") or [],
+            "seeds": payload.get("seeds") or [],
+            "sweep": payload.get("sweep") or {},
+            "steps": payload["protocol"].get("steps"),
+            "eval_every": payload["protocol"].get("eval_every"),
+            "batch_size": payload["protocol"].get("batch_size"),
+            "seq_len": payload["protocol"].get("seq_len"),
+            "device_target": payload["protocol"].get("device_target") or "auto",
+            "group_id": payload["group_id"],
+        },
+        "candidate": {
+            "id": candidate_meta["id"],
+            "label": candidate_meta["label"],
+            "kind": candidate_meta["kind"],
+            "architecture": candidate_meta["architecture"],
+            "quantum_role": candidate_meta["quantum_role"],
+            "recommended_use": candidate_meta["recommended_use"],
+            "risks": candidate_meta["risks"],
+        },
+        "controls": [
+            {
+                "id": item["id"],
+                "label": item["label"],
+                "kind": item["kind"],
+                "architecture": item["architecture"],
+                "risks": item["risks"],
+            }
+            for item in controls_meta
+        ],
+        "verdict": {
+            "label": evidence.get("label") or "pending",
+            "reason": evidence.get("reason") or "report pending",
+            "ladder": evidence.get("ladder") or [],
+        },
+        "statistics": statistics,
+        "resource_summary": resource_summary,
+        "pair_rows": pair_rows,
+        "limitations": _study_limitations(payload, jobs, evidence),
+    }
+    report["markdown"] = _report_markdown(report)
+    return report

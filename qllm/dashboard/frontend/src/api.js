@@ -75,6 +75,7 @@ export const api = {
   createSweep: (payload) => post('/jobs/sweep', payload),
   studies: () => get('/studies'),
   study: (id) => get(`/studies/${id}`),
+  studyReport: (id) => get(`/studies/${id}/report`),
   createStudy: (payload) => post('/studies', payload),
   queueStudy: (id) => post(`/studies/${id}/queue`),
   cancelJob: (id) => post(`/jobs/${id}/cancel`),

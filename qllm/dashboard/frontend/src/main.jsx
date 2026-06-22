@@ -19,6 +19,7 @@ import Comparison from './pages/Comparison.jsx'
 import Models from './pages/Models.jsx'
 import Studies from './pages/Studies.jsx'
 import Study from './pages/Study.jsx'
+import StudyReport from './pages/StudyReport.jsx'
 import ScalingTest from './pages/ScalingTest.jsx'
 import ScalingTests from './pages/ScalingTests.jsx'
 import './styles.css'
@@ -40,6 +41,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="comparisons/:id" element={<Comparison />} />
           <Route path="studies" element={<Studies />} />
           <Route path="studies/:id" element={<Study />} />
+          <Route path="studies/:id/report" element={<StudyReport />} />
           <Route path="scaling" element={<ScalingTests />} />
           <Route path="scaling/:groupId" element={<ScalingTest />} />
           <Route path="models" element={<Models />} />

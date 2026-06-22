@@ -47,6 +47,7 @@ export default function Study() {
             </div>
             <div className="header-actions">
               <span className={`badge ${payload.status}`}>{payload.status}</span>
+              <Link className="small" to={`/studies/${payload.id}/report`}>Open report</Link>
               <Link className="small" to={`/experiments?group=${payload.group_id}`}>Open group</Link>
             </div>
           </div>
