@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Research Protocol"
+  short_description: "Keep quantum evidence claims honest"
+  default_prompt: "Use $qllm-research-protocol to review this QLLM result before we claim an edge."

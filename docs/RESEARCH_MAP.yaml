@@ -1,0 +1,478 @@
+schema_version: 1
+updated: 2026-07-10
+purpose: >-
+  Machine-readable map of QLLM research areas, including negative results,
+  open hypotheses, evidence limits, dependencies, and the next decisive test.
+  This file is a planning index, not a claim ledger.
+
+status_values:
+  negative: Tested and not supported in the studied regime.
+  partial: A mechanism works, but the end-to-end hypothesis is not established.
+  open: There is a live, falsifiable question with incomplete evidence.
+  methodology_only: Useful as a positive or negative control, not an application advantage.
+  quantum_inspired: The useful result is classically deployable and is not quantum advantage.
+  blocked: Do not interpret or scale until named correctness or evidence gates pass.
+  unexplored: Proposed greenfield area with no repo evidence yet.
+  infrastructure: Research-enabling work rather than an advantage hypothesis.
+
+claim_levels:
+  - untested
+  - correctness
+  - diagnostic
+  - mechanism
+  - paired_empirical
+  - scaling
+  - hardware
+  - practical
+  - formal
+
+replication_statuses:
+  - none
+  - within_study_resampling
+  - single_task_instance
+  - multi_seed_single_instance
+  - multi_instance
+  - multi_hardware_calibration
+
+dimensions:
+  pipeline_stages:
+    - data_acquisition
+    - representation
+    - model
+    - training
+    - inference
+    - generation
+    - evaluation
+  quantum_resources:
+    - interference
+    - entanglement
+    - contextuality
+    - quantum_memory
+    - measurement
+    - quantum_data_access
+    - amplitude_estimation
+  advantage_targets:
+    - predictive_quality
+    - sample_complexity
+    - query_complexity
+    - parameter_efficiency
+    - memory_efficiency
+    - training_time
+    - inference_time
+    - communication_complexity
+    - energy_or_cost
+    - expressivity_or_depth
+
+areas:
+  - id: variational_component_swaps
+    label: Variational quantum embedding, attention, FFN, and full-block swaps
+    portfolio: explored
+    pipeline_stages: [representation, model, training]
+    quantum_resources: [interference, entanglement]
+    advantage_targets: [predictive_quality, parameter_efficiency]
+    status: negative
+    claim_level: diagnostic
+    replication_status: multi_seed_single_instance
+    suites: [ablation, qnlp-v1]
+    results_sections: [2, 6, 8, 10]
+    present_conclusion: >-
+      Generic swaps on classical text have not beaten strong matched controls;
+      trained and frozen circuits often agree, consistent with a random-feature
+      bottleneck rather than a quantum-specific contribution.
+    blockers: []
+    next_decisive_test: >-
+      Deprioritize generic swaps. Reopen only with a new data-mechanism
+      alignment argument and frozen, no-entanglement, and classical-surrogate controls.
+
+  - id: barren_plateau_scaling
+    label: Trainability, concentration, and barren-plateau diagnostics
+    portfolio: explored
+    pipeline_stages: [training, evaluation]
+    quantum_resources: [entanglement]
+    advantage_targets: [training_time]
+    status: infrastructure
+    claim_level: diagnostic
+    replication_status: within_study_resampling
+    suites: [scaling_probe]
+    results_sections: [3]
+    present_conclusion: >-
+      The tested reuploading ansatz shows exponentially decaying gradient
+      variance as qubit count grows. This is an exclusion signal, not an advantage metric.
+    blockers: []
+    next_decisive_test: >-
+      Expand the diagnostic to local initialization, layerwise training,
+      hardware-feasible finite-shot gradients, and time-to-target scaling.
+
+  - id: kernel_geometry_controls
+    label: Quantum-kernel geometry, target alignment, and engineered controls
+    portfolio: explored
+    pipeline_stages: [representation, evaluation]
+    quantum_resources: [interference, entanglement]
+    advantage_targets: [predictive_quality, sample_complexity]
+    status: methodology_only
+    claim_level: diagnostic
+    replication_status: within_study_resampling
+    suites: [advantage_probe]
+    results_sections: [7]
+    present_conclusion: >-
+      The tooling detects engineered quantum-favoured labels and classical
+      negative controls, but this does not demonstrate application advantage.
+    blockers:
+      - Ridge regularization is selected on the test split.
+      - The classical challenger family is too narrow for a strong claim.
+    next_decisive_test: >-
+      Add nested validation, projected kernels, Nyström/random-feature/tensor-network
+      challengers, finite-shot ladders, and held-out application labels.
+
+  - id: monitored_quantum_memory
+    label: Monitored Ising sequences and predictive-memory scaling
+    portfolio: explored
+    pipeline_stages: [data_acquisition, model, evaluation]
+    quantum_resources: [quantum_memory, measurement]
+    advantage_targets: [memory_efficiency, predictive_quality]
+    status: blocked
+    claim_level: diagnostic
+    replication_status: single_task_instance
+    suites: [memory-sweep-v1, memory-sweep-v2, resonance-v1]
+    results_sections: [9, 11, 12, 13]
+    present_conclusion: >-
+      Fixed small GRUs degrade over the measured range, while larger GRUs still
+      track the oracle. This is a useful scaling observation, not a lower bound
+      or quantum advantage.
+    blockers:
+      - Synthetic windows and train/validation splits are not boundary-safe.
+      - The stated 4^m belief dimension is an upper bound, not a proven lower bound.
+      - Data-generator instances are not replicated across generator seeds.
+      - The planted row is an oracle control with incorrectly zeroed resource cost.
+    next_decisive_test: >-
+      Repair data boundaries, estimate predictive-state/Hankel rank, add HMM/PSR,
+      state-space, weighted-automaton, and MPS/process-tensor baselines, then measure
+      minimal classical memory required to reach a preregistered target.
+
+  - id: qrnn_representability_and_training
+    label: Quantum recurrent model representability and optimization
+    portfolio: explored
+    pipeline_stages: [model, training]
+    quantum_resources: [quantum_memory, interference]
+    advantage_targets: [memory_efficiency, training_time]
+    status: partial
+    claim_level: diagnostic
+    replication_status: multi_seed_single_instance
+    suites: [qrnn-landscape-v1, battery-v1]
+    results_sections: [11, 12, 13]
+    present_conclusion: >-
+      A planted solution exists, while random initialization converges to a
+      worse basin. Expressivity is present; practical trainability is not.
+    blockers:
+      - Current backpropagation is simulator-specific and not hardware-feasible.
+      - The decisive data-boundary and classical-memory controls are not complete.
+    next_decisive_test: >-
+      Compare planted/warm starts, local or natural gradients, layerwise schedules,
+      SPSA and surrogate-guided optimization using circuit-evaluation count and
+      time-to-target as primary metrics.
+
+  - id: unitary_weight_transplant
+    label: Unitary weight transplant and low-rank warm starts
+    portfolio: explored
+    pipeline_stages: [model, training]
+    quantum_resources: [interference]
+    advantage_targets: [parameter_efficiency]
+    status: quantum_inspired
+    claim_level: diagnostic
+    replication_status: multi_seed_single_instance
+    suites: [transplant-v1, transplant-v2]
+    results_sections: [11, 12]
+    present_conclusion: >-
+      The effect is explained by low-rank compression and warm start; the
+      matched classical SVD twin reproduces it.
+    blockers: []
+    next_decisive_test: >-
+      Keep as a compression baseline and implementation technique, not an
+      advantage track.
+
+  - id: heuristic_parity_memory
+    label: Interleaved parity-memory task and routed phase cell
+    portfolio: explored
+    pipeline_stages: [data_acquisition, model]
+    quantum_resources: [interference, quantum_memory]
+    advantage_targets: [memory_efficiency, predictive_quality]
+    status: blocked
+    claim_level: mechanism
+    replication_status: single_task_instance
+    suites: [contextual-v1]
+    results_sections: [14, 17, 18]
+    present_conclusion: >-
+      The phase accumulator and soft router learn parity mechanisms, but the
+      generator is a heuristic associative-memory task. It does not instantiate
+      the cited contextuality theorem or establish an unconditional separation.
+    blockers:
+      - No Mermin-Peres or theorem-faithful compatibility and contradiction structure.
+      - The current parity test does not reconstruct and verify a context invariant.
+      - The classical lower bound claimed in prose is not established for this task.
+    next_decisive_test: >-
+      Relabel existing evidence as parity-memory, then separately reproduce a
+      published contextual sequence task with proof-to-code invariant tests and
+      theorem-matched classical model restrictions.
+
+  - id: interference_output_head
+    label: Coherent interference as an output-head primitive
+    portfolio: explored
+    pipeline_stages: [model, inference]
+    quantum_resources: [interference]
+    advantage_targets: [expressivity_or_depth, parameter_efficiency]
+    status: partial
+    claim_level: mechanism
+    replication_status: multi_seed_single_instance
+    suites: [interference-head-v1]
+    results_sections: [15]
+    present_conclusion: >-
+      A matched single-layer interference head represents the isolated
+      cancellation primitive efficiently, but the construction is classically
+      simulable and the absolute gap is small.
+    blockers: []
+    next_decisive_test: >-
+      Treat as an expressivity probe. Reopen end-to-end only when the body exposes
+      the required features without precomputing the cancellation.
+
+  - id: sequential_interference
+    label: Sequential cancellation with interference heads
+    portfolio: explored
+    pipeline_stages: [model, generation]
+    quantum_resources: [interference]
+    advantage_targets: [predictive_quality]
+    status: negative
+    claim_level: diagnostic
+    replication_status: multi_seed_single_instance
+    suites: [seq-interference-v1, interference-v1, interference-width]
+    results_sections: [16]
+    present_conclusion: >-
+      Frozen, full-width, and bottlenecked sequence bodies show no end-to-end
+      edge for the interference head.
+    blockers: []
+    next_decisive_test: >-
+      Archive unless a theory-driven task supplies the precise feature-access condition.
+
+  - id: two_stream_conditioning
+    label: Quantum sentence summary conditioning a classical token model
+    portfolio: explored
+    pipeline_stages: [representation, model]
+    quantum_resources: [interference, entanglement]
+    advantage_targets: [predictive_quality, parameter_efficiency]
+    status: blocked
+    claim_level: diagnostic
+    replication_status: multi_seed_single_instance
+    suites: [two-stream-v1]
+    results_sections: [20]
+    present_conclusion: >-
+      One conditioning mode showed a weak multi-seed lean, but the full-window
+      encoder leaks side information and the result is not strict autoregressive evidence.
+    blockers:
+      - Causal prefix pooling or explicit side-information labeling is required.
+      - More seeds cannot repair a mismatched evaluation contract.
+    next_decisive_test: >-
+      Fix the metric contract first, then run a fresh confirmatory study with a
+      powered seed count and architecture-aware classical controls.
+
+  - id: theorem_faithful_contextual_sequence_learning
+    label: Theorem-faithful contextual quantum sequence learning
+    portfolio: candidate
+    pipeline_stages: [data_acquisition, model, evaluation]
+    quantum_resources: [contextuality, quantum_memory, measurement]
+    advantage_targets: [memory_efficiency, expressivity_or_depth]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Requires a formal task specification and explicit model-class assumptions.
+    next_decisive_test: >-
+      Reproduce one published construction exactly, prove its generated instances
+      satisfy the defining contextual invariant, and recover the small-scale
+      classical/quantum memory separation before adapting it.
+
+  - id: projected_quantum_kernels
+    label: Projected quantum kernels and observable-aligned features
+    portfolio: candidate
+    pipeline_stages: [representation, evaluation]
+    quantum_resources: [measurement, entanglement]
+    advantage_targets: [sample_complexity, predictive_quality]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Needs strong dequantization attacks and nested model selection.
+    next_decisive_test: >-
+      Compare local-observable and classical-shadow projections against RBF,
+      neural-tangent, Nyström, random-feature, and tensor-network kernels on
+      held-out quantum-structured tasks.
+
+  - id: coherent_quantum_data_learning
+    label: Learning from coherent quantum data or experiments
+    portfolio: candidate
+    pipeline_stages: [data_acquisition, representation, evaluation]
+    quantum_resources: [quantum_data_access, measurement]
+    advantage_targets: [sample_complexity, query_complexity]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet; this access model differs fundamentally from classical text.
+    blockers:
+      - Requires an explicit quantum data source or QPU experiment protocol.
+      - Classical and quantum access models must be stated separately.
+    next_decisive_test: >-
+      Build a simulator-level coherent-access benchmark with a measured-classical
+      control, then port only the data-acquisition primitive to hardware.
+
+  - id: quantum_reservoir_and_dynamic_circuits
+    label: Fixed quantum reservoirs, mid-circuit measurements, and dynamic recurrence
+    portfolio: candidate
+    pipeline_stages: [model, training, inference]
+    quantum_resources: [quantum_memory, measurement, interference]
+    advantage_targets: [training_time, memory_efficiency, predictive_quality]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Fixed random quantum features are easy to mistake for a classical reservoir effect.
+    next_decisive_test: >-
+      Train only the readout, compare against echo-state/random-feature/MPS reservoirs,
+      and require an ablation tied to a nonclassical resource.
+
+  - id: quantum_generative_models
+    label: Quantum generative sampling on structured discrete distributions
+    portfolio: candidate
+    pipeline_stages: [generation, evaluation]
+    quantum_resources: [interference, entanglement, measurement]
+    advantage_targets: [sample_complexity, predictive_quality, energy_or_cost]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Requires strong autoregressive, flow, VAE, and MPS baselines.
+    next_decisive_test: >-
+      Use a small discrete task with exact likelihood and held-out generalization;
+      compare quality per sample, circuit call, parameter, and wall-clock cost.
+
+  - id: hardware_feasible_training_methods
+    label: Hardware-feasible optimization of quantum components
+    portfolio: candidate
+    pipeline_stages: [training]
+    quantum_resources: [measurement]
+    advantage_targets: [training_time, energy_or_cost]
+    status: open
+    claim_level: untested
+    replication_status: none
+    suites: [qrnn-landscape-v1]
+    results_sections: [13]
+    present_conclusion: >-
+      The repo has diagnosed a bad basin but has not compared hardware-feasible
+      optimizers under matched circuit-evaluation budgets.
+    blockers:
+      - Analytic backpropagation understates shot and hardware cost.
+    next_decisive_test: >-
+      Benchmark parameter shift, SPSA, natural-gradient approximations, surrogate
+      optimization, layerwise schedules, and planted warm starts by time-to-target
+      and total shots/circuit executions.
+
+  - id: fault_tolerant_ml_primitives
+    label: Fault-tolerant quantum subroutines inside ML training or inference
+    portfolio: candidate
+    pipeline_stages: [training, inference]
+    quantum_resources: [amplitude_estimation, quantum_data_access]
+    advantage_targets: [training_time, inference_time, query_complexity]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: Separate long-horizon track; not a variational NISQ claim.
+    blockers:
+      - Input loading, output readout, logical-error, and fault-tolerant resource assumptions dominate.
+    next_decisive_test: >-
+      Select one end-to-end primitive, write its access model, and perform logical
+      qubit, T-count, depth, runtime, and data-loading resource estimation before coding a demo.
+
+  - id: post_variational_shadow_models
+    label: Quantum feature acquisition followed by classical training and deployment
+    portfolio: candidate
+    pipeline_stages: [data_acquisition, representation, training, inference]
+    quantum_resources: [quantum_data_access, measurement]
+    advantage_targets: [sample_complexity, query_complexity, inference_time]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Quantum acquisition cost and classical surrogate capacity must both be counted.
+      - The resulting model may be quantum-enhanced without retaining a quantum inference advantage.
+    next_decisive_test: >-
+      Acquire a fixed local-observable or shadow feature table once, train only
+      classical downstream models, and compare total state preparations, samples,
+      deployment cost, and accuracy with fully classical feature acquisition.
+
+  - id: communication_limited_quantum_learning
+    label: Entanglement-assisted distributed and communication-limited learning
+    portfolio: candidate
+    pipeline_stages: [data_acquisition, training, inference]
+    quantum_resources: [entanglement, quantum_data_access]
+    advantage_targets: [communication_complexity, query_complexity, energy_or_cost]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet.
+    blockers:
+      - Network model, prior entanglement, communication direction, success probability,
+        and entanglement-consumption accounting must be explicit.
+    next_decisive_test: >-
+      Reproduce one small theorem-backed protocol and compare transmitted bits or
+      qubits, entanglement consumed, repetitions, latency, and classical shared-randomness
+      baselines under the same distributed access model.
+
+relations:
+  - from: kernel_geometry_controls
+    to: projected_quantum_kernels
+    type: motivates
+  - from: monitored_quantum_memory
+    to: qrnn_representability_and_training
+    type: candidate_model_for
+  - from: heuristic_parity_memory
+    to: theorem_faithful_contextual_sequence_learning
+    type: must_not_be_conflated_with
+  - from: barren_plateau_scaling
+    to: hardware_feasible_training_methods
+    type: constrains
+  - from: interference_output_head
+    to: sequential_interference
+    type: system_level_followup
+  - from: variational_component_swaps
+    to: projected_quantum_kernels
+    type: redirects_toward_data_alignment
+  - from: qrnn_representability_and_training
+    to: quantum_reservoir_and_dynamic_circuits
+    type: alternative_training_strategy
+  - from: coherent_quantum_data_learning
+    to: post_variational_shadow_models
+    type: deployment_variant
+  - from: projected_quantum_kernels
+    to: post_variational_shadow_models
+    type: shares_measurement_features
+  - from: coherent_quantum_data_learning
+    to: communication_limited_quantum_learning
+    type: related_access_model

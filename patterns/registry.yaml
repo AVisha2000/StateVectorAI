@@ -1,0 +1,12 @@
+patterns:
+  - id: qllm-daily-triage
+    name: QLLM Daily Triage
+    level: L1
+    cadence: daily-or-manual
+    state_file: STATE.md
+    skills:
+      - loop-constraints
+      - loop-budget
+      - loop-triage
+      - qllm-loop-triage
+    description: Report-first triage for QLLM repo state, GPU queue, dashboard jobs, and research-result drift.

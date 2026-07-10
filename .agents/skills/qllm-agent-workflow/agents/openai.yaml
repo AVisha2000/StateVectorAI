@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Agent Workflow"
+  short_description: "Route, delegate, and verify QLLM repository work"
+  default_prompt: "Use $qllm-agent-workflow to plan, delegate, implement, and verify this repository task."

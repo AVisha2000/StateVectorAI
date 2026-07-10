@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Loop Triage"
+  short_description: "Run report-first project maintenance loops"
+  default_prompt: "Use $qllm-loop-triage to update the QLLM loop state and next actions."

@@ -1,0 +1,39 @@
+name: Agent configuration
+
+on:
+  pull_request:
+    paths:
+      - "**/AGENTS.md"
+      - "PLANS.md"
+      - ".agents/**"
+      - ".codex/**"
+      - "scripts/check_agent_setup.py"
+      - "scripts/verify_changes.py"
+      - "tests/test_agent_configuration.py"
+      - "tests/test_verify_changes.py"
+  push:
+    paths:
+      - "**/AGENTS.md"
+      - "PLANS.md"
+      - ".agents/**"
+      - ".codex/**"
+      - "scripts/check_agent_setup.py"
+      - "scripts/verify_changes.py"
+      - "tests/test_agent_configuration.py"
+      - "tests/test_verify_changes.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate agent operating files
+        run: python scripts/check_agent_setup.py

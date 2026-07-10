@@ -65,6 +65,18 @@ python scripts/compare_runs.py
 pytest -q
 ```
 
+## AI-assisted development
+
+Start Codex from the repository root so it discovers the scoped `AGENTS.md`
+files, project agents, and on-demand skills. The operating model and adoption
+commands are documented in [docs/AGENT_OPERATING_MODEL.md](docs/AGENT_OPERATING_MODEL.md).
+Validate the setup with:
+
+```bash
+python scripts/check_agent_setup.py
+python scripts/verify_changes.py --plan
+```
+
 ## Dashboard
 
 Double-click `QLLM Portal.bat` from the repo root on Windows to start the

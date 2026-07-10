@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Model Development"
+  short_description: "Modify QLLM models, data, and quantum layers"
+  default_prompt: "Use $qllm-model-development to add or change a QLLM model component."

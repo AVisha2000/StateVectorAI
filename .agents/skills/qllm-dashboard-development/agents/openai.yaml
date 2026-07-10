@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Dashboard Development"
+  short_description: "Build QLLM Lab API and React UI"
+  default_prompt: "Use $qllm-dashboard-development to change the QLLM Lab dashboard safely."

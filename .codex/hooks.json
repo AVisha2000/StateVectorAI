@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$(git rev-parse --show-toplevel)/scripts/verify_changes.py\" --hook",
+            "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; python (Join-Path $root 'scripts/verify_changes.py') --hook\"",
+            "timeout": 600,
+            "statusMessage": "Checking changed QLLM paths"
+          }
+        ]
+      }
+    ]
+  }
+}

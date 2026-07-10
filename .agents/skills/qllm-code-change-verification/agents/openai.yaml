@@ -1,0 +1,4 @@
+interface:
+  display_name: "QLLM Change Verification"
+  short_description: "Select and run evidence-based QLLM checks"
+  default_prompt: "Use $qllm-code-change-verification to verify this QLLM change with the smallest sufficient checks."
