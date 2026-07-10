@@ -1,5 +1,18 @@
 # QLLM Enhancement Plan
 
+## Implementation status
+
+This remains the detailed engineering backlog beneath `RESEARCH_PROGRAM.md`.
+Execution is tracked in `PLANS.md` through milestones M01-M09.
+
+- Boundary-safe synthetic loading, trajectory splitting, control generation,
+  and batch sampling are complete as of commit `83c5fa1`.
+- The dashboard already contains the cockpit, model graph, comparison, study,
+  per-layer model-spec, and visual-builder foundations described by the older
+  UI plan; remaining UI work is evidence-contract integration and hardening.
+- Item numbering below is retained for traceability. Acceptance criteria, not
+  the original prose order, determine completion.
+
 This plan turns the technical review into staged engineering and research
 work. The guiding principle is simple: keep QLLM a fast research testbed, but
 make every result reproducible, comparable, and difficult to overclaim.
@@ -1139,4 +1152,3 @@ The enhancement plan is complete when:
 - Two-stream side-information is either removed or labeled everywhere.
 - Long dashboard jobs can survive restart or resume from checkpoint.
 - Dependency and device metadata are recorded with every serious run.
-

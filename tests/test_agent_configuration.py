@@ -36,7 +36,7 @@ def _valid_fixture(root: Path) -> None:
     )
     _write(
         root / ".codex/config.toml",
-        "[features]\nmulti_agent = true\nhooks = true\n\n"
+        'model = "gpt-5.6"\n\n[features]\nmulti_agent = true\nhooks = true\n\n'
         "[agents]\nmax_threads = 4\nmax_depth = 1\njob_max_runtime_seconds = 900\n",
     )
     _write(
@@ -46,12 +46,19 @@ def _valid_fixture(root: Path) -> None:
         '"commandWindows":"python scripts/verify_changes.py --hook"}]}]}}',
     )
     agent = (
+        'name = "{name}"\n'
         'description = "A focused repository specialist"\n'
         'developer_instructions = "Inspect only the assigned scope and return concrete evidence to the parent agent."\n'
+        'model = "{model}"\n'
         'model_reasoning_effort = "medium"\n'
     )
-    for filename in ("planner.toml", "explorer.toml", "verifier.toml"):
-        _write(root / ".codex/agents" / filename, agent)
+    from scripts.check_agent_setup import EXPECTED_AGENT_MODELS
+
+    for filename, model in EXPECTED_AGENT_MODELS.items():
+        _write(
+            root / ".codex/agents" / f"{filename}.toml",
+            agent.format(name=filename, model=model),
+        )
 
 
 def test_repository_agent_configuration_is_valid() -> None:
@@ -91,7 +98,7 @@ def test_rejects_stale_agent_keys_and_unsafe_limits(tmp_path: Path) -> None:
     )
     _write(
         tmp_path / ".codex/config.toml",
-        "[features]\nmulti_agent = false\nhooks = false\n\n"
+        'model = "gpt-5.6"\n\n[features]\nmulti_agent = false\nhooks = false\n\n'
         "[agents]\nmax_threads = 12\nmax_depth = 3\njob_max_runtime_seconds = 3600\n",
     )
 
@@ -103,6 +110,26 @@ def test_rejects_stale_agent_keys_and_unsafe_limits(tmp_path: Path) -> None:
     assert any("job_max_runtime_seconds" in error for error in errors)
     assert any("features.multi_agent must be true" in error for error in errors)
     assert any("features.hooks must be true" in error for error in errors)
+
+
+def test_rejects_root_or_agent_model_substitution(tmp_path: Path) -> None:
+    _valid_fixture(tmp_path)
+    config = tmp_path / ".codex/config.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace('model = "gpt-5.6"', 'model = "gpt-5.4"'),
+        encoding="utf-8",
+    )
+    explorer = tmp_path / ".codex/agents/luna_explorer.toml"
+    explorer.write_text(
+        explorer.read_text(encoding="utf-8").replace(
+            'model = "gpt-5.6-luna"', 'model = "gpt-5.6-terra"'
+        ),
+        encoding="utf-8",
+    )
+
+    errors = validate_repo(tmp_path)
+    assert any("project root model must be gpt-5.6" in error for error in errors)
+    assert any("luna_explorer.toml: model must be gpt-5.6-luna" in error for error in errors)
 
 
 def test_skill_prompt_must_name_its_skill(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 # QLLM Research Program
 
-Status: proposed research and engineering roadmap  
+Status: adopted research roadmap; local engineering execution tracked in `PLANS.md`
 Date: 2026-07-10  
 Scope: local exact experiments -> local GPU -> GPU clusters -> QPU verification
 
@@ -9,6 +9,10 @@ engineering backlog in [ENHANCEMENT_PLAN.md](ENHANCEMENT_PLAN.md), the historica
 record in [RESULTS.md](../RESULTS.md), the current run list in
 [GPU_QUEUE.md](../GPU_QUEUE.md), and the machine-readable area map in
 [RESEARCH_MAP.yaml](RESEARCH_MAP.yaml).
+
+Boundary-safe synthetic dataset loading and sampling landed in commit
+`83c5fa1`. The remaining local-platform work is sequenced through milestones
+M01-M09 in `PLANS.md`; GPU/cluster/QPU execution remains separately gated.
 
 ## Executive decision
 

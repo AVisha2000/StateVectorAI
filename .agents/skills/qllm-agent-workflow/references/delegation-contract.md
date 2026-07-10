@@ -25,10 +25,12 @@ The packet must be self-contained enough for a fresh context. Include decisions 
 ## Role Routing
 
 - `planner`: read-only, high-reasoning decomposition for ambiguous, multi-stage, or high-risk work. Produces acceptance, sequence, ownership, tests, and gates; never implements.
-- `explorer`: read-only, fast targeted repository or documentation scan. Returns a short evidence map; never edits.
-- built-in `worker`: one bounded implementation with disjoint ownership. Reports files and checks; never commits or publishes.
+- `explorer`: read-only Terra scout for targeted repository or documentation scans when the narrower Luna profile is unavailable.
+- `luna_explorer`: low-cost read-only inventory, usage tracing, test-gap analysis, and documentation mapping.
+- `terra_worker`: one bounded implementation with disjoint ownership. Reports files and checks; never commits or publishes.
+- `mini_worker`: low-risk mechanical edits only; Terra or the parent must review every change before acceptance.
+- `spark_helper`: text-only alternatives for isolated names, snippets, regexes, commands, or wording; never edits.
 - `verifier`: fresh read-only checker. Reviews the original request, diff, and test output; never fixes its own findings.
-- local git scribe: drafts structured commit text from an already-staged diff. It never stages, commits, pushes, or evaluates scientific meaning.
 
 ## Verification Return
 

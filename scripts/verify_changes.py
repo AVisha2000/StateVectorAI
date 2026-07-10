@@ -25,7 +25,6 @@ STATE_RELATIVE_PATH = Path(".tmp") / "verify-changes" / "state.json"
 MAX_CAPTURE_CHARS = 12_000
 AGENT_TESTS = (
     "tests/test_agent_configuration.py",
-    "tests/test_local_git_scribe.py",
     "tests/test_verify_changes.py",
 )
 BENCHMARK_TESTS = (
@@ -130,7 +129,6 @@ def _is_agent_path(path: str) -> bool:
         or lowered in {
             "scripts/check_agent_setup.py",
             "scripts/verify_changes.py",
-            "scripts/local_git_scribe.py",
             *AGENT_TESTS,
         }
     )
@@ -248,6 +246,7 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
         if path.casefold().startswith("scripts/")
         and path.casefold().endswith(".py")
         and not _is_agent_path(path)
+        and (root / path).is_file()
     )
 
     if agent_changed:
@@ -352,6 +351,7 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
             if path.casefold().startswith("tests/test_") and path.casefold().endswith(".py")
             and path not in AGENT_TESTS
             and path != "tests/test_dashboard_lab.py"
+            and (root / path).is_file()
         )
         if changed_tests:
             checks.append(

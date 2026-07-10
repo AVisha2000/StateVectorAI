@@ -1,5 +1,15 @@
 # QLLM Lab UI Upgrade Plan
 
+## Implementation status
+
+The original phases are retained as a design record, but most structural UI
+work is already present: Lab Overview, filtered jobs, model diagrams,
+dedicated comparisons, studies and reports, persisted model specs, per-layer
+configuration, and the visual builder. `PLANS.md` milestone M08 now owns the
+remaining work: connect those surfaces to canonical metric types, claim IDs,
+paired/equivalence statistics, fairness mismatches, manifests, checkpoints,
+queue recovery, and resource ledgers, then complete responsive/browser QA.
+
 ## Purpose
 
 QLLM Lab should become a local research cockpit for quantum machine learning
@@ -569,4 +579,3 @@ The best first production-quality milestone is:
 This milestone makes the app much easier to navigate and directly supports
 quantum-vs-classical research without forcing the riskier per-layer model config
 migration immediately.
-

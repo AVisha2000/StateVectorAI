@@ -1,153 +1,144 @@
 # Living Plans
 
-This file carries state across agent turns and context windows for substantial
-work. It is not a backlog and should not be created or expanded for a small,
-single-concern task.
+This file carries substantial work across agent turns. The parent owns the
+plan, integration, deterministic verification, human gates, and final handoff.
+Completed implementation details move into canonical documentation; this file
+keeps only concise progress, decisions, and current evidence.
 
-Use a living plan when work spans multiple subsystems or sessions, has an
-uncertain design, requires delegation, reaches a human gate, or could change a
-research conclusion. The parent agent owns the plan and updates it after each
-material decision or completed validation step.
-
-## Rules
-
-- One active entry per substantial objective. State an owner and date.
-- Bound the scope with owned paths or subsystems and explicit non-goals.
-- Write acceptance evidence before implementation.
-- Record facts and decisions, not conversation transcripts.
-- Mark progress as work happens; do not declare a step complete from an agent's
-  summary without inspecting the resulting state.
-- Include human gates and explicitly say whether approval has been obtained.
-- Keep exact validation commands and their latest results.
-- At completion, leave a concise outcome and follow-up, then remove stale
-  investigative detail. Durable architecture or research decisions belong in
-  their canonical docs, not only here.
-
-## Active plan: agent operating system rollout
+## Active plan: local platform completion
 
 Owner: parent agent
 Started: 2026-07-10
-Objective: make efficient, evidence-first Codex orchestration the repository
-default without giving agents authority over science, compute spend, or Git
-publication.
+Objective: complete the local CPU-capable QLLM engineering, evidence,
+dashboard, UI, and documentation platform through nine verified milestones.
 
-Scope: repository agent instructions, project skills and roles, deterministic
-verification, and the optional local git scribe. No model, experiment, result,
-or dashboard behavior changes.
+Scope: repository agent workflow, data/config correctness, causal metrics,
+claim protocol, durable runs, localhost safety, local scaling, dashboard
+evidence surfaces, and onboarding. GPU/cluster/QPU execution, paid services,
+destructive artifact migration, and stronger scientific claims are excluded
+without separate approval.
 
 Acceptance evidence:
 
-- Root and nested instructions route tasks, skills, tests, and human gates.
-- Project `planner`, `explorer`, and `verifier` roles load successfully; the
-  built-in `worker` receives bounded, disjoint task packets.
-- Agent-workflow and verification skills validate and pass forward tests.
-- Deterministic setup/change checks cover the policy that prose cannot enforce.
-- The optional local git scribe reads staged diffs only and has no Git or
-  scientific side effects.
-- Focused tests and the full repository suite pass, or environmental failures
-  are recorded precisely.
+- Each milestone is implemented on its named `codex/mNN-*` branch.
+- Focused checks and change-aware full verification pass before review.
+- A fresh read-only verifier reviews material changes.
+- The parent inspects the final diff and requests approval before commit,
+  merge, or push.
+- Existing databases, caches, runs, and research artifacts remain readable and
+  are never silently discarded.
 
 Progress:
 
-- [x] Audit the repository's current instructions, skills, loop constraints,
-  tests, and research roadmap.
-- [x] Review primary OpenAI, Anthropic, AGENTS.md, and Ollama patterns.
-- [x] Install the instruction hierarchy and human operating model.
-- [x] Install and validate skills, custom agents, deterministic checks, and the
-  local git scribe.
-- [x] Run forward tests, focused tests, and full verification.
-- [x] Review the integrated diff and record final evidence and follow-up.
+- [x] M01 Agent system and workflow cleanup (`codex/m01-agent-workflow`),
+  implementation complete; awaiting Git delivery approval.
+- [ ] M02 Trust inputs and configuration (`codex/m02-inputs-config`).
+- [ ] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`).
+- [ ] M04 Trust claims (`codex/m04-claim-integrity`).
+- [ ] M05 Trust runs (`codex/m05-durable-runs`).
+- [ ] M06 Local safety and resource reproducibility (`codex/m06-safety-resources`).
+- [ ] M07 Local scaling architecture (`codex/m07-local-scaling`).
+- [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
+- [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Human gates: no GPU/QPU work, result-claim strengthening, destructive cleanup,
-commit, push, PR publication, or merge is approved by this plan.
+Current milestone: M01 Git delivery gate, then M02 inputs and configuration.
+
+M01 acceptance evidence:
+
+- The local Ollama scribe, tests, verification routing, and workflow references
+  are removed without changing the user's Ollama installation.
+- GPT-5.6 is the configured project root; Sol planner/verifier, Terra worker,
+  Luna explorer, Mini mechanical worker, and Spark text helper profiles are
+  syntactically valid and discoverable.
+- Exact requested model identifiers are never silently substituted. Runtime
+  availability is proven by fresh-session profile smoke or recorded as
+  unresolved.
+- The engineering/UI roadmaps distinguish completed boundary/dashboard work
+  from remaining milestones.
+
+M01 progress:
+
+- [x] Confirm the clean `main` checkpoint and create the milestone branch.
+- [x] Verify the official custom-agent file schema.
+- [x] Remove the scribe and install deterministic agent-profile validation.
+- [x] Reconcile roadmap status and operating documentation.
+- [x] Run focused, change-aware, and full verification.
+- [x] Obtain the post-restart fresh verifier verdict and request the Git
+  delivery gate.
+
+Decisions:
+
+- The local scribe is retired from StateVectorAI; Ollama itself remains
+  untouched.
+- The requested Luna/Mini/Spark model slugs are configuration inputs but are
+  not claimed available until a fresh Codex session successfully starts them.
+- Full-window two-stream conditioning will be replaced by a causal model in M03.
+- Milestones merge directly to `main` only after explicit approval.
+
+Human gates: on 2026-07-10 the user granted standing approval to stage, commit,
+merge to `main`, and push each M01-M09 milestone after its required checks and
+fresh verifier pass. This does not authorize claim-bearing `RESULTS.md`
+changes, GPU/QPU work, paid services, destructive artifact/database cleanup,
+or experiment cancellation.
 
 Latest validation:
 
 ```text
 python scripts/check_agent_setup.py
-PASS: Agent setup validation passed (2026-07-10).
+PASS: Agent setup validation passed.
+.venv/Scripts/python.exe -m pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py --basetemp .tmp/pytest-m01-focused-3
+PASS: 16 passed.
 python scripts/verify_changes.py --plan
-PASS: change-aware verification plan generated.
+PASS: selected agent-setup and agent-tests only; deleted helpers are not executed.
 python scripts/verify_changes.py --run
 PASS: agent-setup and agent-tests.
-python scripts/local_git_scribe.py --check
-PASS: local Ollama endpoint and configured model are ready.
-.venv/Scripts/python.exe -m pytest -q tests/test_agent_configuration.py tests/test_local_git_scribe.py tests/test_verify_changes.py --basetemp .tmp/pytest-agent-focused
-PASS: 20 passed.
-python scripts/verify_changes.py --hook --state-file .tmp/verify-changes/manual-hook.json --timeout 120
-PASS: Stop hook JSON allowed after safe CPU verification passed.
-.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-full-agent
-PASS: 169 passed, 1 skipped, 36 warnings.
-.venv/Scripts/python.exe %USERPROFILE%/.codex/skills/.system/skill-creator/scripts/quick_validate.py <each project skill>
-PASS: all seven project skills are valid.
-Forward test: fresh-context agent selected the new workflow/model/dashboard/experiment/research/verification skills and caught the dense TensorCircuit backend caveat.
-```
-
-## Template
-
-## Active plan: boundary-safe synthetic datasets
-
-Owner: parent agent
-Started: 2026-07-10
-Objective: prevent generated language-model samples and validation splits from
-crossing or sharing synthetic trajectory boundaries.
-
-Scope/non-goals: dataset dispatch, synthetic trajectory representation,
-training split/batching integration, and focused invariant tests. No experiment
-reruns, result reinterpretation, dashboard changes, GPU/QPU work, or claim
-changes.
-
-Acceptance evidence:
-
-- Synthetic datasets retain explicit trajectory boundaries through loading.
-- Train and validation partitions contain disjoint whole trajectories.
-- Sampled next-token windows stay within one trajectory.
-- Existing text-data behavior and the public `load_dataset` compatibility path
-  remain intact.
-- Focused data/integration tests and the full suite pass.
-
-Progress:
-
-- [x] Confirm the current flatten-then-split path and roadmap priority.
-- [x] Add the boundary-aware dataset bundle and compatibility wrapper.
-- [x] Route training through trajectory-safe splitting and batching.
-- [x] Add invariant/regression tests and run deterministic verification.
-- [x] Review the final diff and record outcome/evidence.
-
-Decisions/unknowns:
-
-- Preserve existing generators and `load_dataset()` callers; the new bundle
-  contract will reshape generated arrays from recorded config dimensions.
-- Text remains a single contiguous stream because it has no synthetic
-  trajectory identity.
-
-Human gates: no GPU/QPU work, experiment execution, conclusion strengthening,
-destructive cleanup, commit, push, or PR is approved.
-
-Outcome: synthetic datasets now preserve trajectory identity through loading,
-splitting, control generation, and training batch sampling. The legacy flat
-loader remains available for analysis callers. Follow-up research runs remain
-human-scoped and were not started.
-
-Latest validation:
-
-```text
-.venv/Scripts/python.exe -m pytest -q tests/test_config_data.py tests/test_quantum_data.py --basetemp .tmp/pytest-boundary-focused-2
-PASS: 21 passed, 2 JAX dtype warnings.
-python scripts/verify_changes.py --run
-PASS: agent-setup, agent-tests, and full python-tests (197.8 seconds).
+.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-m01-full
+PASS: 168 passed, 1 skipped, 36 existing JAX dtype warnings (187.38s).
 git diff --check
-PASS after removing plan trailing whitespace.
+PASS.
+codex --version
+UNVERIFIED: local codex.exe returned Windows Access is denied, so Luna/Mini/Spark
+runtime availability requires a fresh Codex session after this config is loaded.
+fresh verifier review
+NEEDS_WORK: exact model/profile runtime discovery is not proven; restart Codex,
+smoke-start every profile, and remove or disable any unsupported profile before
+delivery.
+post-restart profile smoke
+PASS: planner, terra_worker, luna_explorer, mini_worker, and spark_helper all
+started under their configured profile names and completed bounded read-only
+packets. Child contexts do not expose the underlying model identifier; static
+validation pins the requested strings and prevents silent repository-level
+substitution.
+post-restart fresh verifier
+PASS: M01 acceptance, scope, safety, profile startup, and deterministic
+evidence reviewed; no material acceptance criterion remains unproven.
 ```
 
-````markdown
+## Completed foundation
+
+### Agent operating system rollout
+
+Completed 2026-07-10 in commit `d4a02e6`. Installed scoped instructions,
+project skills, planner/explorer/verifier roles, deterministic verification,
+and human gates. Historical verification: 169 passed, 1 skipped.
+
+### Boundary-safe synthetic datasets
+
+Completed 2026-07-10 in commit `83c5fa1`. Synthetic datasets retain trajectory
+identity through loading, splitting, Markov-control generation, and batch
+sampling while the legacy flat adapter remains available. Historical focused
+verification: 21 passed; change-aware full Python verification passed.
+
+## Entry template
+
+```markdown
 ## Active plan: <objective>
 
-Owner: <parent agent or human>  
-Started: YYYY-MM-DD  
+Owner: <owner>
+Started: YYYY-MM-DD
 Objective: <one outcome>
 
-Scope/non-goals: <owned systems and explicit exclusions>
+Scope: <systems and explicit non-goals>
 
 Acceptance evidence:
 
@@ -157,15 +148,11 @@ Progress:
 
 - [ ] <ordered milestone>
 
-Decisions/unknowns:
+Decisions: <material decisions and unknowns>
 
-- <decision with reason, or open question>
-
-Human gates: <actions requiring approval and current approval state>
+Human gates: <approval state>
 
 Latest validation:
 
-```text
-<exact command and result>
+    <exact command and result>
 ```
-````

@@ -25,7 +25,24 @@ REQUIRED_AGENT_GUIDES = (
     "tests/AGENTS.md",
     "docs/AGENTS.md",
 )
-REQUIRED_CUSTOM_AGENTS = ("planner.toml", "explorer.toml", "verifier.toml")
+REQUIRED_CUSTOM_AGENTS = (
+    "planner.toml",
+    "explorer.toml",
+    "verifier.toml",
+    "terra_worker.toml",
+    "luna_explorer.toml",
+    "mini_worker.toml",
+    "spark_helper.toml",
+)
+EXPECTED_AGENT_MODELS = {
+    "planner": "gpt-5.6",
+    "explorer": "gpt-5.6-terra",
+    "verifier": "gpt-5.6",
+    "terra_worker": "gpt-5.6-terra",
+    "luna_explorer": "gpt-5.6-luna",
+    "mini_worker": "gpt-5.4-mini",
+    "spark_helper": "gpt-5.3-codex-spark",
+}
 IGNORED_PARTS = {
     ".git",
     ".tmp",
@@ -221,6 +238,9 @@ def _validate_codex_config(root: Path, errors: list[str]) -> None:
     if config is None:
         return
 
+    if config.get("model") != "gpt-5.6":
+        errors.append(".codex/config.toml: project root model must be gpt-5.6")
+
     features = config.get("features")
     if not isinstance(features, dict):
         errors.append(".codex/config.toml: [features] table is required")
@@ -311,6 +331,14 @@ def _validate_custom_agents(root: Path, errors: list[str]) -> None:
                 f"{relative}: model_reasoning_effort must be one of "
                 + ", ".join(sorted(VALID_REASONING_EFFORT))
             )
+        name = data.get("name")
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"{relative}: name must be a non-empty string")
+        elif name != path.stem:
+            errors.append(f"{relative}: name must match filename stem {path.stem!r}")
+        expected_model = EXPECTED_AGENT_MODELS.get(path.stem)
+        if expected_model is not None and data.get("model") != expected_model:
+            errors.append(f"{relative}: model must be {expected_model}")
 
 
 def validate_repo(root: Path) -> list[str]:

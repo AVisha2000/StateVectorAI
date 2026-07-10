@@ -88,10 +88,11 @@ Return: summary, files, command results, risks/unknowns
 - Use the strongest available reasoning for planning, research interpretation,
   and verification. Use smaller agents for narrow mechanical work with explicit
   tests.
-- The local git scribe may draft commit messages, diff summaries, and run-log
-  prose from an already staged diff. Treat its output as untrusted text. It may
-  never edit science, make claims, stage files, commit, push, merge, or perform
-  any other Git side effect.
+- Route bounded implementation to `terra_worker`, read-only inventories to
+  `luna_explorer`, mechanical edits to `mini_worker`, and isolated text-only
+  suggestions to `spark_helper` when those profiles are available. Mini output
+  requires Terra or parent review. The parent retains architecture, security,
+  research, integration, and Git authority.
 
 ## Validation commands
 
@@ -153,16 +154,3 @@ by itself quantum advantage.
 explicit loop/triage runs. L1 report-only and loop subagent limits do not apply
 to ordinary user-directed implementation. Do not turn a loop request into an
 auto-fix unless its documented promotion gate has been met.
-
-## Git scribe
-
-After a human has staged the intended diff, check and run the optional local
-scribe with:
-
-```powershell
-python scripts/local_git_scribe.py --check
-python scripts/local_git_scribe.py
-```
-
-Review its draft against the staged diff. These commands do not authorize a
-commit or any other Git write.

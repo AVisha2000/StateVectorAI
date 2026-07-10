@@ -40,21 +40,26 @@ The main agent is the orchestrator and final integrator. Project roles are:
   evidence, risk gates, dependencies, and disjoint work packets;
 - `explorer`: performs read-only repository or literature discovery and returns
   an evidence-bearing summary rather than raw search context;
-- built-in `worker`: implements one bounded packet with exclusive file
-  ownership and named validation;
+- `terra_worker`: implements one bounded packet with exclusive file ownership
+  and named validation;
+- `luna_explorer`: handles lower-cost read-only inventories, usage tracing,
+  test-gap analysis, and documentation maps;
+- `mini_worker`: performs only low-risk mechanical edits and requires Terra or
+  parent review;
+- `spark_helper`: provides isolated text-only suggestions and never edits;
 - `verifier`: starts fresh and read-only, inspects the final state and test
-  evidence, and defaults to rejection when evidence is absent;
-- local git scribe: an optional local-model helper that drafts commit text,
-  diff summaries, or run-log prose from the staged diff only.
+  evidence, and defaults to rejection when evidence is absent.
 
 The parent uses no more than two or three children at once. Parallelism is for
 independent or read-heavy work; sequential dependencies stay together. Because
 agents share a workspace, write ownership never overlaps, and only the parent
 integrates results.
 
-The local scribe is deliberately not a scientific or coding agent. It receives
-bounded text, its output is reviewed, and its script cannot stage, commit,
-push, merge, edit research claims, or acquire additional authority.
+The main agent uses GPT-5.6 as the root orchestrator. Planner and verifier work
+remain on GPT-5.6, Terra is the default implementation tier, Luna handles
+read-only discovery, Mini handles reviewed mechanical work, and Spark is
+restricted to text-only assistance. If a configured model is unavailable, the
+runtime must report that failure rather than silently substitute another tier.
 
 ### 4. Deterministic verification
 
@@ -119,17 +124,6 @@ Run the selected deterministic checks after a change:
 python scripts/verify_changes.py --run
 ```
 
-Check local-scribe readiness and, only after a human has staged the intended
-diff, request a draft:
-
-```powershell
-python scripts/local_git_scribe.py --check
-python scripts/local_git_scribe.py
-```
-
-The draft is optional and untrusted. These commands do not authorize staging,
-committing, pushing, publishing, or merging.
-
 When agent configuration changes, restart the Codex session if the active
 surface does not hot-reload project agents or skill metadata. Validate from the
 same repository root used for normal work.
@@ -158,9 +152,5 @@ tool-specific capabilities:
 - The open [AGENTS.md format](https://agents.md/) and
   [reference repository](https://github.com/agentsmd/agents.md) support a
   portable root-plus-nested instruction hierarchy.
-- Ollama's [local API documentation](https://docs.ollama.com/api/introduction)
-  and [repository](https://github.com/ollama/ollama) provide the optional local
-  inference boundary used by the git scribe.
-
 These sources are design inputs, not dependencies. Deterministic repository
 tests and the QLLM human gates remain authoritative for this project.
