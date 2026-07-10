@@ -18,7 +18,7 @@ from flax import serialization, traverse_util
 from flax.training.train_state import TrainState
 
 from ..config import ExperimentConfig, TrainConfig, to_flat_dict
-from ..data.datasets import load_dataset
+from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
 from ..tracking import ExperimentTracker, log_quantum_diagnostics
@@ -143,8 +143,9 @@ def fit(
     Returns dict with the final TrainState, model, tokenizer, and a JSON-able
     summary (also written to ``results/<run_name>/summary.json``).
     """
-    ids, tokenizer = load_dataset(cfg.data)
-    train_ids, val_ids = train_val_split(ids, cfg.data.val_fraction)
+    dataset = load_dataset_bundle(cfg.data)
+    tokenizer = dataset.tokenizer
+    train_ids, val_ids = train_val_split(dataset.ids, cfg.data.val_fraction)
 
     model, model_cfg = build_model(cfg.model, vocab_size=tokenizer.vocab_size)
 

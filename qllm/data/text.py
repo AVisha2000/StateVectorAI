@@ -58,6 +58,11 @@ class CharTokenizer:
 
 
 def train_val_split(ids: np.ndarray, val_fraction: float = 0.1):
+    if ids.ndim == 2:
+        n_val = max(1, int(ids.shape[0] * val_fraction))
+        if n_val >= ids.shape[0]:
+            raise ValueError("trajectory split requires at least one train trajectory")
+        return ids[:-n_val], ids[-n_val:]
     n_val = max(1, int(len(ids) * val_fraction))
     return ids[:-n_val], ids[-n_val:]
 
@@ -69,6 +74,16 @@ def sample_batch(
 
     Slice [:, :-1] as inputs and [:, 1:] as next-token targets.
     """
+    if ids.ndim == 2:
+        max_start = ids.shape[1] - seq_len
+        if max_start <= 0:
+            raise ValueError("seq_len must be shorter than each trajectory")
+        rows = rng.integers(0, ids.shape[0], size=batch_size)
+        starts = rng.integers(0, max_start, size=batch_size)
+        return np.stack([
+            ids[row, start : start + seq_len + 1]
+            for row, start in zip(rows, starts, strict=True)
+        ]).astype(np.int32)
     max_start = len(ids) - seq_len - 1
     starts = rng.integers(0, max_start, size=batch_size)
     return np.stack([ids[s : s + seq_len + 1] for s in starts]).astype(np.int32)

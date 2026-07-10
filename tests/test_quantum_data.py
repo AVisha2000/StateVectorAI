@@ -6,7 +6,7 @@ import dataclasses
 import numpy as np
 
 from qllm.config import DataConfig
-from qllm.data.datasets import load_dataset
+from qllm.data.datasets import load_dataset, load_dataset_bundle
 from qllm.data.quantum_seq import (
     IdentityTokenizer,
     markov_control_sequences,
@@ -67,6 +67,14 @@ def test_markov_control_matches_kgrams():
     assert tv < 0.1, f"bigram total-variation too large: {tv:.3f}"
 
 
+def test_markov_control_does_not_create_cross_trajectory_contexts():
+    ids = np.array([[0, 0, 0, 0], [1, 1, 1, 1]], dtype=np.int32)
+    twin = markov_control_sequences(ids, vocab_size=2, order=2, seed=4,
+                                    smoothing=0.0)
+    assert twin.shape == ids.shape
+    np.testing.assert_array_equal(twin, ids)
+
+
 def test_identity_tokenizer():
     tok = IdentityTokenizer(4)
     ids = tok.encode([0, 3, 1])
@@ -95,6 +103,18 @@ def test_load_dataset_dispatch():
 
     text_ids, text_tok = load_dataset(DataConfig(corpus_path="__missing__"))
     assert text_tok.vocab_size > 2 and len(text_ids) > 100
+
+
+def test_synthetic_bundle_retains_trajectory_boundaries():
+    cfg = DataConfig(
+        kind="monitored_ising", gen_qubits=3, gen_measured=1,
+        gen_sequences=4, gen_len=24, gen_seed=17,
+    )
+    bundle = load_dataset_bundle(cfg)
+    assert bundle.is_trajectory_data
+    assert bundle.ids.shape == (4, 24)
+    flat, _ = load_dataset(cfg)
+    np.testing.assert_array_equal(flat, bundle.ids.reshape(-1))
 
 
 def test_model_complexity_prefers_own_kernel():

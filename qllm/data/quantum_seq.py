@@ -167,30 +167,39 @@ def markov_control_sequences(
     smoothing: float = 0.5,
 ) -> np.ndarray:
     """Order-k Markov twin of a token corpus: same k-gram statistics,
-    longer-range (incl. quantum-memory) correlations destroyed."""
+    longer-range (incl. quantum-memory) correlations destroyed.
+
+    A 2-D input is interpreted as independent trajectories. Transition counts
+    and generated contexts never span row boundaries, and the output preserves
+    the input shape.
+    """
     ids = np.asarray(quantum_ids, dtype=np.int64)
-    n = len(ids)
-    assert n > order + 1
+    original_shape = ids.shape
+    trajectories = ids[None, :] if ids.ndim == 1 else ids
+    if trajectories.ndim != 2 or trajectories.shape[1] <= order + 1:
+        raise ValueError("each trajectory must be longer than markov order + 1")
 
     # context -> next-token counts
     counts: dict[tuple, np.ndarray] = {}
-    for i in range(n - order):
-        ctx = tuple(ids[i : i + order])
-        if ctx not in counts:
-            counts[ctx] = np.zeros(vocab_size)
-        counts[ctx][ids[i + order]] += 1
+    for trajectory in trajectories:
+        for i in range(len(trajectory) - order):
+            ctx = tuple(trajectory[i : i + order])
+            if ctx not in counts:
+                counts[ctx] = np.zeros(vocab_size)
+            counts[ctx][trajectory[i + order]] += 1
 
     rng = np.random.default_rng(seed)
     uniform = np.full(vocab_size, 1.0 / vocab_size)
-    out = np.empty(n, dtype=np.int32)
-    out[:order] = ids[:order]
-    for i in range(order, n):
-        ctx = tuple(out[i - order : i])
-        c = counts.get(ctx)
-        if c is None:
-            p = uniform
-        else:
-            p = c + smoothing
-            p = p / p.sum()
-        out[i] = rng.choice(vocab_size, p=p)
-    return out
+    out = np.empty_like(trajectories, dtype=np.int32)
+    for row, trajectory in enumerate(trajectories):
+        out[row, :order] = trajectory[:order]
+        for i in range(order, len(trajectory)):
+            ctx = tuple(out[row, i - order : i])
+            c = counts.get(ctx)
+            if c is None:
+                p = uniform
+            else:
+                p = c + smoothing
+                p = p / p.sum()
+            out[row, i] = rng.choice(vocab_size, p=p)
+    return out.reshape(original_shape)

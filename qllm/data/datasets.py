@@ -6,6 +6,7 @@ config string.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -21,12 +22,24 @@ from .text import CharTokenizer, load_corpus
 DATASET_KINDS = ("text", "monitored_ising", "markov_control")
 
 
-def load_dataset(cfg: DataConfig):
-    """Return (ids: np.int32 array, tokenizer with vocab_size/encode/decode)."""
+@dataclass(frozen=True)
+class DatasetBundle:
+    """Token data with synthetic trajectory boundaries kept explicit."""
+
+    ids: np.ndarray
+    tokenizer: object
+
+    @property
+    def is_trajectory_data(self) -> bool:
+        return self.ids.ndim == 2
+
+
+def load_dataset_bundle(cfg: DataConfig) -> DatasetBundle:
+    """Load tokens, retaining one row per independent synthetic trajectory."""
     if cfg.kind == "text":
         text = load_corpus(cfg.corpus_path)
         tokenizer = CharTokenizer(text)
-        return tokenizer.encode(text), tokenizer
+        return DatasetBundle(tokenizer.encode(text), tokenizer)
 
     if cfg.kind == "seq_cancellation":
         from .seq_cancellation import seq_cancellation
@@ -39,14 +52,20 @@ def load_dataset(cfg: DataConfig):
         cache = cache_dir / f"{key}.npz"
         if cache.exists():
             payload = np.load(cache)
-            return payload["ids"].astype(np.int32), IdentityTokenizer(int(payload["vocab"]))
+            ids = payload["ids"].astype(np.int32)
+            return DatasetBundle(
+                ids.reshape(cfg.gen_sequences, cfg.gen_len),
+                IdentityTokenizer(int(payload["vocab"])),
+            )
         ids, vocab = seq_cancellation(
             n_sequences=cfg.gen_sequences, seq_len=cfg.gen_len,
             vocab_size=cfg.ctx_observables, parity_window=cfg.ctx_context_size,
             density=cfg.seq_cancel_density, seed=cfg.gen_seed)
         ids = np.asarray(ids, dtype=np.int32)
         np.savez(cache, ids=ids, vocab=vocab)
-        return ids, IdentityTokenizer(vocab)
+        return DatasetBundle(
+            ids.reshape(cfg.gen_sequences, cfg.gen_len), IdentityTokenizer(vocab)
+        )
 
     if cfg.kind == "interference":
         from .interference_task import interference_sequences
@@ -57,13 +76,19 @@ def load_dataset(cfg: DataConfig):
         cache = cache_dir / f"{key}.npz"
         if cache.exists():
             payload = np.load(cache)
-            return payload["ids"].astype(np.int32), IdentityTokenizer(int(payload["vocab"]))
+            ids = payload["ids"].astype(np.int32)
+            return DatasetBundle(
+                ids.reshape(cfg.gen_sequences, cfg.gen_len),
+                IdentityTokenizer(int(payload["vocab"])),
+            )
         ids, vocab = interference_sequences(
             n_sequences=cfg.gen_sequences, seq_len=cfg.gen_len,
             vocab_size=cfg.ctx_observables, seed=cfg.gen_seed)
         ids = np.asarray(ids, dtype=np.int32)
         np.savez(cache, ids=ids, vocab=vocab)
-        return ids, IdentityTokenizer(vocab)
+        return DatasetBundle(
+            ids.reshape(cfg.gen_sequences, cfg.gen_len), IdentityTokenizer(vocab)
+        )
 
     if cfg.kind == "contextual":
         from .contextual import contextual_parity_sequences
@@ -77,8 +102,11 @@ def load_dataset(cfg: DataConfig):
         if cache.exists():
             payload = np.load(cache)
             globals()["_LAST_CTX_MASK"] = payload["mask"]
-            return payload["ids"].astype(np.int32), IdentityTokenizer(
-                int(payload["vocab"]))
+            ids = payload["ids"].astype(np.int32)
+            return DatasetBundle(
+                ids.reshape(cfg.gen_sequences, cfg.gen_len),
+                IdentityTokenizer(int(payload["vocab"])),
+            )
         ids, vocab, mask = contextual_parity_sequences(
             n_sequences=cfg.gen_sequences, seq_len=cfg.gen_len,
             n_observables=cfg.ctx_observables,
@@ -87,13 +115,16 @@ def load_dataset(cfg: DataConfig):
         ids = np.asarray(ids, dtype=np.int32)
         np.savez(cache, ids=ids, vocab=vocab, mask=mask)
         globals()["_LAST_CTX_MASK"] = mask
-        return ids, IdentityTokenizer(vocab)
+        return DatasetBundle(
+            ids.reshape(cfg.gen_sequences, cfg.gen_len), IdentityTokenizer(vocab)
+        )
 
     if cfg.kind in ("monitored_ising", "markov_control"):
         cache_dir = Path("results/.data_cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
         key = (
-            f"{cfg.kind}_q{cfg.gen_qubits}_m{cfg.gen_measured}"
+            f"{cfg.kind}{'_boundary_v2' if cfg.kind == 'markov_control' else ''}"
+            f"_q{cfg.gen_qubits}_m{cfg.gen_measured}"
             f"_s{cfg.gen_sequences}_l{cfg.gen_len}"
             f"_zz{cfg.gen_theta_zz:.4f}_x{cfg.gen_theta_x:.4f}"
             f"_spt{cfg.gen_steps_per_token}_seed{cfg.gen_seed}"
@@ -102,8 +133,10 @@ def load_dataset(cfg: DataConfig):
         cache = cache_dir / f"{key}.npz"
         if cache.exists():
             payload = np.load(cache)
-            return payload["ids"].astype(np.int32), IdentityTokenizer(
-                int(payload["vocab"])
+            ids = payload["ids"].astype(np.int32)
+            return DatasetBundle(
+                ids.reshape(cfg.gen_sequences, cfg.gen_len),
+                IdentityTokenizer(int(payload["vocab"])),
             )
 
         ids, vocab = monitored_ising_sequences(
@@ -117,11 +150,20 @@ def load_dataset(cfg: DataConfig):
             seed=cfg.gen_seed,
         )
         if cfg.kind == "markov_control":
+            ids = ids.reshape(cfg.gen_sequences, cfg.gen_len)
             ids = markov_control_sequences(
                 ids, vocab, order=cfg.markov_order, seed=cfg.gen_seed + 1
             )
         ids = np.asarray(ids, dtype=np.int32)
         np.savez(cache, ids=ids, vocab=vocab)
-        return ids, IdentityTokenizer(vocab)
+        return DatasetBundle(
+            ids.reshape(cfg.gen_sequences, cfg.gen_len), IdentityTokenizer(vocab)
+        )
 
     raise ValueError(f"Unknown data kind '{cfg.kind}'. Options: {DATASET_KINDS}")
+
+
+def load_dataset(cfg: DataConfig):
+    """Compatibility API returning a flat token stream and tokenizer."""
+    bundle = load_dataset_bundle(cfg)
+    return bundle.ids.reshape(-1), bundle.tokenizer

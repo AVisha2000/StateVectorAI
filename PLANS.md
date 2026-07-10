@@ -25,8 +25,8 @@ material decision or completed validation step.
 
 ## Active plan: agent operating system rollout
 
-Owner: parent agent  
-Started: 2026-07-10  
+Owner: parent agent
+Started: 2026-07-10
 Objective: make efficient, evidence-first Codex orchestration the repository
 default without giving agents authority over science, compute spend, or Git
 publication.
@@ -84,6 +84,61 @@ Forward test: fresh-context agent selected the new workflow/model/dashboard/expe
 ```
 
 ## Template
+
+## Active plan: boundary-safe synthetic datasets
+
+Owner: parent agent
+Started: 2026-07-10
+Objective: prevent generated language-model samples and validation splits from
+crossing or sharing synthetic trajectory boundaries.
+
+Scope/non-goals: dataset dispatch, synthetic trajectory representation,
+training split/batching integration, and focused invariant tests. No experiment
+reruns, result reinterpretation, dashboard changes, GPU/QPU work, or claim
+changes.
+
+Acceptance evidence:
+
+- Synthetic datasets retain explicit trajectory boundaries through loading.
+- Train and validation partitions contain disjoint whole trajectories.
+- Sampled next-token windows stay within one trajectory.
+- Existing text-data behavior and the public `load_dataset` compatibility path
+  remain intact.
+- Focused data/integration tests and the full suite pass.
+
+Progress:
+
+- [x] Confirm the current flatten-then-split path and roadmap priority.
+- [x] Add the boundary-aware dataset bundle and compatibility wrapper.
+- [x] Route training through trajectory-safe splitting and batching.
+- [x] Add invariant/regression tests and run deterministic verification.
+- [x] Review the final diff and record outcome/evidence.
+
+Decisions/unknowns:
+
+- Preserve existing generators and `load_dataset()` callers; the new bundle
+  contract will reshape generated arrays from recorded config dimensions.
+- Text remains a single contiguous stream because it has no synthetic
+  trajectory identity.
+
+Human gates: no GPU/QPU work, experiment execution, conclusion strengthening,
+destructive cleanup, commit, push, or PR is approved.
+
+Outcome: synthetic datasets now preserve trajectory identity through loading,
+splitting, control generation, and training batch sampling. The legacy flat
+loader remains available for analysis callers. Follow-up research runs remain
+human-scoped and were not started.
+
+Latest validation:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_config_data.py tests/test_quantum_data.py --basetemp .tmp/pytest-boundary-focused-2
+PASS: 21 passed, 2 JAX dtype warnings.
+python scripts/verify_changes.py --run
+PASS: agent-setup, agent-tests, and full python-tests (197.8 seconds).
+git diff --check
+PASS after removing plan trailing whitespace.
+```
 
 ````markdown
 ## Active plan: <objective>

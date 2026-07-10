@@ -105,3 +105,18 @@ def test_split_and_batch(tiny_text):
     # determinism under a fixed seed
     again = sample_batch(np.random.default_rng(0), train, 4, 8)
     np.testing.assert_array_equal(batch, again)
+
+
+def test_trajectory_split_and_batches_never_cross_boundaries():
+    trajectories = np.stack([
+        np.arange(20, dtype=np.int32) + 100 * row for row in range(5)
+    ])
+    train, val = train_val_split(trajectories, 0.4)
+    assert train.shape == (3, 20)
+    assert val.shape == (2, 20)
+    assert set(train[:, 0]).isdisjoint(set(val[:, 0]))
+
+    batch = sample_batch(np.random.default_rng(3), train, batch_size=32, seq_len=8)
+    assert batch.shape == (32, 9)
+    assert np.all(np.diff(batch, axis=1) == 1)
+    assert np.all(batch[:, -1] // 100 == batch[:, 0] // 100)
