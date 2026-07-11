@@ -44,10 +44,10 @@ Progress:
   (`codex/m06-safety-resources`), delivered to `main` in commit `182192c`.
 - [x] M07 Local scaling architecture (`codex/m07-local-scaling`), delivered
   to `main` in commit `dcec571`.
-- [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
-- [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
+- [x] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`), delivered on cloud branch in commit `f3daa85`.
+- [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`): in progress on cloud handoff.
 
-Current milestone: M08 dashboard and UI evidence completion.
+Current milestone: M09 documentation and completion audit.
 
 M08 acceptance evidence:
 
@@ -76,7 +76,39 @@ M08 progress:
 - [x] Implement backend/API integration with regression tests.
 - [x] Implement frontend evidence presentation and resilient route states.
 - [x] Run backend/frontend/queue/browser and full CPU verification.
-- [ ] Obtain a fresh verifier PASS and deliver M08 under standing Git approval.
+- [x] Obtain a fresh verifier PASS and deliver M08 under standing Git approval.
+
+
+M09 acceptance evidence:
+
+- Researcher onboarding explains the claim ladder, required controls, resource
+  accounting, dashboard vocabulary, and benchmark entry points without
+  strengthening existing scientific conclusions.
+- Engineer onboarding documents safe extension paths for models, synthetic
+  tasks, benchmarks, dashboard evidence cards, and research summaries.
+- Documentation links are current, roles of README/DATA/RESULTS/research-map/
+  dashboard docs remain distinct, and claim-bearing wording stays cautious.
+- Static documentation checks, agent setup, change-aware verification, and any
+  focused docs/research tests pass before delivery.
+
+M09 progress:
+
+- [x] Resume plan from cloud while desktop is offline; worktree was clean at
+  handoff.
+- [x] Add researcher onboarding claim ladder and research-question map.
+- [x] Add engineer development guide for common extension paths and checks.
+- [x] Align dashboard evidence vocabulary with backend-authoritative warnings.
+- [x] Run documentation-focused and change-aware verification.
+- [x] Review final diff before commit and PR record.
+
+M09 design constraints:
+
+- Do not edit `RESULTS.md` or promote any claim level in this milestone unless
+  separately routed through research-protocol review and human approval.
+- Documentation must preserve negative/null results and describe dashboards as
+  evidence surfaces, not proof of advantage.
+- No GPU/QPU run, paid service, destructive artifact migration, remote exposure,
+  or experiment cancellation is part of M09.
 
 M08 design constraints:
 

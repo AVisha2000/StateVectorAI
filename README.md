@@ -73,6 +73,38 @@ python scripts/compare_runs.py
 pytest -q
 ```
 
+
+## Research workflow
+
+QLLM treats a claim as something to earn, not a dashboard label. Use the
+following ladder when planning or reading an experiment:
+
+- A single fair candidate/baseline pair is smoke evidence only.
+- Three or more fair pairs can support paired analysis when seeds, data,
+  steps, evaluation cadence, device target, and preprocessing are matched.
+- Quantum-component comparisons need explicit classical controls: matched
+  analogues where possible, frozen/random-circuit controls for trainability,
+  Markov controls for synthetic long-memory data, and resource accounting for
+  state dimension, circuit calls, wall time, and device/backend.
+- Missing controls, side-information metrics, unmatched parameters, or
+  negligible gains at high cost should be reported as limitations before any
+  positive interpretation.
+
+Quick map from question to starting point:
+
+| Question | Start with |
+| --- | --- |
+| Does a quantum layer train at all? | `scripts/train.py` with a matched classical config and frozen/random controls. |
+| Does monitored quantum data contain long memory? | `DATA.md` screens plus Markov-control synthetic configs. |
+| Does a result survive multiple seeds? | Dashboard studies and `qllm.research_protocol.paired_stats`. |
+| Is a dashboard comparison safe to read? | Warning panels, fairness mismatches, claim status, and resource ledger fields. |
+| How do I add a component? | `docs/DEVELOPMENT.md`. |
+
+```text
+data/config -> train loop -> immutable run manifest/checkpoints -> SQLite results DB
+          -> dashboard comparisons/studies -> research-protocol claim review
+```
+
 ## AI-assisted development
 
 Start Codex from the repository root so it discovers the scoped `AGENTS.md`
