@@ -144,6 +144,46 @@ def test_shared_validation_uses_canonical_registries():
     assert payload["circuit_ansatz"] == ["hardware_efficient", "reuploading"]
 
 
+@pytest.mark.parametrize(
+    ("quantum", "expected"),
+    [
+        (
+            {"backend": "tensorcircuit", "device": "default.qubit"},
+            "requires device='statevector'",
+        ),
+        (
+            {
+                "backend": "tensorcircuit",
+                "device": "statevector",
+                "diff_method": "parameter-shift",
+            },
+            "supports only diff_method='backprop'",
+        ),
+        (
+            {"backend": "pennylane", "shots": 100},
+            "finite-shot execution does not support diff_method='backprop'",
+        ),
+    ],
+)
+def test_config_validation_rejects_backend_semantic_mismatches(
+    quantum, expected
+):
+    errors = validate_config(from_dict({"model": {"quantum": quantum}}))
+    assert any(expected in error for error in errors)
+
+
+def test_config_validation_accepts_dense_tensorcircuit_mode():
+    cfg = from_dict({
+        "model": {
+            "quantum": {
+                "backend": "tensorcircuit",
+                "device": "statevector",
+            },
+        },
+    })
+    assert validate_config(cfg) == []
+
+
 def test_validation_reports_numeric_and_semantic_errors():
     cfg = from_dict({
         "model": {
