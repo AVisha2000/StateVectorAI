@@ -47,8 +47,13 @@ Progress:
 - [x] Run detail surface (RunDetail.jsx) + clickable Runs rows + `/runs/:id` route
 - [x] Verdicts surface (list + `/verdicts/:id` detail) + Scaling view (`/runs/scaling/:groupId`)
 - [x] Bench surface with real POST /api/jobs queueing (CPU-default, GPU-gated)
-- [x] Verify: npm test 48/48, npm run build clean, browser QA (routing + graceful states + both themes)
-- [ ] Post UI log note to docs/BUILD_COORDINATION.md on main — PENDING USER APPROVAL (git push to shared main)
+- [x] Verify: npm test, npm run build clean, browser QA (routing + graceful states + both themes)
+- [x] Post UI log note to docs/BUILD_COORDINATION.md on main (`3a6678d`)
+- [x] Wire `/api/stream/jobs` SSE (change-token dedupe → invalidate; polling fallback)
+- [x] Align to shipped contracts: diagnostics per-dimension `{status,value,reason}`;
+      persistent `/verdicts` + `/verdicts/{id}` store (canonical claim vs derived
+      assessment kept distinct); `/status` five-field shape (System running KPI)
+- [ ] Remaining backend-blocked: OpenAPI type codegen once `openapi.json` reaches `main`
 
 Decisions: render backend claim data verbatim (evidence_ladder/verdict/claim);
 no composite advantage score in the scorecard; wall-clock labeled simulator cost;
@@ -63,11 +68,14 @@ environment (no venv); reported as an environment limitation, not a product gap.
 
 Latest validation:
 
-    npm test                → 48 pass / 0 fail (node --test)
-    npm run build           → built in ~3.3s, dist emitted, no errors
+    npm test                → 54 pass / 0 fail (node --test)
+    npm run build           → built in ~3.1s, dist emitted, no errors
     browser (dev server, no backend): shell + all new routes render, legacy
-      /launch→/bench redirect works, graceful empty/error states everywhere,
-      no console errors, light+dark themes verified
+      /launch→/bench redirect works, Verdicts store→comparison fallback,
+      graceful empty/error states everywhere, no console errors, both themes
+    Branch `ui-redesign` pushed to origin (`ad2a7c1`, force-with-lease over the
+      pre-rebase Phase 1 tip). Backend endpoints live on `backend-enhancements`,
+      not yet on `main`, so real-data wiring is contract-verified, not run here.
 
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 
