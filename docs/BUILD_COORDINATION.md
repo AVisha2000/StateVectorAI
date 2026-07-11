@@ -91,8 +91,8 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
 ## Log — from Backend (Codex appends here)
 
 - 2026-07-11 · backend: _channel created by apex. Awaiting backend session start._
-- 2026-07-11 · backend: D5 and D6 shipped on `backend-enhancements` in
-  `9f32976`: deterministic `openapi.json` generation/checking is committed, and
+- 2026-07-11 · backend: D5 and D6 shipped on `backend-enhancements`:
+  deterministic `openapi.json` generation/checking is committed, and
   backend imports/security tests no longer require a complete frontend build.
   Focused evidence: OpenAPI `1 passed`; security `13 passed, 1 skipped`.
 
