@@ -52,6 +52,19 @@ export default function RunDetail() {
   const summaryDiag = tests?.summary?.quantum_diagnostics
   const diagValues = useMemo(() => diagnosticValues(diag?.diagnostics, summaryDiag), [diag, summaryDiag])
 
+  // Merge run warnings with the diagnostics endpoint's own non-advantage notes,
+  // de-duplicated by code. Hooks must run before any early return below.
+  const warnings = useMemo(() => {
+    const all = [...(data?.interpretation_warnings || []), ...(diag?.interpretation_warnings || [])]
+    const seen = new Set()
+    return all.filter((w) => {
+      const key = w?.code || w?.title
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [data, diag])
+
   if (isError) return <ErrorState error={error} label="Could not load this run." />
   if (isLoading) return <Loading label="Loading run…" />
   if (!job) return <ErrorState error={{ message: `Run ${id} not found.` }} label="Run not found." />
@@ -65,19 +78,6 @@ export default function RunDetail() {
   const q = comparison?.candidate?.final_run?.val_ppl
   const c = comparison?.baseline?.final_run?.val_ppl
   const vsTwin = typeof q === 'number' && typeof c === 'number' && c !== 0 ? (q - c) / Math.abs(c) : null
-
-  // Merge run warnings with the diagnostics endpoint's own non-advantage notes,
-  // de-duplicated by code.
-  const warnings = useMemo(() => {
-    const all = [...(data?.interpretation_warnings || []), ...(diag?.interpretation_warnings || [])]
-    const seen = new Set()
-    return all.filter((w) => {
-      const key = w?.code || w?.title
-      if (!key || seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-  }, [data, diag])
 
   return (
     <>
