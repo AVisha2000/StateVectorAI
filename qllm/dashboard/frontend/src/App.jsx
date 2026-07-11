@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { NAV_ITEMS, THEME_STORAGE_KEY, resolveInitialTheme } from './appShell.js'
 
 function initialTheme() {
-  const saved = localStorage.getItem('qllm-theme')
-  if (saved === 'light' || saved === 'dark') return saved
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  const saved = globalThis.localStorage?.getItem?.(THEME_STORAGE_KEY)
+  const prefersLight = globalThis.matchMedia?.('(prefers-color-scheme: light)').matches === true
+  return resolveInitialTheme(saved, prefersLight)
 }
 
 export default function App() {
@@ -12,7 +13,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('qllm-theme', theme)
+    localStorage.setItem(THEME_STORAGE_KEY, theme)
   }, [theme])
 
   const nextTheme = theme === 'dark' ? 'light' : 'dark'
@@ -32,15 +33,9 @@ export default function App() {
           <b>{nextTheme}</b>
         </button>
         <nav className="nav">
-          <NavLink to="/" end>Overview</NavLink>
-          <NavLink to="/explore">Explore</NavLink>
-          <NavLink to="/experiments">Experiments</NavLink>
-          <NavLink to="/models">Model Builder</NavLink>
-          <NavLink to="/studies">Studies</NavLink>
-          <NavLink to="/results">Results</NavLink>
-          <NavLink to="/datasets">Datasets & Tasks</NavLink>
-          <NavLink to="/gpu">System</NavLink>
-          <NavLink to="/docs">Docs</NavLink>
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end}>{item.label}</NavLink>
+          ))}
         </nav>
       </aside>
       <main className="main"><Outlet /></main>

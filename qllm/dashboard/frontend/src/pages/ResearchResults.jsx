@@ -5,6 +5,12 @@ import {
   Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { api } from '../api'
+import {
+  chartAxisTick,
+  chartGridStroke,
+  chartSeries,
+  chartTooltipProps,
+} from '../chartTheme'
 import EvidenceWarnings from '../components/EvidenceWarnings'
 import RunLedger from '../components/RunLedger'
 
@@ -115,11 +121,11 @@ export default function ResearchResults({ mode }) {
               {charts.length > 0 && (
                 <ResponsiveContainer width="100%" height="92%">
                   <BarChart data={charts} margin={{ top: 8, right: 16, bottom: 54, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" angle={-30} textAnchor="end" height={60} tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip />
-                    <Bar dataKey="val_ppl" name="val ppl" fill="#2f81f7" />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                    <XAxis dataKey="label" angle={-30} textAnchor="end" height={60} tick={chartAxisTick} />
+                    <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
+                    <Bar dataKey="val_ppl" name="val ppl" fill={chartSeries.blue} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -129,11 +135,11 @@ export default function ResearchResults({ mode }) {
               {charts.length > 0 && (
                 <ResponsiveContainer width="100%" height="92%">
                   <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="params" name="params" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis dataKey="val_ppl" name="val ppl" tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                    <Scatter data={charts} fill="#a371f7" />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                    <XAxis dataKey="params" name="params" tick={chartAxisTick} />
+                    <YAxis dataKey="val_ppl" name="val ppl" tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
+                    <Scatter data={charts} fill={chartSeries.accent} />
                   </ScatterChart>
                 </ResponsiveContainer>
               )}
@@ -143,11 +149,11 @@ export default function ResearchResults({ mode }) {
               {charts.length > 0 && (
                 <ResponsiveContainer width="100%" height="92%">
                   <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="wall" name="wall seconds" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis dataKey="val_ppl" name="val ppl" tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                    <Scatter data={charts} fill="#3fb950" />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                    <XAxis dataKey="wall" name="wall seconds" tick={chartAxisTick} />
+                    <YAxis dataKey="val_ppl" name="val ppl" tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
+                    <Scatter data={charts} fill={chartSeries.green} />
                   </ScatterChart>
                 </ResponsiveContainer>
               )}
@@ -157,11 +163,11 @@ export default function ResearchResults({ mode }) {
               {hasQuantumScale && (
                 <ResponsiveContainer width="100%" height="92%">
                   <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="qubits" name="qubits" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis dataKey="val_ppl" name="val ppl" tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                    <Scatter data={charts} fill="#d29922" />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                    <XAxis dataKey="qubits" name="qubits" tick={chartAxisTick} />
+                    <YAxis dataKey="val_ppl" name="val ppl" tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
+                    <Scatter data={charts} fill={chartSeries.amber} />
                   </ScatterChart>
                 </ResponsiveContainer>
               )}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 import EvidenceSummary from '../components/EvidenceSummary'
 import EvidenceWarnings from '../components/EvidenceWarnings'
 import RunLedger from '../components/RunLedger'
@@ -75,10 +76,10 @@ export default function Run() {
           <div className="pill" style={{ marginBottom: 8 }}>training curve</div>
           <ResponsiveContainer width="100%" height="90%">
             <LineChart data={series}>
-              <XAxis dataKey="step" tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
-              <Line type="monotone" dataKey="train_loss" stroke="#2f81f7" dot={false} strokeWidth={2} />
+              <XAxis dataKey="step" tick={chartAxisTick} />
+              <YAxis tick={chartAxisTick} />
+              <Tooltip {...chartTooltipProps} />
+              <Line type="monotone" dataKey="train_loss" stroke={chartSeries.blue} dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>

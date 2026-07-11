@@ -142,8 +142,8 @@ can be smoke-tested outside this restricted environment.
 
 Owner: parent agent
 Started: 2026-07-11
-Status: all twelve engineering backlog phases and the approved phase-3
-historical correction are complete; open UI issue closeout is being audited
+Status: all twelve engineering backlog phases, the approved phase-3 historical
+correction, and the GitHub issue #1 UI closure patch are complete
 Objective: close the remaining acceptance gaps in the requested engineering
 backlog, in priority order, without reimplementing behavior that is already
 present and freshly verified.
@@ -158,8 +158,8 @@ remote dashboard exposure, claim promotion, artifact or database rewrite was
 part of this work. Sol approved the exact CPU-only optional dependency after a
 dry run proved that it would not replace JAX/JAXLIB or alter CUDA.
 
-Current phase: phase 12 and the approved phase-3 historical correction are
-closed. The remaining repository work is the open UI issue closeout audit.
+Current phase: implementation and verification are closed. The issue #1 patch
+is ready for delivery and remote issue closeout.
 
 Phase 1 progress:
 
@@ -511,6 +511,63 @@ fresh Sol research-sensitive verifier
 PASS: wording is strictly weaker and conservative, numeric/table/plot
 provenance is preserved, the metric contract matches the claim ledger and
 research map, and no claim is promoted.
+```
+
+UI issue #1 closure packet:
+
+- **Objective:** close the remaining acceptance gaps in the open Quantum
+  Advantage Research Cockpit issue without redesigning unrelated routes or
+  weakening research evidence contracts.
+- **Scope:** render the existing backend study/group slice on Explore; replace
+  dark-only chart/quantum-band colors with light/dark tokens; make `npm test`
+  execute every checked-in frontend test; add small pure contract tests for
+  theme selection, navigation, study filtering, and bounded theme-safe chart
+  styles. Existing routes, API schemas, queue behavior, and model specs remain
+  unchanged.
+- **Acceptance evidence:** a selected domain visibly includes its related
+  study/groups and canonical dataset/task links; saved theme and first-load
+  system preference remain deterministic; tooltips, ticks, bands, tables, and
+  cards are readable in both themes; all frontend tests are discovered; build
+  and focused dashboard tests pass; desktop and narrow browser QA covers both
+  themes with no console errors or page-level overflow.
+- **Risks:** linking an inferred group to a nonexistent first-class study,
+  using CSS variables unsupported by chart SVG attributes, reducing dark-theme
+  contrast while fixing light mode, or creating a test command that behaves
+  differently on Windows/Linux. Group cards therefore link only to canonical
+  dataset/task routes, and the test command names all checked-in files through
+  Node's native discovery.
+- **Validation:** focused Node tests, production frontend build, Explore/backend
+  payload regressions, change-aware verification, dual-theme responsive
+  browser inspection, diff review, and fresh independent verification before
+  posting evidence and closing GitHub issue #1.
+- **Progress:** complete. Disjoint theme/chart and Explore/test packets were
+  integrated; focused, change-aware, backend, build, responsive browser, and
+  fresh-verifier checks passed.
+
+UI issue #1 validation:
+
+```text
+npm.cmd test  (qllm/dashboard/frontend)
+PASS: Node native discovery ran all 22 checked-in API, evidence, model-config,
+app-shell, Explore, and chart/theme tests.
+npm.cmd run build  (qllm/dashboard/frontend)
+PASS: 864 modules transformed; only the existing >500 kB chunk advisory.
+.venv/Scripts/python.exe -m pytest -q tests/test_dashboard_lab.py
+--basetemp .tmp/pytest-ui-issue-dashboard-full
+PASS: 74 passed.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
+PASS: agent setup, agent tests, dashboard frontend tests, and production build.
+isolated loopback browser QA on 127.0.0.1:8012
+PASS: selected-domain study/group cards and canonical dataset/task links render;
+dark/light body, SVG tick, tooltip, series, and quantum-band tokens switch;
+desktop document width equals client width; at 390x844 the document/client are
+375px and the 1266px result table remains in its 341px local scroller; both
+theme chart screenshots are readable; console logs are empty. The temporary
+viewport override was reset, tab closed, and server stopped.
+fresh gap-finding verifier
+PASS: all three previously reported failures are closed, no unrelated backend,
+route, queue, model, database, or research-contract file changed, and GitHub
+issue #1 is safe to close after this exact patch is delivered with evidence.
 ```
 
 ## Active plan: claim-guided research continuation

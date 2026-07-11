@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Line, LineChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 import ModelDiagram from '../components/ModelDiagram'
 import EvidenceSummary from '../components/EvidenceSummary'
 import EvidenceWarnings from '../components/EvidenceWarnings'
@@ -200,12 +201,12 @@ export default function Comparison() {
             {series.length ? (
               <ResponsiveContainer width="100%" height="92%">
                 <LineChart data={series} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <XAxis dataKey="step" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                  <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                  <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+                  <XAxis dataKey="step" tick={chartAxisTick} />
+                  <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+                  <Tooltip {...chartTooltipProps} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="candidate" name="candidate" stroke="#a371f7" dot={false} strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="baseline" name="baseline" stroke="#2f81f7" dot={false} strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="candidate" name="candidate" stroke={chartSeries.accent} dot={false} strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="baseline" name="baseline" stroke={chartSeries.blue} dot={false} strokeWidth={2} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
             ) : <p className="muted">Curves appear once either linked run starts logging.</p>}

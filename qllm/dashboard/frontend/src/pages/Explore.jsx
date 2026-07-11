@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { studiesForDomain, taskLinkForStudy } from '../exploreView.js'
 
 function fmt(value, digits = 3) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -41,6 +42,10 @@ export default function Explore() {
 
   const domainDatasets = useMemo(() => (
     (payload?.datasets || []).filter((dataset) => !selectedDomain || dataset.domains.includes(selectedDomain.name))
+  ), [payload, selectedDomain])
+
+  const domainStudies = useMemo(() => (
+    studiesForDomain(payload?.studies, selectedDomain).slice(0, 8)
   ), [payload, selectedDomain])
 
   const domainRuns = useMemo(() => (
@@ -129,6 +134,27 @@ export default function Explore() {
                   </Link>
                 ))}
                 {domainDatasets.length === 0 && <p className="muted">No datasets found for this domain.</p>}
+              </div>
+            </section>
+
+            <section className="panel">
+              <h3>Studies And Groups</h3>
+              <div className="research-card-list">
+                {domainStudies.map((study) => {
+                  const taskLink = taskLinkForStudy(study, domainTasks)
+                  return (
+                    <div className="research-card" key={study.id}>
+                      <b className="mono">{study.id}</b>
+                      <span>{study.task} - {study.dataset}</span>
+                      <span>{(study.models || []).join(', ') || 'models pending'} - {countLabel(study)}</span>
+                      <div className="header-actions">
+                        <Link className="small-link" to={`/explore/dataset/${encodeURIComponent(study.dataset)}`}>dataset results</Link>
+                        {taskLink && <Link className="small-link" to={taskLink}>task results</Link>}
+                      </div>
+                    </div>
+                  )
+                })}
+                {domainStudies.length === 0 && <p className="muted">No studies or comparison groups inferred yet.</p>}
               </div>
             </section>
           </div>

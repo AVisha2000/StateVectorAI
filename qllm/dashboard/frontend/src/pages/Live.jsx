@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 
 export default function Live() {
   const [runs, setRuns] = useState([])
@@ -97,12 +98,12 @@ export default function Live() {
           <div className="pill" style={{ marginBottom: 8 }}>{sel.run_name} - live curve</div>
           <ResponsiveContainer width="100%" height="90%">
             <LineChart data={series} margin={{ top: 6, right: 16, bottom: 6, left: 0 }}>
-              <XAxis dataKey="step" tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <YAxis yAxisId="l" tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <YAxis yAxisId="r" orientation="right" tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
-              <Line yAxisId="l" type="monotone" dataKey="train_loss" stroke="#2f81f7" dot={false} strokeWidth={2} />
-              <Line yAxisId="r" type="monotone" dataKey="val_ppl" stroke="#a371f7" dot={false} strokeWidth={2} />
+              <XAxis dataKey="step" tick={chartAxisTick} />
+              <YAxis yAxisId="l" tick={chartAxisTick} />
+              <YAxis yAxisId="r" orientation="right" tick={chartAxisTick} />
+              <Tooltip {...chartTooltipProps} />
+              <Line yAxisId="l" type="monotone" dataKey="train_loss" stroke={chartSeries.blue} dot={false} strokeWidth={2} />
+              <Line yAxisId="r" type="monotone" dataKey="val_ppl" stroke={chartSeries.accent} dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>

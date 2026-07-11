@@ -4,6 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 import ModelDiagram from '../components/ModelDiagram'
 import EvidenceSummary from '../components/EvidenceSummary'
 import EvidenceWarnings from '../components/EvidenceWarnings'
@@ -74,9 +75,9 @@ function CurvePanel({ title, data, lines, empty }) {
       <div className="pill chart-title">{title}</div>
       <ResponsiveContainer width="100%" height="92%">
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-          <XAxis dataKey="step" tick={{ fill: '#8b949e', fontSize: 11 }} />
-          <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-          <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+          <XAxis dataKey="step" tick={chartAxisTick} />
+          <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+          <Tooltip {...chartTooltipProps} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {lines.map((line) => (
             <Line
@@ -288,17 +289,17 @@ export default function RunWorkspace() {
               title="Loss curves"
               data={series}
               lines={[
-                { key: 'train_loss', name: 'train loss', color: '#2f81f7' },
-                { key: 'val_loss', name: 'val loss', color: '#a371f7' },
+                { key: 'train_loss', name: 'train loss', color: chartSeries.blue },
+                { key: 'val_loss', name: 'val loss', color: chartSeries.accent },
               ]}
             />
             <CurvePanel
               title="Validation and quantum diagnostics"
               data={series}
               lines={[
-                { key: 'val_ppl', name: 'val ppl', color: '#3fb950' },
-                { key: 'val_bpc', name: 'val bpc', color: '#d29922' },
-                { key: 'grad_norm_ratio', name: 'grad norm ratio', color: '#f778ba' },
+                { key: 'val_ppl', name: 'val ppl', color: chartSeries.green },
+                { key: 'val_bpc', name: 'val bpc', color: chartSeries.amber },
+                { key: 'grad_norm_ratio', name: 'grad norm ratio', color: chartSeries.pink },
               ]}
             />
           </div>
@@ -371,8 +372,8 @@ export default function RunWorkspace() {
               data={comparisonSeries}
               empty="Comparison curves appear once either linked run starts logging."
               lines={[
-                { key: 'candidate', name: 'candidate', color: '#a371f7' },
-                { key: 'baseline', name: 'classical baseline', color: '#2f81f7' },
+                { key: 'candidate', name: 'candidate', color: chartSeries.accent },
+                { key: 'baseline', name: 'classical baseline', color: chartSeries.blue },
               ]}
             />
           )}

@@ -4,6 +4,14 @@
   --accent: #a371f7; --accent2: #2f81f7; --good: #3fb950; --warn: #d29922;
   --danger: #f85149; --danger-text: #ffb4ae; --input-bg: #0d1117;
   --hover: #21262d; --badge-bg: #21262d; --plot-bg: #fff;
+  --chart-axis-text: #8b949e; --chart-grid: #30363d; --chart-cursor: #6e7681;
+  --chart-tooltip-bg: #161b22; --chart-tooltip-border: #30363d; --chart-tooltip-text: #e6edf3;
+  --chart-series-accent: #a371f7; --chart-series-blue: #2f81f7;
+  --chart-series-green: #3fb950; --chart-series-amber: #d29922; --chart-series-pink: #f778ba;
+  --band-light-bg: #1f6feb22; --band-light-text: #79c0ff;
+  --band-medium-bg: #d2992230; --band-medium-text: #f2cc60;
+  --band-heavy-bg: #fb850033; --band-heavy-text: #ffb86b;
+  --band-research-bg: #f8514933; --band-research-text: #ffb4ae;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   --sans: -apple-system, system-ui, "Segoe UI", sans-serif;
 }
@@ -13,6 +21,14 @@
   --accent: #8250df; --accent2: #0969da; --good: #1a7f37; --warn: #9a6700;
   --danger: #cf222e; --danger-text: #b42318; --input-bg: #ffffff;
   --hover: #eef2f6; --badge-bg: #eaeef2; --plot-bg: #ffffff;
+  --chart-axis-text: #57606a; --chart-grid: #d0d7de; --chart-cursor: #6e7781;
+  --chart-tooltip-bg: #ffffff; --chart-tooltip-border: #d0d7de; --chart-tooltip-text: #24292f;
+  --chart-series-accent: #8250df; --chart-series-blue: #0969da;
+  --chart-series-green: #1a7f37; --chart-series-amber: #9a6700; --chart-series-pink: #bf3989;
+  --band-light-bg: #ddf4ff; --band-light-text: #0550ae;
+  --band-medium-bg: #fff8c5; --band-medium-text: #7d4e00;
+  --band-heavy-bg: #fff1e5; --band-heavy-text: #953800;
+  --band-research-bg: #ffebe9; --band-research-text: #b42318;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
@@ -118,10 +134,10 @@ button.small { padding: 4px 8px; font-size: 12px; background: var(--hover); colo
 .selected-preset p, .panel > p { color: var(--muted); line-height: 1.5; }
 .panel-copy { color: var(--muted); line-height: 1.6; margin: 0 0 14px; }
 .quantum-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-.quantum-band.light { background: #1f6feb22; color: #79c0ff; }
-.quantum-band.medium { background: #d2992230; color: #f2cc60; }
-.quantum-band.heavy { background: #fb850033; color: #ffb86b; }
-.quantum-band.research { background: #f8514933; color: #ffb4ae; }
+.quantum-band.light { background: var(--band-light-bg); color: var(--band-light-text); }
+.quantum-band.medium { background: var(--band-medium-bg); color: var(--band-medium-text); }
+.quantum-band.heavy { background: var(--band-heavy-bg); color: var(--band-heavy-text); }
+.quantum-band.research { background: var(--band-research-bg); color: var(--band-research-text); }
 .field-help { display: block; color: var(--muted); font-size: 11px; margin-top: 6px; }
 .quantum-advice { display: grid; gap: 6px; margin-top: 14px; }
 .workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }

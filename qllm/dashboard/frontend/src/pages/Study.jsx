@@ -4,6 +4,7 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 import EvidenceSummary from '../components/EvidenceSummary'
 import EvidenceWarnings from '../components/EvidenceWarnings'
 
@@ -105,10 +106,10 @@ export default function Study() {
             {evidenceRows.length ? (
               <ResponsiveContainer width="100%" height="92%">
                 <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <XAxis dataKey="index" name="pair" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                  <YAxis dataKey="delta_val_ppl" name="candidate-baseline" tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                  <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
-                  <Scatter name="delta val ppl" data={evidenceRows} fill="#a371f7" />
+                  <XAxis dataKey="index" name="pair" tick={chartAxisTick} />
+                  <YAxis dataKey="delta_val_ppl" name="candidate-baseline" tick={chartAxisTick} domain={['auto', 'auto']} />
+                  <Tooltip {...chartTooltipProps} />
+                  <Scatter name="delta val ppl" data={evidenceRows} fill={chartSeries.accent} />
                 </ScatterChart>
               </ResponsiveContainer>
             ) : <p className="muted">Fair completed pairs will appear here. Negative deltas favor the candidate.</p>}

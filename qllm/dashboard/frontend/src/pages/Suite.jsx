@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { api } from '../api'
+import {
+  chartAxisTick,
+  chartMutedText,
+  chartSeries,
+  chartTooltipProps,
+} from '../chartTheme'
 import EvidenceWarnings from '../components/EvidenceWarnings'
 
 export default function Suite() {
@@ -56,11 +62,11 @@ export default function Suite() {
         <div className="panel" style={{ height: 260 }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 6, right: 10, bottom: 30, left: 0 }}>
-              <XAxis dataKey="variant" angle={-30} textAnchor="end" height={60} tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-              <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+              <XAxis dataKey="variant" angle={-30} textAnchor="end" height={60} tick={chartAxisTick} />
+              <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+              <Tooltip {...chartTooltipProps} />
               <Bar dataKey="ppl" radius={[3, 3, 0, 0]}>
-                {chartData.map((e, i) => <Cell key={i} fill={e.best ? '#a371f7' : '#2f81f7'} />)}
+                {chartData.map((e, i) => <Cell key={i} fill={e.best ? chartSeries.accent : chartSeries.blue} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -85,7 +91,7 @@ export default function Suite() {
                 <td>{r.variant === best ? <span className="badge best">{r.variant}</span> : r.variant}<EvidenceWarnings warnings={r.interpretation_warnings} compact /></td>
                 <td className="num">{r.n_params?.toLocaleString()}</td>
                 <td className="num">{r.val_ppl_mean != null ? r.val_ppl_mean.toFixed(3) : '-'}</td>
-                <td className="num" style={{ color: '#8b949e' }}>{r.val_ppl_std ? r.val_ppl_std.toFixed(3) : ''}</td>
+                <td className="num" style={{ color: chartMutedText }}>{r.val_ppl_std ? r.val_ppl_std.toFixed(3) : ''}</td>
                 {metricCols.map((c) => <td key={c} className="num">{r[c] != null ? r[c].toFixed(3) : '-'}</td>)}
                 <td className="num">{r.n_runs}</td>
               </tr>

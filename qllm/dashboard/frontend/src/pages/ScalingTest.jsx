@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { api } from '../api'
+import { chartAxisTick, chartSeries, chartTooltipProps } from '../chartTheme'
 import EvidenceWarnings from '../components/EvidenceWarnings'
 import RunLedger from '../components/RunLedger'
 
@@ -87,11 +88,11 @@ export default function ScalingTest() {
               {rows.length ? (
                 <ResponsiveContainer width="100%" height="92%">
                   <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                    <XAxis dataKey="label" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+                    <XAxis dataKey="label" tick={chartAxisTick} />
+                    <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="val_ppl" name="val ppl" stroke="#a371f7" dot strokeWidth={2} connectNulls />
+                    <Line type="monotone" dataKey="val_ppl" name="val ppl" stroke={chartSeries.accent} dot strokeWidth={2} connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               ) : <p className="muted">Results will appear as the scaled runs finish.</p>}
@@ -102,11 +103,11 @@ export default function ScalingTest() {
               {rows.length ? (
                 <ResponsiveContainer width="100%" height="92%">
                   <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                    <XAxis dataKey="label" tick={{ fill: '#8b949e', fontSize: 11 }} />
-                    <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, fontFamily: 'monospace', fontSize: 12 }} />
+                    <XAxis dataKey="label" tick={chartAxisTick} />
+                    <YAxis tick={chartAxisTick} domain={['auto', 'auto']} />
+                    <Tooltip {...chartTooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="wall_seconds" name="wall seconds" stroke="#2f81f7" dot strokeWidth={2} connectNulls />
+                    <Line type="monotone" dataKey="wall_seconds" name="wall seconds" stroke={chartSeries.blue} dot strokeWidth={2} connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               ) : <p className="muted">Wall-time points will appear after runs finish.</p>}
