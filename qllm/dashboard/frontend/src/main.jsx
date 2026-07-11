@@ -12,6 +12,8 @@ import Atlas from './surfaces/Atlas.jsx'
 import Designer from './surfaces/Designer.jsx'
 import Bench from './surfaces/Bench.jsx'
 import Runs from './surfaces/Runs.jsx'
+import RunDetail from './surfaces/RunDetail.jsx'
+import Scaling from './surfaces/Scaling.jsx'
 import Verdicts from './surfaces/Verdicts.jsx'
 import Datasets from './surfaces/Datasets.jsx'
 import System from './surfaces/System.jsx'
@@ -31,8 +33,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="designer" element={<Designer />} />
             <Route path="bench" element={<Bench />} />
             <Route path="runs" element={<Runs />} />
-            <Route path="runs/:id" element={<Runs />} />
+            <Route path="runs/scaling/:groupId" element={<Scaling />} />
+            <Route path="runs/:id" element={<RunDetail />} />
             <Route path="verdicts" element={<Verdicts />} />
+            <Route path="verdicts/:id" element={<Verdicts />} />
             <Route path="datasets" element={<Datasets />} />
             <Route path="system" element={<System />} />
             {/* Legacy routes redirect to their new surface (no dead links). */}

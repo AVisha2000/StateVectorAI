@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useJobs } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
 
@@ -13,6 +14,7 @@ const FILTERS = [
 export default function Runs() {
   const { data: jobs = [], isLoading, isError, error } = useJobs()
   const [filter, setFilter] = useState('all')
+  const navigate = useNavigate()
 
   const rows = useMemo(
     () => (filter === 'all' ? jobs : jobs.filter((j) => j.status === filter)),
@@ -58,7 +60,7 @@ export default function Runs() {
               </thead>
               <tbody>
                 {rows.map((j) => (
-                  <tr key={j.id}>
+                  <tr key={j.id} className="click" onClick={() => navigate(`/runs/${j.id}`)}>
                     <td className="mono">#{j.id} {j.run_name}</td>
                     <td><span className="tag plain">{j.comparison_role || 'primary'}</span></td>
                     <td>{j.preset_id}</td>
@@ -78,7 +80,7 @@ export default function Runs() {
             </table>
           </div>
           <p className="hint" style={{ marginTop: 10 }}>
-            Run detail, diagnostics, and the advantage scorecard arrive in Phase 2.
+            Row → run detail with diagnostics and the twin comparison. Failed runs keep their logs and are never silently discarded.
           </p>
         </>
       )}
