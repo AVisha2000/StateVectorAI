@@ -69,15 +69,14 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/jobs` | array of jobs: `{id, run_name, status(queued\|running\|done\|error\|cancelled), comparison_role, preset_id, dataset_name, seed, steps, eval_every, model_family, group_id, analogue_state, analogue_job_id, compare_to_job_id, device_target, gpu_reservation, interpretation_warnings, config}` |
 | GET | `/jobs/{id}` · `/jobs/{id}/workspace` · `/jobs/{id}/comparison` · `/jobs/{id}/model-graph` · `/jobs/{id}/model-tests` | run detail, twin comparison, model graph, tests |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
-| GET | `/status` | worker/GPU/queue status (shape TBD — see UI request #1) |
+| GET | `/status` | exact typed shape: `{worker: string, gpu_available: boolean, queued: integer, running: integer, runs: integer}`; `runs` is the recorded `runs` row count |
+| GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
 | GET | `/datasets` | array: `{name, source, source_type, split, n_rows, n_bytes, n_chars, text_column, ...}` |
 | GET | `/presets` · `/config/choices` · `/explore*` · `/scaling-tests*` · `/studies*` · `/suites` · `/runs` · `/live` | see `api.js` |
 
 ### Proposed / needed by the frontend (backend to design & confirm shapes)
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
-| P1 | GET (SSE) | `/stream/jobs` (or WS) | live job/queue updates to replace 2–3s polling | Phase 1 shell (`useIsFetching` today) |
-| P1 | GET | `/status` **contract** | pin the shape: `{worker, gpu_available, queued, running, runs}` | System surface |
 | P2 | GET | `/jobs/{id}/diagnostics` | per-run quantum diagnostics from `qllm/quantum/metrics.py`: `{grad_variance, grad_snr, expressibility_kl, meyer_wallach, scaling_fit?}` | Phase 2 run detail |
 | P2 | GET | `/verdicts` · `/verdicts/{id}` | persistent verdict/adjudication store (does not exist yet — verdicts are derived on the fly). Each: claim_level, replication_status, per-dimension scorecard (diagnostics labeled as diagnostics), fairness/controls, caveats | Phase 2 Verdicts |
 | P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
@@ -95,6 +94,11 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   deterministic `openapi.json` generation/checking is committed, and
   backend imports/security tests no longer require a complete frontend build.
   Focused evidence: OpenAPI `1 passed`; security `13 passed, 1 skipped`.
+- 2026-07-11 · backend: D1 is pinned to the five typed `/status` fields above.
+  D2 is **SSE** at `/stream/jobs`: SQLite remains authoritative, event IDs hash
+  bounded durable projections, and the route rejects non-loopback clients even
+  when other dashboard routes are explicitly remote-enabled. Focused evidence:
+  stream `6 passed`; security `14 passed, 1 skipped`; dashboard API `74 passed`.
 
 ## Log — from UI (Claude appends here)
 
