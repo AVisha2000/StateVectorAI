@@ -19,17 +19,30 @@ def constrained_accuracy(model, params, ids: np.ndarray, mask: np.ndarray,
     rng = np.random.default_rng(seed)
     ids = np.asarray(ids)
     mask = np.asarray(mask)
+    if ids.shape != mask.shape:
+        raise ValueError("ids and mask must have identical shapes")
+    if ids.ndim not in (1, 2):
+        raise ValueError("ids and mask must be 1-D streams or 2-D trajectories")
+
+    trajectories = ids[None, :] if ids.ndim == 1 else ids
+    trajectory_masks = mask[None, :] if mask.ndim == 1 else mask
+    width = trajectories.shape[1]
+    if width <= seq_len:
+        raise ValueError("seq_len must be shorter than each trajectory")
 
     @jax.jit
     def logits_fn(batch):
         return model.apply({"params": params}, batch)
 
     con_hit = con_tot = unc_hit = unc_tot = 0
-    starts = rng.integers(0, len(ids) - seq_len - 1, size=n_windows)
-    for st in starts:
-        window = ids[st:st + seq_len][None, :]
-        target = ids[st + 1:st + seq_len + 1]
-        tmask = mask[st + 1:st + seq_len + 1]
+    rows = rng.integers(0, trajectories.shape[0], size=n_windows)
+    starts = rng.integers(0, width - seq_len, size=n_windows)
+    for row, st in zip(rows, starts, strict=True):
+        row_ids = trajectories[row]
+        row_mask = trajectory_masks[row]
+        window = row_ids[st:st + seq_len][None, :]
+        target = row_ids[st + 1:st + seq_len + 1]
+        tmask = row_mask[st + 1:st + seq_len + 1]
         pred = np.asarray(logits_fn(jnp.asarray(window))[0]).argmax(-1)
         hit = (pred == target)
         con = tmask == 1

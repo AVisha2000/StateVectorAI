@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qllm.config import load_yaml  # noqa: E402
+from qllm.config import load_yaml, validate_config  # noqa: E402
 from qllm.train.loop import fit, generate  # noqa: E402
 
 
@@ -30,7 +30,10 @@ def main() -> None:
     parser.add_argument("--prompt", default="ROMEO:", help="Generation prompt")
     args = parser.parse_args()
 
-    cfg = load_yaml(args.config)
+    try:
+        cfg = load_yaml(args.config)
+    except (KeyError, TypeError, ValueError) as exc:
+        parser.error(str(exc))
     if args.steps is not None:
         cfg = dataclasses.replace(
             cfg, train=dataclasses.replace(cfg.train, steps=args.steps)
@@ -43,6 +46,10 @@ def main() -> None:
         cfg = dataclasses.replace(
             cfg, tracking=dataclasses.replace(cfg.tracking, enabled=False)
         )
+
+    validation_errors = validate_config(cfg)
+    if validation_errors:
+        parser.error("Invalid config:\n- " + "\n- ".join(validation_errors))
 
     result = fit(cfg)
 

@@ -8,7 +8,13 @@ import threading
 import traceback
 import uuid
 
-from ..config import DataConfig, TrackingConfig, from_dict, to_flat_dict
+from ..config import (
+    DataConfig,
+    TrackingConfig,
+    from_dict,
+    to_flat_dict,
+    validate_config,
+)
 from ..resultsdb import ResultsDB
 from . import with_dashboard
 from .analogues import (
@@ -81,8 +87,6 @@ class ExperimentQueue:
             raise ValueError("Eval interval must be at least 1.")
         if batch_size is not None and int(batch_size) < 1:
             raise ValueError("Batch size must be at least 1.")
-        if seq_len is not None and int(seq_len) < 8:
-            raise ValueError("Sequence length must be at least 8.")
         seed = int(seed)
         analogue = self._analogue_for_source(preset_id, cfg)
         wants_comparison = bool(queue_classical_comparison and analogue)
@@ -90,6 +94,21 @@ class ExperimentQueue:
             cfg, dataset["corpus_path"], run_name,
             seed, steps, eval_every, batch_size, seq_len,
         )
+        self._require_valid_config(cfg, "candidate")
+        prepared_twin_cfg = None
+        if wants_comparison and analogue:
+            twin_name = f"{run_name}-classical"
+            prepared_twin_cfg = self._config_for_job(
+                self._config_from_analogue(analogue),
+                dataset["corpus_path"],
+                twin_name,
+                seed,
+                steps,
+                eval_every,
+                batch_size,
+                seq_len,
+            )
+            self._require_valid_config(prepared_twin_cfg, "classical analogue")
         estimate = quantum_resource_estimate(cfg)
         if estimate["band"] == "extreme" and estimate["uses_quantum_attention"]:
             raise ValueError(
@@ -136,13 +155,13 @@ class ExperimentQueue:
         })
         comparison_job = None
         if wants_comparison and analogue:
-            analogue_source_id, twin_cfg, analogue = self._source_for_analogue(
+            analogue_source_id, _, analogue = self._source_for_analogue(
                 db, analogue, run_name, preset_id, job_id
             )
             twin_name = f"{run_name}-classical"
-            twin_cfg = self._config_for_job(
-                twin_cfg, dataset["corpus_path"], twin_name,
-                seed, steps, eval_every, batch_size, seq_len)
+            if prepared_twin_cfg is None:  # defensive; guarded above
+                raise AssertionError("Missing validated classical analogue config.")
+            twin_cfg = prepared_twin_cfg
             twin_config = to_flat_dict(twin_cfg)
             twin_estimate = quantum_resource_estimate(twin_cfg)
             twin_config["lab.resource.band"] = twin_estimate["band"]
@@ -300,15 +319,16 @@ class ExperimentQueue:
             raise ValueError("No classical analogue is available for this job.")
 
         group_id = job.get("group_id") or uuid.uuid4().hex
-        analogue_source_id, twin_cfg, analogue = self._source_for_analogue(
-            db, analogue, job["run_name"], job["preset_id"], int(job["id"])
-        )
         twin_name = f"{job['run_name']}-classical"
         batch_size, seq_len = self._train_overrides_from_decoded_job(job)
         twin_cfg = self._config_for_job(
-            twin_cfg, dataset["corpus_path"], twin_name,
+            self._config_from_analogue(analogue), dataset["corpus_path"], twin_name,
             int(job["seed"]), int(job["steps"]), int(job["eval_every"]),
             batch_size, seq_len,
+        )
+        self._require_valid_config(twin_cfg, "classical analogue")
+        analogue_source_id, _, analogue = self._source_for_analogue(
+            db, analogue, job["run_name"], job["preset_id"], int(job["id"])
         )
         twin_config = to_flat_dict(twin_cfg)
         twin_estimate = quantum_resource_estimate(twin_cfg)
@@ -418,6 +438,22 @@ class ExperimentQueue:
                 log_quantum_diagnostics=False,
             ),
         )
+
+    @staticmethod
+    def _require_valid_config(cfg, label: str) -> None:
+        errors = validate_config(cfg)
+        if errors:
+            raise ValueError(
+                f"Invalid {label} config:\n- " + "\n- ".join(errors)
+            )
+
+    @staticmethod
+    def _config_from_analogue(analogue: AnalogueSpec):
+        if analogue.analogue_preset_id:
+            return build_preset(analogue.analogue_preset_id)
+        if analogue.config is None:
+            raise ValueError("Automatic analogue resolver did not return a config.")
+        return analogue.config
 
     def list(self) -> list[dict]:
         return [self._decode(j) for j in self.db().fetch_lab_jobs()]

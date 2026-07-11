@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pennylane as qml
 
+from ..registry import CIRCUIT_ANSATZ_TYPES
+
 
 def weight_shape(n_layers: int, n_qubits: int) -> tuple[int, int, int]:
     """Trainable parameter shape shared by every registered ansatz."""
@@ -43,7 +45,10 @@ def data_reuploading(inputs, weights, n_qubits: int) -> None:
         qml.StronglyEntanglingLayers(weights[layer][None], wires=range(n_qubits))
 
 
-ANSATZ_REGISTRY = {
-    "hardware_efficient": hardware_efficient,
-    "reuploading": data_reuploading,
-}
+ANSATZ_REGISTRY = dict(
+    zip(
+        CIRCUIT_ANSATZ_TYPES,
+        (hardware_efficient, data_reuploading),
+        strict=True,
+    )
+)

@@ -18,10 +18,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import qllm.data.datasets as D  # noqa: E402
 from qllm.config import (DataConfig, ExperimentConfig, ModelConfig,  # noqa: E402
                          QuantumConfig, TrackingConfig, TrainConfig)
-from qllm.data.datasets import load_dataset  # noqa: E402
+from qllm.data.datasets import load_dataset_bundle  # noqa: E402
 from qllm.evaluation_contextual import constrained_accuracy  # noqa: E402
 from qllm.resultsdb import ResultsDB  # noqa: E402
 from qllm.train.loop import fit  # noqa: E402
@@ -56,8 +55,10 @@ def main() -> None:
         dcfg = DataConfig(kind="contextual", ctx_observables=args.observables,
                           ctx_context_size=args.context_size, ctx_n_live=live,
                           gen_sequences=64, gen_len=2048, gen_seed=0)
-        ids, tok = load_dataset(dcfg)
-        mask = D._LAST_CTX_MASK
+        bundle = load_dataset_bundle(dcfg)
+        ids = bundle.ids
+        tok = bundle.tokenizer
+        mask = bundle.masks["constrained"]
         dataset = f"ctx-live{live}-cs{args.context_size}"
         for name in args.models:
             for seed in args.seeds:

@@ -6,6 +6,7 @@ the plugin architecture.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import time
 from pathlib import Path
@@ -17,7 +18,7 @@ import optax
 from flax import serialization, traverse_util
 from flax.training.train_state import TrainState
 
-from ..config import ExperimentConfig, TrainConfig, to_flat_dict
+from ..config import ExperimentConfig, TrainConfig, to_flat_dict, validate_config
 from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
@@ -143,11 +144,27 @@ def fit(
     Returns dict with the final TrainState, model, tokenizer, and a JSON-able
     summary (also written to ``results/<run_name>/summary.json``).
     """
+    validation_errors = validate_config(cfg)
+    if validation_errors:
+        details = "\n- ".join(validation_errors)
+        raise ValueError(f"Invalid experiment config:\n- {details}")
+
     dataset = load_dataset_bundle(cfg.data)
     tokenizer = dataset.tokenizer
     train_ids, val_ids = train_val_split(dataset.ids, cfg.data.val_fraction)
 
-    model, model_cfg = build_model(cfg.model, vocab_size=tokenizer.vocab_size)
+    runtime_cfg = dataclasses.replace(
+        cfg,
+        model=dataclasses.replace(cfg.model, vocab_size=tokenizer.vocab_size),
+    )
+    runtime_errors = validate_config(runtime_cfg)
+    if runtime_errors:
+        details = "\n- ".join(runtime_errors)
+        raise ValueError(f"Invalid runtime experiment config:\n- {details}")
+
+    model, model_cfg = build_model(
+        runtime_cfg.model, vocab_size=tokenizer.vocab_size
+    )
 
     rng_np = np.random.default_rng(cfg.train.seed)
     init_key = jax.random.PRNGKey(cfg.train.seed)
@@ -315,6 +332,7 @@ def fit(
         "state": state,
         "model": model,
         "model_cfg": model_cfg,
+        "dataset": dataset,
         "tokenizer": tokenizer,
         "summary": summary,
     }

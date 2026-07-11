@@ -5,6 +5,12 @@ import dataclasses
 from typing import Any
 
 from ..config import ExperimentConfig, ModelConfig, QuantumConfig
+from ..registry import (
+    QUANTUM_ARCH_TYPES,
+    QUANTUM_ATTN_TYPES,
+    QUANTUM_COMPONENT_TYPES,
+    QUANTUM_FFN_TYPES,
+)
 
 
 def _get(cfg: ModelConfig | dict, key: str, default: Any = None) -> Any:
@@ -31,7 +37,18 @@ def _quantum_dict(cfg: ModelConfig | dict) -> dict:
             "readout": cfg.get("model.quantum.readout", "z"),
             "trainable": str(cfg.get("model.quantum.trainable", "True")) != "False",
         }
-    qcfg: QuantumConfig = cfg.quantum
+    qcfg: QuantumConfig | None = cfg.quantum
+    if qcfg is None:
+        return {
+            "n_qubits": 0,
+            "n_circuit_layers": 0,
+            "ansatz": None,
+            "backend": None,
+            "device": None,
+            "shots": None,
+            "readout": None,
+            "trainable": False,
+        }
     return dataclasses.asdict(qcfg)
 
 
@@ -40,7 +57,7 @@ def _node(node_id: str, label: str, kind: str, level: str = "component", **meta)
 
 
 def _kind_for_component(value: str) -> str:
-    if value in {"quantum", "quantum_linear", "quantum_proj", "quantum_qkv"}:
+    if value in QUANTUM_COMPONENT_TYPES:
         return "quantum"
     return "classical"
 
@@ -147,15 +164,21 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
                   component_type="head",
                   config_path="model.head_type",
                   head_type=_get(model, "head_type", "linear")), prev)
-    elif arch == "qrnn":
+    elif arch in QUANTUM_ARCH_TYPES:
+        cell_labels = {
+            "qrnn": "Quantum Memory Cell",
+            "contextual_qrnn": "Contextual Quantum Memory Cell",
+            "routed_contextual": "Routed Contextual Quantum Memory Cell",
+        }
         prev = add(_node("tokens", "Tokens", "input", level="overview",
                          component_type="tokens"))
         prev = add(_node("embed", "Classical Embedding", "classical",
                          component_type="embedding",
                          config_path="model.embed_type"), prev)
-        prev = add(_node("q_memory", "Quantum Memory Cell", "quantum",
+        prev = add(_node("q_memory", cell_labels[arch], "quantum",
                          component_type="recurrent_cell",
                          config_path="model.arch",
+                         architecture=arch,
                          n_qubits=quantum["n_qubits"],
                          circuit_depth=quantum["n_circuit_layers"],
                          trainable=quantum["trainable"],
@@ -273,8 +296,10 @@ def uses_quantum_config(cfg: ExperimentConfig | ModelConfig | dict) -> bool:
 def model_family(cfg: ExperimentConfig | ModelConfig | dict) -> str:
     model = cfg.model if isinstance(cfg, ExperimentConfig) else cfg
     arch = _get(model, "arch", "transformer")
-    if arch in {"gru", "qrnn"}:
+    if arch == "gru" or arch in QUANTUM_ARCH_TYPES:
         return arch
+    if arch == "two_stream":
+        return "two-stream"
     encoder_kind = _get(model, "encoder_kind", "none")
     if encoder_kind != "none":
         return "two-stream"
@@ -282,17 +307,17 @@ def model_family(cfg: ExperimentConfig | ModelConfig | dict) -> str:
     if blocks is not None:
         attn_types = {_block_get(block, "attn_type", "classical") for block in blocks}
         ffn_types = {_block_get(block, "ffn_type", "classical") for block in blocks}
-        if any(t in {"quantum_proj", "quantum_qkv"} for t in attn_types):
+        if any(t in QUANTUM_ATTN_TYPES for t in attn_types):
             return "hybrid-attention"
-        if any(t in {"quantum", "quantum_linear"} for t in ffn_types):
+        if any(t in QUANTUM_FFN_TYPES for t in ffn_types):
             return "hybrid-ffn"
     if isinstance(model, dict) and any(
         key.startswith("model.blocks.") and str(value).startswith("quantum")
         for key, value in model.items()
     ):
         return "hybrid-transformer"
-    if _get(model, "attn_type", "classical") == "quantum_proj":
+    if _get(model, "attn_type", "classical") in QUANTUM_ATTN_TYPES:
         return "quantum-attention"
-    if _get(model, "ffn_type", "classical") == "quantum":
+    if _get(model, "ffn_type", "classical") in QUANTUM_FFN_TYPES:
         return "quantum-ffn"
     return "transformer"

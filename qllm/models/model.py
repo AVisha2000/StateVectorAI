@@ -14,17 +14,22 @@ from flax import linen as nn
 
 from ..classical.layers import CausalSelfAttention, FeedForward
 from ..config import ModelConfig, model_block_config
-
-ATTN_TYPES = ("classical", "quantum_proj", "quantum_qkv")
-EMBED_TYPES = ("classical", "quantum")
-FFN_TYPES = ("classical", "quantum", "quantum_linear", "lowrank")
-
-
-ARCH_TYPES = ("transformer", "qrnn", "gru", "contextual_qrnn", "routed_contextual", "two_stream")
+from ..registry import (
+    ARCH_TYPES,
+    ATTN_TYPES,
+    CONDITION_TYPES,
+    EMBED_TYPES,
+    ENCODER_TYPES,
+    FFN_TYPES,
+    HEAD_TYPES,
+    QUANTUM_ARCH_TYPES,
+    QUANTUM_ATTN_TYPES,
+    QUANTUM_FFN_TYPES,
+)
 
 
 def uses_quantum(cfg: ModelConfig) -> bool:
-    if cfg.arch in ("qrnn", "contextual_qrnn", "routed_contextual"):
+    if cfg.arch in QUANTUM_ARCH_TYPES:
         return True
     if cfg.arch == "two_stream":
         return cfg.encoder_kind == "quantum"
@@ -34,13 +39,13 @@ def uses_quantum(cfg: ModelConfig) -> bool:
         return True
     if cfg.blocks is not None:
         return any(
-            b.ffn_type in ("quantum", "quantum_linear")
-            or b.attn_type in ("quantum_proj", "quantum_qkv")
+            b.ffn_type in QUANTUM_FFN_TYPES
+            or b.attn_type in QUANTUM_ATTN_TYPES
             for b in cfg.blocks
         )
-    return cfg.ffn_type in ("quantum", "quantum_linear") or cfg.attn_type in (
-        "quantum_proj",
-        "quantum_qkv",
+    return (
+        cfg.ffn_type in QUANTUM_FFN_TYPES
+        or cfg.attn_type in QUANTUM_ATTN_TYPES
     )
 
 
@@ -147,7 +152,9 @@ class QLLM(nn.Module):
             return MixtureHead(vocab_size=cfg.vocab_size,
                                n_hypotheses=cfg.head_hypotheses,
                                name="lm_head_mixture")(x)
-        return nn.Dense(cfg.vocab_size, name="lm_head")(x)
+        if cfg.head_type == "linear":
+            return nn.Dense(cfg.vocab_size, name="lm_head")(x)
+        raise ValueError(f"Unknown head_type '{cfg.head_type}'. Options: {HEAD_TYPES}")
 
 
 def build_model(cfg: ModelConfig, vocab_size: int):
@@ -157,6 +164,22 @@ def build_model(cfg: ModelConfig, vocab_size: int):
     the recurrent quantum LM (learnable quantum HMM), or the GRU
     baseline. All expose tokens -> logits, so the pipeline is shared.
     """
+    if cfg.arch not in ARCH_TYPES:
+        raise ValueError(f"Unknown arch '{cfg.arch}'. Options: {ARCH_TYPES}")
+    if cfg.embed_type not in EMBED_TYPES:
+        raise ValueError(
+            f"Unknown embed_type '{cfg.embed_type}'. Options: {EMBED_TYPES}"
+        )
+    if cfg.head_type not in HEAD_TYPES:
+        raise ValueError(f"Unknown head_type '{cfg.head_type}'. Options: {HEAD_TYPES}")
+    if cfg.encoder_kind not in ENCODER_TYPES:
+        raise ValueError(
+            f"Unknown encoder_kind '{cfg.encoder_kind}'. Options: {ENCODER_TYPES}"
+        )
+    if cfg.condition not in CONDITION_TYPES:
+        raise ValueError(
+            f"Unknown condition '{cfg.condition}'. Options: {CONDITION_TYPES}"
+        )
     final_cfg = dataclasses.replace(cfg, vocab_size=vocab_size)
     if cfg.arch == "transformer":
         return QLLM(final_cfg), final_cfg
@@ -183,7 +206,7 @@ def build_model(cfg: ModelConfig, vocab_size: int):
         from ..classical.recurrent import GRULM
 
         return GRULM(vocab_size=vocab_size, hidden=cfg.rnn_hidden), final_cfg
-    raise ValueError(f"Unknown arch '{cfg.arch}'. Options: {ARCH_TYPES}")
+    raise AssertionError(f"Unhandled registered architecture: {cfg.arch}")
 
 
 def count_model_params(cfg: ModelConfig, vocab_size: int, seq_len: int = 8) -> int:

@@ -75,6 +75,18 @@ CREATE TABLE IF NOT EXISTS lab_datasets (
     n_rows INTEGER,
     n_chars INTEGER,
     preview TEXT,
+    requested_revision TEXT,
+    resolved_fingerprint TEXT,
+    revision_applicable INTEGER,
+    row_limit INTEGER,
+    char_limit INTEGER,
+    byte_limit INTEGER,
+    rows_examined INTEGER,
+    n_bytes INTEGER,
+    sha256 TEXT,
+    truncated INTEGER DEFAULT 0,
+    truncation_reason TEXT,
+    warnings_json TEXT,
     ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS lab_jobs (
@@ -143,7 +155,31 @@ class ResultsDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as con:
             con.executescript(_SCHEMA)
+            self._ensure_lab_dataset_columns(con)
             self._ensure_lab_job_columns(con)
+
+    def _ensure_lab_dataset_columns(self, con: sqlite3.Connection) -> None:
+        """Add import-provenance fields without rewriting existing rows."""
+        cols = {
+            r["name"] for r in con.execute("PRAGMA table_info(lab_datasets)").fetchall()
+        }
+        additions = {
+            "requested_revision": "TEXT",
+            "resolved_fingerprint": "TEXT",
+            "revision_applicable": "INTEGER",
+            "row_limit": "INTEGER",
+            "char_limit": "INTEGER",
+            "byte_limit": "INTEGER",
+            "rows_examined": "INTEGER",
+            "n_bytes": "INTEGER",
+            "sha256": "TEXT",
+            "truncated": "INTEGER DEFAULT 0",
+            "truncation_reason": "TEXT",
+            "warnings_json": "TEXT",
+        }
+        for name, ddl in additions.items():
+            if name not in cols:
+                con.execute(f"ALTER TABLE lab_datasets ADD COLUMN {name} {ddl}")
 
     def _ensure_lab_job_columns(self, con: sqlite3.Connection) -> None:
         cols = {r["name"] for r in con.execute("PRAGMA table_info(lab_jobs)").fetchall()}
@@ -285,9 +321,27 @@ class ResultsDB:
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         with self._conn() as con:
             con.execute(
-                "INSERT OR REPLACE INTO lab_datasets "
+                "INSERT INTO lab_datasets "
                 "(name, source_type, source, split, text_column, corpus_path, "
-                " n_rows, n_chars, preview, ts) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " n_rows, n_chars, preview, requested_revision, "
+                " resolved_fingerprint, revision_applicable, row_limit, "
+                " char_limit, byte_limit, rows_examined, n_bytes, sha256, "
+                " truncated, truncation_reason, warnings_json, ts) VALUES "
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "source_type=excluded.source_type, source=excluded.source, "
+                "split=excluded.split, text_column=excluded.text_column, "
+                "corpus_path=excluded.corpus_path, n_rows=excluded.n_rows, "
+                "n_chars=excluded.n_chars, preview=excluded.preview, "
+                "requested_revision=excluded.requested_revision, "
+                "resolved_fingerprint=excluded.resolved_fingerprint, "
+                "revision_applicable=excluded.revision_applicable, "
+                "row_limit=excluded.row_limit, char_limit=excluded.char_limit, "
+                "byte_limit=excluded.byte_limit, rows_examined=excluded.rows_examined, "
+                "n_bytes=excluded.n_bytes, sha256=excluded.sha256, "
+                "truncated=excluded.truncated, "
+                "truncation_reason=excluded.truncation_reason, "
+                "warnings_json=excluded.warnings_json, ts=excluded.ts",
                 (
                     dataset["name"],
                     dataset["source_type"],
@@ -298,6 +352,22 @@ class ResultsDB:
                     dataset.get("n_rows"),
                     dataset.get("n_chars"),
                     dataset.get("preview"),
+                    dataset.get("requested_revision"),
+                    dataset.get("resolved_fingerprint"),
+                    (
+                        int(bool(dataset["revision_applicable"]))
+                        if dataset.get("revision_applicable") is not None
+                        else None
+                    ),
+                    dataset.get("row_limit"),
+                    dataset.get("char_limit"),
+                    dataset.get("byte_limit"),
+                    dataset.get("rows_examined"),
+                    dataset.get("n_bytes"),
+                    dataset.get("sha256"),
+                    int(bool(dataset.get("truncated", False))),
+                    dataset.get("truncation_reason"),
+                    json.dumps(dataset.get("warnings") or []),
                     now,
                 ),
             )
@@ -307,14 +377,36 @@ class ResultsDB:
             rows = con.execute(
                 "SELECT * FROM lab_datasets ORDER BY ts DESC, name"
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [self._decode_lab_dataset(dict(r)) for r in rows]
 
     def get_lab_dataset(self, name: str) -> dict | None:
         with self._conn() as con:
             row = con.execute(
                 "SELECT * FROM lab_datasets WHERE name=?", (name,)
             ).fetchone()
-        return dict(row) if row is not None else None
+        return self._decode_lab_dataset(dict(row)) if row is not None else None
+
+    @staticmethod
+    def _decode_lab_dataset(row: dict) -> dict:
+        try:
+            warnings = json.loads(row.get("warnings_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            warnings = []
+        row["warnings"] = (
+            [str(item) for item in warnings]
+            if isinstance(warnings, list)
+            else []
+        )
+        row["truncated"] = bool(row.get("truncated"))
+        applicable = row.get("revision_applicable")
+        if applicable is None:
+            source = str(row.get("source") or "").lower()
+            applicable = (
+                row.get("source_type") == "huggingface"
+                and not source.startswith(("http://", "https://", "hf://"))
+            )
+        row["revision_applicable"] = bool(applicable)
+        return row
 
     def create_lab_job(self, job: dict) -> int:
         now = time.strftime("%Y-%m-%dT%H:%M:%S")

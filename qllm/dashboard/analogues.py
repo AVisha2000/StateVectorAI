@@ -14,10 +14,11 @@ from ..config import (
     to_flat_dict,
 )
 from ..resultsdb import ResultsDB
+from ..registry import QUANTUM_ATTN_TYPES, QUANTUM_FFN_TYPES
 from .model_graph import uses_quantum_config
 
-QUANTUM_ATTN = {"quantum_proj", "quantum_qkv"}
-QUANTUM_FFN = {"quantum", "quantum_linear"}
+QUANTUM_ATTN = frozenset(QUANTUM_ATTN_TYPES)
+QUANTUM_FFN = frozenset(QUANTUM_FFN_TYPES)
 DEFAULT_FAIRNESS_REQUIREMENTS = (
     "same_dataset",
     "same_seed",
@@ -106,7 +107,13 @@ def flat_to_nested_config(flat: dict[str, Any] | None) -> dict:
 
 
 def config_from_flat_payload(flat: dict[str, Any] | None) -> ExperimentConfig:
-    return from_dict(flat_to_nested_config(flat))
+    sections = {"model", "train", "data", "tracking"}
+    config_fields = {
+        key: value
+        for key, value in (flat or {}).items()
+        if isinstance(key, str) and key.partition(".")[0] in sections
+    }
+    return from_dict(flat_to_nested_config(config_fields))
 
 
 def _source_config_from_job(job: dict) -> dict:

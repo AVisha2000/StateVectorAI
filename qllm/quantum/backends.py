@@ -17,12 +17,14 @@ from typing import Callable, Protocol
 
 import jax.numpy as jnp
 
+from ..registry import BACKEND_TYPES, CIRCUIT_ANSATZ_TYPES, READOUT_TYPES
+
 
 class CircuitBackend(Protocol):
     name: str
 
     def expval_circuit(
-        self, n_qubits: int, n_layers: int, ansatz: str
+        self, n_qubits: int, n_layers: int, ansatz: str, readout: str = "z"
     ) -> Callable: ...
 
     def state_circuit(
@@ -55,6 +57,11 @@ class PennyLaneBackend:
 
         from .circuits import ANSATZ_REGISTRY
 
+        if ansatz not in CIRCUIT_ANSATZ_TYPES:
+            raise ValueError(
+                f"Unknown circuit ansatz '{ansatz}'. Options: "
+                f"{CIRCUIT_ANSATZ_TYPES}"
+            )
         dev = qml.device(self.device, wires=n_qubits, shots=self.shots)
         ansatz_fn = ANSATZ_REGISTRY[ansatz]
 
@@ -138,16 +145,19 @@ class TensorCircuitBackend:
                 for i in range(n_qubits):
                     c.cnot(i, (i + 1) % n_qubits)
 
-        if ansatz == "hardware_efficient":
+        if ansatz == CIRCUIT_ANSATZ_TYPES[0]:
             encode()
             for layer in range(n_layers):
                 entangling_layer(weights[layer])
-        elif ansatz == "reuploading":
+        elif ansatz == CIRCUIT_ANSATZ_TYPES[1]:
             for layer in range(n_layers):
                 encode()
                 entangling_layer(weights[layer])
         else:
-            raise ValueError(f"Unknown ansatz '{ansatz}'")
+            raise ValueError(
+                f"Unknown circuit ansatz '{ansatz}'. Options: "
+                f"{CIRCUIT_ANSATZ_TYPES}"
+            )
 
     def expval_circuit(self, n_qubits, n_layers, ansatz, readout="z"):
         tc = self._tc
@@ -177,10 +187,9 @@ class TensorCircuitBackend:
         return fn
 
 
-BACKEND_REGISTRY = {
-    "pennylane": PennyLaneBackend,
-    "tensorcircuit": TensorCircuitBackend,
-}
+BACKEND_REGISTRY = dict(
+    zip(BACKEND_TYPES, (PennyLaneBackend, TensorCircuitBackend), strict=True)
+)
 
 
 def make_backend(
@@ -193,7 +202,7 @@ def make_backend(
         raise ValueError(
             f"Unknown backend '{backend}'. Available: {list(BACKEND_REGISTRY)}"
         )
-    if backend == "pennylane":
+    if backend == BACKEND_TYPES[0]:
         return PennyLaneBackend(device=device, diff_method=diff_method, shots=shots)
     return BACKEND_REGISTRY[backend](device=device)
 
@@ -210,17 +219,19 @@ def get_expval_circuit(
     readout: str = "z",
 ) -> Callable:
     """Cached circuit factory (all args hashable -> safe under retracing)."""
+    if readout not in READOUT_TYPES:
+        raise ValueError(f"Unknown readout '{readout}'. Options: {READOUT_TYPES}")
     be = make_backend(backend, device, diff_method, shots)
     return be.expval_circuit(n_qubits, n_layers, ansatz, readout=readout)
 
 
 def readout_dim(n_qubits: int, readout: str) -> int:
     """Number of features produced by a readout scheme."""
-    if readout == "z":
+    if readout == READOUT_TYPES[0]:
         return n_qubits
-    if readout == "zz":
+    if readout == READOUT_TYPES[1]:
         return n_qubits + n_qubits * (n_qubits - 1) // 2
-    raise ValueError(f"Unknown readout '{readout}'")
+    raise ValueError(f"Unknown readout '{readout}'. Options: {READOUT_TYPES}")
 
 
 @lru_cache(maxsize=None)

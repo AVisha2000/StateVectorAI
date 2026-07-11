@@ -8,11 +8,32 @@ the same training/eval pipeline runs classical and hybrid models.
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .registry import (
+    ANSATZ_TYPES,
+    ARCH_TYPES,
+    ATTN_TYPES,
+    BACKEND_TYPES,
+    CONDITION_TYPES,
+    DATASET_KINDS,
+    DRESSING_TYPES,
+    EMBED_TYPES,
+    ENCODER_TYPES,
+    FFN_TYPES,
+    HEAD_TYPES,
+    QUANTUM_ARCH_TYPES,
+    QUANTUM_ATTN_TYPES,
+    QUANTUM_FFN_TYPES,
+    QRNN_ONLY_ANSATZ_TYPES,
+    READOUT_TYPES,
+    choices_text,
+)
 
 
 @dataclass(frozen=True)
@@ -68,7 +89,7 @@ class ModelConfig:
     max_seq_len: int = 128
     attn_type: str = "classical"   # classical | quantum_proj
     ffn_type: str = "classical"    # classical | quantum
-    quantum: QuantumConfig = field(default_factory=QuantumConfig)
+    quantum: QuantumConfig | None = field(default_factory=QuantumConfig)
     blocks: tuple[BlockConfig, ...] | None = None
 
 
@@ -141,15 +162,24 @@ _SECTION_TYPES = {
 
 def _build(cls: type, payload: dict[str, Any]):
     """Recursively construct a (possibly nested) frozen dataclass from a dict."""
+    if not isinstance(payload, dict):
+        raise TypeError(f"{cls.__name__} config must be a mapping.")
     kwargs: dict[str, Any] = {}
     fields = {f.name: f for f in dataclasses.fields(cls)}
     for key, value in payload.items():
         if key not in fields:
             raise KeyError(f"Unknown config key '{key}' for {cls.__name__}")
         ftype = fields[key].type
-        if key == "quantum" and isinstance(value, dict):
-            kwargs[key] = _build(QuantumConfig, value)
+        if key == "quantum":
+            if value is None:
+                kwargs[key] = None
+            elif isinstance(value, dict):
+                kwargs[key] = _build(QuantumConfig, value)
+            else:
+                raise TypeError(f"{cls.__name__}.{key} config must be a mapping or null.")
         elif key == "blocks" and value is not None:
+            if not isinstance(value, (list, tuple)):
+                raise TypeError("ModelConfig.blocks must be a list or tuple.")
             kwargs[key] = tuple(_build(BlockConfig, item) for item in value)
         else:
             kwargs[key] = value
@@ -158,9 +188,18 @@ def _build(cls: type, payload: dict[str, Any]):
 
 
 def from_dict(payload: dict[str, Any]) -> ExperimentConfig:
+    if not isinstance(payload, dict):
+        raise TypeError("Experiment config must be a mapping.")
+    unknown = sorted(set(payload) - set(_SECTION_TYPES))
+    if unknown:
+        names = ", ".join(unknown)
+        raise KeyError(f"Unknown config section(s): {names}")
     sections = {}
     for name, cls in _SECTION_TYPES.items():
-        sections[name] = _build(cls, payload.get(name, {}) or {})
+        section = payload.get(name, {})
+        if section is None:
+            section = {}
+        sections[name] = _build(cls, section)
     return ExperimentConfig(**sections)
 
 
@@ -179,27 +218,276 @@ def model_block_config(model: ModelConfig, index: int) -> ModelConfig:
 
 
 def validate_config(cfg: ExperimentConfig) -> list[str]:
-    """Return validation errors for editable configs."""
+    """Return actionable errors for every shared config entry point.
+
+    The function is deliberately dependency-free and never initializes a
+    model, dataset, circuit, or backend.  CLI, dashboard, and training paths
+    can therefore reject the same invalid configuration before side effects.
+    """
     errors: list[str] = []
     model = cfg.model
-    if model.blocks is not None and model.n_blocks != len(model.blocks):
+    train = cfg.train
+    data = cfg.data
+
+    def choice(path: str, value: object, options: tuple[str, ...]) -> bool:
+        if not isinstance(value, str) or value not in options:
+            errors.append(
+                f"{path} must be one of: {choices_text(options)}; got {value!r}."
+            )
+            return False
+        return True
+
+    def positive_int(path: str, value: object) -> bool:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            errors.append(f"{path} must be a positive integer; got {value!r}.")
+            return False
+        return True
+
+    def nonnegative_int(path: str, value: object) -> bool:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            errors.append(f"{path} must be a non-negative integer; got {value!r}.")
+            return False
+        return True
+
+    def finite_number(
+        path: str, value: object, *, positive: bool = False,
+        nonnegative: bool = False,
+    ) -> bool:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errors.append(f"{path} must be a finite number; got {value!r}.")
+            return False
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            errors.append(f"{path} must be finite; got {value!r}.")
+            return False
+        if positive and numeric <= 0:
+            errors.append(f"{path} must be greater than 0; got {value!r}.")
+            return False
+        if nonnegative and numeric < 0:
+            errors.append(f"{path} must be at least 0; got {value!r}.")
+            return False
+        return True
+
+    def quantum(path: str, qcfg: QuantumConfig | None) -> None:
+        if qcfg is None:
+            errors.append(f"{path} must be provided.")
+            return
+        if not isinstance(qcfg, QuantumConfig):
+            errors.append(f"{path} must be a QuantumConfig mapping.")
+            return
+        positive_int(f"{path}.n_qubits", qcfg.n_qubits)
+        positive_int(f"{path}.n_circuit_layers", qcfg.n_circuit_layers)
+        choice(f"{path}.ansatz", qcfg.ansatz, ANSATZ_TYPES)
+        choice(f"{path}.backend", qcfg.backend, BACKEND_TYPES)
+        choice(f"{path}.readout", qcfg.readout, READOUT_TYPES)
+        choice(f"{path}.dressing", qcfg.dressing, DRESSING_TYPES)
+        if qcfg.ansatz in QRNN_ONLY_ANSATZ_TYPES and model.arch != "qrnn":
+            errors.append(
+                f"{path}.ansatz='ising' is supported only when model.arch='qrnn'."
+            )
+        if not isinstance(qcfg.device, str) or not qcfg.device.strip():
+            errors.append(f"{path}.device must be a non-empty string.")
+        if not isinstance(qcfg.diff_method, str) or not qcfg.diff_method.strip():
+            errors.append(f"{path}.diff_method must be a non-empty string.")
+        if qcfg.shots is not None:
+            positive_int(f"{path}.shots", qcfg.shots)
+        if not isinstance(qcfg.trainable, bool):
+            errors.append(f"{path}.trainable must be true or false.")
+        finite_number(f"{path}.init_scale", qcfg.init_scale, positive=True)
+        positive_int(f"{path}.n_circuits", qcfg.n_circuits)
+
+    # Registry-backed model choices.
+    arch_ok = choice("model.arch", model.arch, ARCH_TYPES)
+    choice("model.attn_type", model.attn_type, ATTN_TYPES)
+    choice("model.ffn_type", model.ffn_type, FFN_TYPES)
+    choice("model.embed_type", model.embed_type, EMBED_TYPES)
+    choice("model.head_type", model.head_type, HEAD_TYPES)
+    choice("model.encoder_kind", model.encoder_kind, ENCODER_TYPES)
+    choice("model.condition", model.condition, CONDITION_TYPES)
+
+    nonnegative_int("model.vocab_size", model.vocab_size)
+    positive_int("model.rnn_hidden", model.rnn_hidden)
+    positive_int("model.head_hypotheses", model.head_hypotheses)
+    positive_int("model.d_sent", model.d_sent)
+    positive_int("model.sent_hidden", model.sent_hidden)
+    positive_int("model.ffn_rank", model.ffn_rank)
+    d_model_ok = positive_int("model.d_model", model.d_model)
+    n_heads_ok = positive_int("model.n_heads", model.n_heads)
+    n_blocks_ok = positive_int("model.n_blocks", model.n_blocks)
+    positive_int("model.d_ff", model.d_ff)
+    max_seq_ok = positive_int("model.max_seq_len", model.max_seq_len)
+    attention_arch = arch_ok and model.arch in ("transformer", "two_stream")
+    if (
+        attention_arch
+        and d_model_ok
+        and n_heads_ok
+        and model.d_model % model.n_heads != 0
+    ):
+        errors.append("model.d_model must be divisible by model.n_heads.")
+    if model.arch != "two_stream" and model.encoder_kind != "none":
+        errors.append(
+            "model.encoder_kind must be 'none' unless model.arch='two_stream'."
+        )
+    if model.arch != "transformer" and model.head_type != "linear":
+        errors.append(
+            "model.head_type interference/mixture is supported only for "
+            "model.arch='transformer'."
+        )
+    if model.arch != "transformer" and model.embed_type != "classical":
+        errors.append(
+            "model.embed_type='quantum' is supported only for "
+            "model.arch='transformer'."
+        )
+    if model.arch != "transformer" and (
+        model.attn_type != "classical" or model.ffn_type != "classical"
+    ):
+        errors.append(
+            "model.attn_type and model.ffn_type must be 'classical' unless "
+            "model.arch='transformer'; recurrent and two-stream models use "
+            "their architecture-specific components."
+        )
+    if model.blocks is not None and model.arch != "transformer":
+        errors.append("model.blocks is supported only for model.arch='transformer'.")
+    if model.blocks is not None and (
+        not n_blocks_ok or model.n_blocks != len(model.blocks)
+    ):
         errors.append("model.n_blocks must match len(model.blocks).")
-    allowed_attn = {"classical", "quantum_proj", "quantum_qkv"}
-    allowed_ffn = {"classical", "quantum", "quantum_linear", "lowrank"}
-    blocks = model.blocks or tuple(
-        BlockConfig(model.attn_type, model.ffn_type, model.quantum)
-        for _ in range(model.n_blocks)
+
+    blocks = model.blocks or (
+        (BlockConfig(model.attn_type, model.ffn_type, None),)
+        if not n_blocks_ok
+        else tuple(
+            BlockConfig(model.attn_type, model.ffn_type, None)
+            for _ in range(model.n_blocks)
+        )
     )
-    for i, block in enumerate(blocks):
-        if block.attn_type not in allowed_attn:
-            errors.append(f"Block {i + 1}: unknown attention type '{block.attn_type}'.")
-        if block.ffn_type not in allowed_ffn:
-            errors.append(f"Block {i + 1}: unknown FFN type '{block.ffn_type}'.")
+    global_quantum_required = (
+        model.arch in QUANTUM_ARCH_TYPES
+        or model.embed_type == "quantum"
+        or (model.arch == "two_stream" and model.encoder_kind == "quantum")
+        or any(
+            block.attn_type in QUANTUM_ATTN_TYPES
+            or block.ffn_type in QUANTUM_FFN_TYPES
+            for block in blocks
+            if isinstance(block, BlockConfig)
+        )
+    )
+    if model.quantum is not None:
+        quantum("model.quantum", model.quantum)
+    elif global_quantum_required:
+        errors.append("model.quantum must be provided for the selected quantum model.")
+
+    for index, block in enumerate(blocks):
+        path = f"model.blocks.{index}"
+        if not isinstance(block, BlockConfig):
+            errors.append(f"{path} must be a BlockConfig mapping.")
+            continue
+        choice(f"{path}.attn_type", block.attn_type, ATTN_TYPES)
+        choice(f"{path}.ffn_type", block.ffn_type, FFN_TYPES)
+        active_qcfg = block.quantum or model.quantum
+        if block.quantum is not None:
+            quantum(f"{path}.quantum", block.quantum)
         if (
-            block.attn_type in {"quantum_proj", "quantum_qkv"}
-            or block.ffn_type in {"quantum", "quantum_linear"}
-        ) and (block.quantum is None and model.quantum is None):
-            errors.append(f"Block {i + 1}: quantum component requires quantum config.")
+            block.attn_type in QUANTUM_ATTN_TYPES
+            or block.ffn_type in QUANTUM_FFN_TYPES
+        ) and active_qcfg is None:
+            errors.append(f"{path} quantum component requires quantum config.")
+
+    # Training constraints used by both text and trajectory samplers.
+    if isinstance(train.seed, bool) or not isinstance(train.seed, int):
+        errors.append(f"train.seed must be an integer; got {train.seed!r}.")
+    positive_int("train.steps", train.steps)
+    positive_int("train.batch_size", train.batch_size)
+    seq_len_ok = positive_int("train.seq_len", train.seq_len)
+    finite_number("train.lr", train.lr, positive=True)
+    finite_number("train.weight_decay", train.weight_decay, nonnegative=True)
+    finite_number("train.grad_clip", train.grad_clip, positive=True)
+    positive_int("train.eval_every", train.eval_every)
+    positive_int("train.eval_batches", train.eval_batches)
+    if (
+        attention_arch
+        and seq_len_ok
+        and max_seq_ok
+        and train.seq_len > model.max_seq_len
+    ):
+        errors.append("train.seq_len must be <= model.max_seq_len.")
+
+    # Dataset and generator constraints.  Keeping every generator knob valid,
+    # even when inactive, prevents malformed configs from becoming valid merely
+    # by switching ``data.kind`` and makes later edits reproducible.
+    data_kind_ok = choice("data.kind", data.kind, DATASET_KINDS)
+    if not isinstance(data.corpus_path, str) or not data.corpus_path.strip():
+        errors.append("data.corpus_path must be a non-empty string.")
+    val_ok = finite_number("data.val_fraction", data.val_fraction)
+    if val_ok and not 0.0 < float(data.val_fraction) < 1.0:
+        errors.append("data.val_fraction must be strictly between 0 and 1.")
+    gen_qubits_ok = positive_int("data.gen_qubits", data.gen_qubits)
+    measured_ok = positive_int("data.gen_measured", data.gen_measured)
+    sequences_ok = positive_int("data.gen_sequences", data.gen_sequences)
+    gen_len_ok = positive_int("data.gen_len", data.gen_len)
+    finite_number("data.gen_theta_zz", data.gen_theta_zz)
+    finite_number("data.gen_theta_x", data.gen_theta_x)
+    positive_int("data.gen_steps_per_token", data.gen_steps_per_token)
+    if isinstance(data.gen_seed, bool) or not isinstance(data.gen_seed, int):
+        errors.append(f"data.gen_seed must be an integer; got {data.gen_seed!r}.")
+    markov_ok = positive_int("data.markov_order", data.markov_order)
+    observables_ok = positive_int("data.ctx_observables", data.ctx_observables)
+    context_ok = positive_int("data.ctx_context_size", data.ctx_context_size)
+    positive_int("data.ctx_n_live", data.ctx_n_live)
+    density_ok = finite_number("data.seq_cancel_density", data.seq_cancel_density)
+    if density_ok and not 0.0 <= float(data.seq_cancel_density) < 1.0:
+        errors.append("data.seq_cancel_density must be in [0, 1).")
+    if gen_qubits_ok and measured_ok and data.gen_measured >= data.gen_qubits:
+        errors.append("data.gen_measured must be smaller than data.gen_qubits.")
+    if observables_ok and context_ok and data.ctx_context_size > data.ctx_observables:
+        errors.append("data.ctx_context_size must be <= data.ctx_observables.")
+
+    synthetic = data_kind_ok and data.kind != "text"
+    if synthetic:
+        if sequences_ok and data.gen_sequences < 2:
+            errors.append(
+                "data.gen_sequences must be at least 2 so train/validation "
+                "splits use distinct trajectories."
+            )
+        if gen_len_ok and seq_len_ok and data.gen_len <= train.seq_len:
+            errors.append(
+                "data.gen_len must be greater than train.seq_len for "
+                "within-trajectory sampling."
+            )
+    if data.kind == "markov_control" and gen_len_ok and markov_ok:
+        if data.gen_len <= data.markov_order + 1:
+            errors.append(
+                "data.gen_len must be greater than data.markov_order + 1."
+            )
+    if data.kind in ("interference", "seq_cancellation"):
+        if observables_ok and data.ctx_observables < 4:
+            errors.append(
+                "data.ctx_observables must be at least 4 for cancellation datasets."
+            )
+    if data.kind == "seq_cancellation" and gen_len_ok and context_ok:
+        if data.gen_len <= data.ctx_context_size:
+            errors.append(
+                "data.gen_len must be greater than data.ctx_context_size."
+            )
+
+    # QRNN emissions require a power-of-two vocabulary with fewer measured
+    # emission qubits than recurrent state qubits.  Synthetic Ising vocab is
+    # known before loading; an explicitly finalized vocab is checked too.
+    if model.arch == "qrnn" and model.quantum is not None:
+        vocab = model.vocab_size if isinstance(model.vocab_size, int) else 0
+        if data.kind in ("monitored_ising", "markov_control") and measured_ok:
+            vocab = 2 ** data.gen_measured
+        if vocab > 0:
+            measured = vocab.bit_length() - 1
+            if 2 ** measured != vocab:
+                errors.append("QRNN vocabulary size must be a power of two.")
+            elif isinstance(model.quantum.n_qubits, int) and (
+                measured >= model.quantum.n_qubits
+            ):
+                errors.append(
+                    "QRNN emission qubits must be fewer than "
+                    "model.quantum.n_qubits."
+                )
     return errors
 
 

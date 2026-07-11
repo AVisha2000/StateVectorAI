@@ -9,6 +9,7 @@ project writes directly. Run:
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..resultsdb import ResultsDB
+from ..config import QuantumConfig
+from ..registry import supported_choices_payload
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
 from .explore import domain_payload, explore_payload, result_dashboard_payload
@@ -88,6 +91,13 @@ def api_status() -> dict:
 @app.get("/api/presets")
 def api_presets() -> list[dict]:
     return list_presets()
+
+
+@app.get("/api/config/choices")
+def api_config_choices() -> dict:
+    payload = supported_choices_payload()
+    payload["quantum_default"] = dataclasses.asdict(QuantumConfig())
+    return payload
 
 
 @app.get("/api/presets/{preset_id}/model-graph")
@@ -289,7 +299,14 @@ def api_import_hf(payload: dict) -> dict:
             split=payload.get("split", "train"),
             text_column=payload.get("text_column", ""),
             display_name=payload.get("display_name") or None,
-            row_limit=int(payload.get("row_limit") or 5000),
+            row_limit=payload.get("row_limit"),
+            revision=(
+                payload.get("revision")
+                or payload.get("requested_revision")
+                or None
+            ),
+            char_limit=payload.get("char_limit"),
+            byte_limit=payload.get("byte_limit"),
         )
     except Exception as exc:
         raise _payload_error(exc) from exc

@@ -12,6 +12,17 @@ const TASK_DESCRIPTIONS = {
   'Two-stream semantic conditioning': 'Tests whether the conditioning pathway adds signal beyond the classical two-stream control.',
 }
 
+function formatBytes(value) {
+  if (value == null) return '-'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KiB`
+  return `${(value / (1024 ** 2)).toFixed(1)} MiB`
+}
+
+function shortHash(value) {
+  return value ? `${value.slice(0, 10)}…` : '-'
+}
+
 export default function Datasets() {
   const [datasets, setDatasets] = useState([])
   const [explore, setExplore] = useState(null)
@@ -21,10 +32,14 @@ export default function Datasets() {
     text_column: 'text',
     display_name: 'tinystories-sample',
     row_limit: 1000,
+    revision: '',
+    char_limit: 5000000,
+    byte_limit: 10000000,
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [lastImport, setLastImport] = useState(null)
 
   const refresh = () => api.datasets().then(setDatasets).catch((e) => setError(e.message))
   useEffect(() => {
@@ -40,15 +55,20 @@ export default function Datasets() {
   ), [explore])
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+  const directUrl = /^(https?|hf):\/\//i.test(form.source.trim())
   const submit = async (e) => {
     e.preventDefault()
-    setBusy(true); setError(''); setMessage('')
+    setBusy(true); setError(''); setMessage(''); setLastImport(null)
     try {
       const ds = await api.importHfDataset({
         ...form,
         row_limit: Number(form.row_limit),
+        revision: directUrl ? null : (form.revision.trim() || null),
+        char_limit: Number(form.char_limit),
+        byte_limit: Number(form.byte_limit),
       })
-      setMessage(`Imported ${ds.name} (${ds.n_rows} rows, ${ds.n_chars} chars)`)
+      setLastImport(ds)
+      setMessage(`Imported ${ds.name} (${ds.n_rows} rows, ${ds.n_chars} chars, ${formatBytes(ds.n_bytes)})`)
       refresh()
     } catch (err) {
       setError(err.message)
@@ -64,6 +84,9 @@ export default function Datasets() {
       <StatusPanel />
       {error && <div className="alert error">{error}</div>}
       {message && <div className="alert good">{message}</div>}
+      {lastImport?.warnings?.map((warning, index) => (
+        <div className="alert" key={`${index}-${warning}`}>{warning}</div>
+      ))}
 
       <section className="panel">
         <div className="workspace-header">
@@ -95,14 +118,17 @@ export default function Datasets() {
           <label>Text column<input value={form.text_column} onChange={(e) => update('text_column', e.target.value)} /></label>
           <label>Display name<input value={form.display_name} onChange={(e) => update('display_name', e.target.value)} /></label>
           <label>Row limit<input type="number" min="1" max="200000" value={form.row_limit} onChange={(e) => update('row_limit', e.target.value)} /></label>
+          <label>Requested revision (HF only)<input disabled={directUrl} placeholder={directUrl ? 'Not applicable to URLs' : 'branch, tag, or commit'} value={form.revision} onChange={(e) => update('revision', e.target.value)} /></label>
+          <label>Character limit<input type="number" min="1" max="50000000" value={form.char_limit} onChange={(e) => update('char_limit', e.target.value)} /></label>
+          <label>UTF-8 byte limit<input type="number" min="1" max="100000000" value={form.byte_limit} onChange={(e) => update('byte_limit', e.target.value)} /></label>
         </div>
-        <p className="pill">Public text datasets only in v1. The importer writes a local .txt corpus under data/imported/.</p>
-        <button className="primary" disabled={busy}>{busy ? 'Importing...' : 'Import dataset'}</button>
+        <p className="pill">Public text datasets only. Imported corpus output is bounded, SHA-256 hashed, and written as UTF-8 under data/imported/. Streaming may still fetch remote chunks. Direct URLs do not support revisions.</p>
+        <button className="primary" type="submit" disabled={busy}>{busy ? 'Importing...' : 'Import dataset'}</button>
       </form>
 
-      <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="panel" style={{ padding: 0, overflow: 'auto' }}>
         <table>
-          <thead><tr><th>Name</th><th>Source</th><th>Split</th><th>Text column</th><th className="num">Rows</th><th className="num">Chars</th></tr></thead>
+          <thead><tr><th>Name</th><th>Source</th><th>Split</th><th>Text column</th><th>Revision / fingerprint</th><th className="num">Rows</th><th className="num">Size</th><th>Integrity</th><th>Import status</th></tr></thead>
           <tbody>
             {datasets.map((d) => (
               <tr key={d.name}>
@@ -110,8 +136,23 @@ export default function Datasets() {
                 <td>{d.source_type}: {d.source}</td>
                 <td>{d.split || '-'}</td>
                 <td>{d.text_column || '-'}</td>
-                <td className="num">{d.n_rows ?? '-'}</td>
-                <td className="num">{d.n_chars?.toLocaleString?.() ?? '-'}</td>
+                <td>
+                  <div>{d.revision_applicable === false ? 'n/a' : (d.requested_revision || 'default')}</div>
+                  {d.resolved_fingerprint && <div className="muted" title={d.resolved_fingerprint}>fingerprint {shortHash(d.resolved_fingerprint)}</div>}
+                </td>
+                <td className="num">
+                  <div>{d.n_rows ?? '-'}</div>
+                  {d.rows_examined != null && <div className="muted">{d.rows_examined.toLocaleString()} examined</div>}
+                </td>
+                <td className="num">
+                  <div>{d.n_chars?.toLocaleString?.() ?? '-'} chars</div>
+                  <div className="muted">{formatBytes(d.n_bytes)}</div>
+                </td>
+                <td><span title={d.sha256 || ''}>{shortHash(d.sha256)}</span></td>
+                <td>
+                  <div>{d.truncated ? `Truncated: ${d.truncation_reason}` : 'Complete'}</div>
+                  {(d.warnings || []).map((warning, index) => <div className="muted" key={`${index}-${warning}`}>{warning}</div>)}
+                </td>
               </tr>
             ))}
           </tbody>

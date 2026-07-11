@@ -33,7 +33,7 @@ kernel statistics.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 
 import jax
 import jax.numpy as jnp
@@ -74,14 +74,27 @@ def quantum_fidelity_kernel(
     return np.abs(G) ** 2
 
 
-def classical_kernel_family(X: np.ndarray) -> dict[str, np.ndarray]:
-    """Linear + RBF kernels (median-heuristic bandwidth sweep)."""
+def classical_kernel_family(
+    X: np.ndarray, reference_X: np.ndarray | None = None
+) -> dict[str, np.ndarray]:
+    """Linear + RBF kernels with bandwidth fit on an optional reference set."""
     X = np.asarray(X, dtype=np.float64)
+    reference = (
+        X if reference_X is None else np.asarray(reference_X, dtype=np.float64)
+    )
     kernels: dict[str, np.ndarray] = {"linear": X @ X.T}
     sq = np.sum(X**2, axis=1)
     d2 = sq[:, None] + sq[None, :] - 2.0 * (X @ X.T)
     d2 = np.maximum(d2, 0.0)
-    median = np.median(d2[np.triu_indices_from(d2, k=1)])
+    ref_sq = np.sum(reference**2, axis=1)
+    ref_d2 = (
+        ref_sq[:, None]
+        + ref_sq[None, :]
+        - 2.0 * (reference @ reference.T)
+    )
+    ref_d2 = np.maximum(ref_d2, 0.0)
+    ref_pairs = ref_d2[np.triu_indices_from(ref_d2, k=1)]
+    median = float(np.median(ref_pairs)) if len(ref_pairs) else 1.0
     median = max(median, 1e-12)
     for scale in (0.5, 1.0, 2.0):
         kernels[f"rbf_{scale}"] = np.exp(-d2 / (2.0 * scale * median))
@@ -233,14 +246,19 @@ def random_fourier_kernel(
     n_features: int = 256,
     gamma: float | None = None,
     seed: int = 0,
+    reference_X: np.ndarray | None = None,
 ) -> np.ndarray:
     """RBF random Fourier feature surrogate kernel."""
     X = np.asarray(X, dtype=np.float64)
     if gamma is None:
-        sq = np.sum(X**2, axis=1)
-        d2 = sq[:, None] + sq[None, :] - 2.0 * (X @ X.T)
+        reference = (
+            X if reference_X is None else np.asarray(reference_X, dtype=np.float64)
+        )
+        sq = np.sum(reference**2, axis=1)
+        d2 = sq[:, None] + sq[None, :] - 2.0 * (reference @ reference.T)
         d2 = np.maximum(d2, 0.0)
-        median = np.median(d2[np.triu_indices_from(d2, k=1)])
+        pairs = d2[np.triu_indices_from(d2, k=1)]
+        median = float(np.median(pairs)) if len(pairs) else 1.0
         gamma = 1.0 / max(2.0 * median, 1e-12)
     rng = np.random.default_rng(seed)
     W = rng.normal(scale=np.sqrt(2.0 * gamma), size=(X.shape[1], n_features))
@@ -283,6 +301,101 @@ def engineered_labels(K_q: np.ndarray, v: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class KernelRidgeResult:
+    """Validation-selected kernel-ridge score using held-out test labels once."""
+
+    r2: float
+    regularization: float
+    n_fit: int
+    n_validation: int
+    n_test: int
+
+
+def _r2_score(actual: np.ndarray, predicted: np.ndarray) -> float:
+    ss_res = float(np.sum((actual - predicted) ** 2))
+    ss_tot = float(np.sum((actual - actual.mean()) ** 2)) + 1e-12
+    return 1.0 - ss_res / ss_tot
+
+
+def kernel_ridge_evaluate(
+    K: np.ndarray,
+    y: np.ndarray,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    regs: tuple[float, ...] = (1e-4, 1e-3, 1e-2, 1e-1),
+    validation_fraction: float = 0.2,
+) -> KernelRidgeResult:
+    """Select ridge strength on validation data, then score test data once.
+
+    ``train_idx`` order deterministically defines the fit/validation split so
+    all kernels in one experiment use identical examples. Test labels do not
+    participate in regularization selection.
+    """
+    train_idx = np.asarray(train_idx, dtype=np.int64)
+    test_idx = np.asarray(test_idx, dtype=np.int64)
+    K = np.asarray(K, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    if K.ndim != 2 or K.shape[0] != K.shape[1] or K.shape[0] != len(y):
+        raise ValueError("K must be square and aligned with y")
+    if not np.isfinite(K).all() or not np.isfinite(y).all():
+        raise ValueError("K and y must contain only finite values")
+    if train_idx.ndim != 1 or test_idx.ndim != 1:
+        raise ValueError("train and test indices must be one-dimensional")
+    if len(train_idx) < 3:
+        raise ValueError("kernel ridge evaluation requires at least 3 train examples")
+    if len(test_idx) < 1:
+        raise ValueError("kernel ridge evaluation requires at least 1 test example")
+    if not math.isfinite(validation_fraction) or not 0.0 < validation_fraction < 1.0:
+        raise ValueError("validation_fraction must be between 0 and 1")
+    if not regs or any(not math.isfinite(reg) or reg <= 0 for reg in regs):
+        raise ValueError("regularization values must be finite and positive")
+    if len(set(map(int, train_idx))) != len(train_idx) or len(
+        set(map(int, test_idx))
+    ) != len(test_idx):
+        raise ValueError("train and test indices must not contain duplicates")
+    if set(train_idx).intersection(map(int, test_idx)):
+        raise ValueError("train and test indices must be disjoint")
+    if np.any(train_idx < 0) or np.any(test_idx < 0):
+        raise ValueError("train and test indices must be non-negative")
+    if np.any(train_idx >= len(y)) or np.any(test_idx >= len(y)):
+        raise ValueError("train and test indices are out of range")
+
+    n_validation = max(1, int(round(len(train_idx) * validation_fraction)))
+    n_validation = min(n_validation, len(train_idx) - 1)
+    fit_idx = train_idx[:-n_validation]
+    validation_idx = train_idx[-n_validation:]
+    K_fit = K[np.ix_(fit_idx, fit_idx)]
+    K_validation = K[np.ix_(validation_idx, fit_idx)]
+    y_fit, y_validation = y[fit_idx], y[validation_idx]
+
+    selected = float(regs[0])
+    best_validation_loss = np.inf
+    for reg in regs:
+        alpha = np.linalg.solve(
+            K_fit + reg * len(fit_idx) * np.eye(len(fit_idx)), y_fit
+        )
+        validation_loss = float(
+            np.mean((y_validation - K_validation @ alpha) ** 2)
+        )
+        if validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
+            selected = float(reg)
+
+    K_train = K[np.ix_(train_idx, train_idx)]
+    alpha = np.linalg.solve(
+        K_train + selected * len(train_idx) * np.eye(len(train_idx)), y[train_idx]
+    )
+    test_prediction = K[np.ix_(test_idx, train_idx)] @ alpha
+    return KernelRidgeResult(
+        r2=float(_r2_score(y[test_idx], test_prediction)),
+        regularization=selected,
+        n_fit=int(len(fit_idx)),
+        n_validation=int(len(validation_idx)),
+        n_test=int(len(test_idx)),
+    )
+
+
 def kernel_ridge_r2(
     K: np.ndarray,
     y: np.ndarray,
@@ -290,21 +403,8 @@ def kernel_ridge_r2(
     test_idx: np.ndarray,
     regs: tuple[float, ...] = (1e-4, 1e-3, 1e-2, 1e-1),
 ) -> float:
-    """Best test R^2 over a small ridge grid (selected on the test of a
-    held-out split would be fairer; the grid is tiny and shared by all
-    kernels, so the comparison stays apples-to-apples)."""
-    K_tr = K[np.ix_(train_idx, train_idx)]
-    K_te = K[np.ix_(test_idx, train_idx)]
-    y_tr, y_te = y[train_idx], y[test_idx]
-    n_tr = len(train_idx)
-    best = -np.inf
-    for reg in regs:
-        alpha = np.linalg.solve(K_tr + reg * n_tr * np.eye(n_tr), y_tr)
-        pred = K_te @ alpha
-        ss_res = float(np.sum((y_te - pred) ** 2))
-        ss_tot = float(np.sum((y_te - y_te.mean()) ** 2)) + 1e-12
-        best = max(best, 1.0 - ss_res / ss_tot)
-    return best
+    """Compatibility wrapper returning the validation-selected test R-squared."""
+    return kernel_ridge_evaluate(K, y, train_idx, test_idx, regs=regs).r2
 
 
 @dataclass
@@ -314,6 +414,7 @@ class DequantizationReport:
     gap: float
     matched_within_tolerance: bool
     surrogate_scores: dict[str, float]
+    kernel_selection: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
 
 def dequantization_challenge(
@@ -333,13 +434,23 @@ def dequantization_challenge(
     result: the observed behaviour may be a classically reproducible inductive
     bias rather than quantum-specific evidence.
     """
-    q_score = kernel_ridge_r2(K_q, y, train_idx, test_idx)
+    q_result = kernel_ridge_evaluate(K_q, y, train_idx, test_idx)
+    q_score = q_result.r2
     scores = {}
+    selection = {"quantum": asdict(q_result)}
     for i, n_features in enumerate(feature_counts):
         K_rff = normalize_trace(
-            random_fourier_kernel(X, n_features=n_features, seed=seed + 997 * i)
+            random_fourier_kernel(
+                X,
+                n_features=n_features,
+                seed=seed + 997 * i,
+                reference_X=X[train_idx],
+            )
         )
-        scores[f"rff_{n_features}"] = kernel_ridge_r2(K_rff, y, train_idx, test_idx)
+        name = f"rff_{n_features}"
+        result = kernel_ridge_evaluate(K_rff, y, train_idx, test_idx)
+        scores[name] = result.r2
+        selection[name] = asdict(result)
     best = max(scores.values())
     gap = q_score - best
     return DequantizationReport(
@@ -348,6 +459,7 @@ def dequantization_challenge(
         gap=float(gap),
         matched_within_tolerance=bool(gap <= tolerance),
         surrogate_scores=scores,
+        kernel_selection=selection,
     )
 
 
@@ -369,6 +481,7 @@ class AdvantageReport:
     r2_engineered: dict[str, float]    # positive control (quantum should win)
     r2_classical_natural: dict[str, float]  # negative control (classical wins)
     dequantization: DequantizationReport | None = None
+    kernel_selection: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
 
 def advantage_experiment(
@@ -387,14 +500,22 @@ def advantage_experiment(
     win iff the pipeline works. Negative control: labels engineered the
     same way FOR the best classical kernel — classical should win/tie.
     """
+    if not 0.0 < train_fraction < 1.0:
+        raise ValueError("train_fraction must be between 0 and 1")
     rng = np.random.default_rng(seed)
     X = rng.uniform(-math.pi / 2, math.pi / 2, size=(n_samples, n_qubits))
+    idx = rng.permutation(n_samples)
+    n_tr = int(train_fraction * n_samples)
+    train_idx, test_idx = idx[:n_tr], idx[n_tr:]
 
     K_q = normalize_trace(
         quantum_fidelity_kernel(X, n_layers=n_layers, ansatz=ansatz, seed=seed)
     )
     classical = {
-        name: normalize_trace(K) for name, K in classical_kernel_family(X).items()
+        name: normalize_trace(K)
+        for name, K in classical_kernel_family(
+            X, reference_X=X[train_idx]
+        ).items()
     }
 
     g_per, v_per = {}, {}
@@ -405,15 +526,18 @@ def advantage_experiment(
 
     off = K_q[np.triu_indices_from(K_q, k=1)]
 
-    idx = rng.permutation(n_samples)
-    n_tr = int(train_fraction * n_samples)
-    train_idx, test_idx = idx[:n_tr], idx[n_tr:]
+    selection: dict[str, dict[str, float | int]] = {}
+
+    def evaluate(name: str, kernel: np.ndarray, labels: np.ndarray) -> float:
+        result = kernel_ridge_evaluate(kernel, labels, train_idx, test_idx)
+        selection[name] = asdict(result)
+        return result.r2
 
     # positive control: quantum-favored labels (vs hardest classical kernel)
     y_q = engineered_labels(K_q, v_per[best_classical])
-    r2_eng = {"quantum": kernel_ridge_r2(K_q, y_q, train_idx, test_idx)}
+    r2_eng = {"quantum": evaluate("engineered.quantum", K_q, y_q)}
     for name, K_c in classical.items():
-        r2_eng[name] = kernel_ridge_r2(K_c, y_q, train_idx, test_idx)
+        r2_eng[name] = evaluate(f"engineered.{name}", K_c, y_q)
     deq = (
         dequantization_challenge(
             X, y_q, K_q, train_idx, test_idx, feature_counts=(64, 128), seed=seed
@@ -426,9 +550,9 @@ def advantage_experiment(
     # classical kernel against the quantum one (roles swapped)
     _, v_c = geometric_difference(K_q, classical[best_classical])
     y_c = engineered_labels(classical[best_classical], v_c)
-    r2_nat = {"quantum": kernel_ridge_r2(K_q, y_c, train_idx, test_idx)}
+    r2_nat = {"quantum": evaluate("classical_natural.quantum", K_q, y_c)}
     for name, K_c in classical.items():
-        r2_nat[name] = kernel_ridge_r2(K_c, y_c, train_idx, test_idx)
+        r2_nat[name] = evaluate(f"classical_natural.{name}", K_c, y_c)
 
     return AdvantageReport(
         n_qubits=n_qubits,
@@ -442,6 +566,7 @@ def advantage_experiment(
         r2_engineered=r2_eng,
         r2_classical_natural=r2_nat,
         dequantization=deq,
+        kernel_selection=selection,
     )
 
 

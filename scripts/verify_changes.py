@@ -263,6 +263,13 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
     if frontend_changed:
         checks.append(
             Check(
+                "dashboard-frontend-tests",
+                ("npm", "run", "test", "--prefix", "qllm/dashboard/frontend"),
+                "Dashboard frontend behavior tests changed or may be affected.",
+            )
+        )
+        checks.append(
+            Check(
                 "dashboard-build",
                 ("npm", "run", "build", "--prefix", "qllm/dashboard/frontend"),
                 "Dashboard frontend code changed.",

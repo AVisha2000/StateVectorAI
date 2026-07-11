@@ -33,7 +33,7 @@ a:hover { text-decoration: underline; }
 .nav a { display: block; padding: 8px 10px; border-radius: 6px; color: var(--text);
   font-size: 14px; margin-bottom: 2px; }
 .nav a.active, .nav a:hover { background: var(--hover); text-decoration: none; }
-.main { flex: 1; padding: 28px 36px; max-width: 1200px; }
+.main { flex: 1; min-width: 0; padding: 28px 36px; max-width: 1200px; }
 h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.5px; }
 h2 { font-size: 16px; color: var(--muted); font-weight: 500; margin: 0 0 24px; }
 h3 { margin: 0 0 12px; font-size: 15px; }
@@ -59,7 +59,7 @@ tr:hover td { background: var(--panel-soft); }
 .badge.error { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger-text); }
 .badge.cancelled { background: #d2992230; color: var(--warn); }
 .badge.best { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
-.pill { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.pill { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 12px; }
 .mono { font-family: var(--mono); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }

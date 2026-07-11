@@ -17,6 +17,11 @@ from typing import Iterable
 import numpy as np
 
 from .config import ExperimentConfig, to_flat_dict
+from .registry import (
+    QUANTUM_ARCH_TYPES,
+    QUANTUM_ATTN_TYPES,
+    QUANTUM_FFN_TYPES,
+)
 
 
 @dataclass(frozen=True)
@@ -269,25 +274,28 @@ def resource_ledger_from_config(cfg: ExperimentConfig) -> dict[str, int | float 
     q = cfg.model.quantum
     flat = to_flat_dict(cfg)
     token_calls = int(cfg.train.batch_size * cfg.train.seq_len)
-    state_dim = int(2 ** int(q.n_qubits))
+    state_dim = int(2 ** int(q.n_qubits)) if q is not None else 0
     quantum_components = [
         name
         for name, value in {
             "embedding": cfg.model.embed_type == "quantum",
-            "attention": cfg.model.attn_type in {"quantum_proj", "quantum_qkv"},
-            "ffn": cfg.model.ffn_type in {"quantum", "quantum_linear"},
-            "recurrent": cfg.model.arch in {"qrnn", "contextual_qrnn", "routed_contextual"},
-            "two_stream": cfg.model.arch == "two_stream" and cfg.model.encoder_kind == "quantum",
+            "attention": cfg.model.attn_type in QUANTUM_ATTN_TYPES,
+            "ffn": cfg.model.ffn_type in QUANTUM_FFN_TYPES,
+            "recurrent": cfg.model.arch in QUANTUM_ARCH_TYPES,
+            "two_stream": (
+                cfg.model.arch == "two_stream"
+                and cfg.model.encoder_kind == "quantum"
+            ),
         }.items()
         if value
     ]
     return {
-        "n_qubits": int(q.n_qubits),
-        "n_circuit_layers": int(q.n_circuit_layers),
-        "ansatz": q.ansatz,
-        "backend": q.backend,
-        "device": q.device,
-        "shots": q.shots,
+        "n_qubits": int(q.n_qubits) if q is not None else 0,
+        "n_circuit_layers": int(q.n_circuit_layers) if q is not None else 0,
+        "ansatz": q.ansatz if q is not None else "none",
+        "backend": q.backend if q is not None else "none",
+        "device": q.device if q is not None else None,
+        "shots": q.shots if q is not None else None,
         "state_dim": state_dim,
         "batch_size": int(cfg.train.batch_size),
         "seq_len": int(cfg.train.seq_len),

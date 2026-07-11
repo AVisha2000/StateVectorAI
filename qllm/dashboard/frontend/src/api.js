@@ -41,6 +41,7 @@ export async function patch(path, body = {}) {
 }
 
 export const api = {
+  configChoices: () => get('/config/choices'),
   presets: () => get('/presets'),
   overview: () => get('/lab/overview'),
   explore: () => get('/explore'),

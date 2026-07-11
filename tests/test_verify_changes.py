@@ -77,6 +77,17 @@ def test_deleted_script_and_test_are_not_scheduled_for_execution(tmp_path: Path)
     assert {check.id for check in checks} == {"agent-setup"}
 
 
+def test_frontend_changes_run_behavior_tests_before_build() -> None:
+    checks = verifier.select_checks(
+        ["qllm/dashboard/frontend/src/modelConfig.js"],
+        Path(__file__).resolve().parents[1],
+    )
+    ids = [check.id for check in checks]
+    assert "dashboard-frontend-tests" in ids
+    assert "dashboard-build" in ids
+    assert ids.index("dashboard-frontend-tests") < ids.index("dashboard-build")
+
+
 def test_fingerprint_changes_when_worktree_content_changes(tmp_path: Path) -> None:
     path = tmp_path / "module.py"
     path.write_text("value = 1\n", encoding="utf-8")

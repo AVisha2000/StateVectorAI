@@ -35,7 +35,11 @@ def _quantum_template(qcfg: dict) -> list[dict]:
 
 def _graph_with_circuits(cfg: ExperimentConfig) -> dict:
     graph = model_graph_from_config(cfg)
-    qcfg = dataclasses.asdict(cfg.model.quantum)
+    qcfg = (
+        dataclasses.asdict(cfg.model.quantum)
+        if cfg.model.quantum is not None
+        else {}
+    )
     estimate = quantum_resource_estimate(cfg)
     for node in graph["nodes"]:
         if node["kind"] == "quantum":
@@ -60,7 +64,7 @@ def _layer_summary(cfg: ExperimentConfig) -> dict:
         )
         if uses_quantum:
             quantum_layers += 1
-            if not qcfg.trainable:
+            if qcfg is None or not qcfg.trainable:
                 frozen_layers += 1
         rows.append({
             "index": index,
@@ -68,9 +72,13 @@ def _layer_summary(cfg: ExperimentConfig) -> dict:
             "attn_type": block.attn_type,
             "ffn_type": block.ffn_type,
             "uses_quantum": uses_quantum,
-            "trainable_quantum": bool(uses_quantum and qcfg.trainable),
-            "n_qubits": qcfg.n_qubits if uses_quantum else None,
-            "n_circuit_layers": qcfg.n_circuit_layers if uses_quantum else None,
+            "trainable_quantum": bool(
+                uses_quantum and qcfg is not None and qcfg.trainable
+            ),
+            "n_qubits": qcfg.n_qubits if uses_quantum and qcfg else None,
+            "n_circuit_layers": (
+                qcfg.n_circuit_layers if uses_quantum and qcfg else None
+            ),
         })
     return {
         "count": len(rows),
@@ -118,6 +126,35 @@ def _fairness_review(analogue) -> dict:
 def validation_payload(config: dict) -> dict:
     cfg = cfg_from_payload(config)
     errors = validate_config(cfg)
+    if errors:
+        return {
+            "ok": False,
+            "errors": errors,
+            "warnings": [],
+            "resource": None,
+            "resource_review": {
+                "band": "invalid",
+                "score": None,
+                "high_memory": False,
+                "summary": "Fix configuration errors before resource review.",
+                "warnings": [],
+            },
+            "layer_summary": {
+                "count": 0,
+                "quantum_layers": 0,
+                "frozen_quantum_layers": 0,
+                "rows": [],
+            },
+            "graph": None,
+            "flat_config": to_flat_dict(cfg),
+            "classical_analogue": None,
+            "fairness_review": {
+                "analogue_available": False,
+                "claim_readiness": "invalid",
+                "summary": "Fix configuration errors before fairness review.",
+                "requirements": [],
+            },
+        }
     estimate = quantum_resource_estimate(cfg)
     warnings = estimate["advice"]
     graph = _graph_with_circuits(cfg)

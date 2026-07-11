@@ -9,8 +9,7 @@ import numpy as np
 
 from qllm.config import DataConfig, ModelConfig
 from qllm.data.contextual import contextual_parity_sequences
-import qllm.data.datasets as D
-from qllm.data.datasets import load_dataset
+from qllm.data.datasets import load_dataset_bundle
 from qllm.evaluation_contextual import constrained_accuracy
 from qllm.models.model import build_model
 
@@ -47,26 +46,61 @@ def test_parity_constraints_hold():
 
 
 def test_loader_exposes_mask_and_caches(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     cfg = DataConfig(kind="contextual", ctx_observables=12, ctx_context_size=4,
                      ctx_n_live=3, gen_sequences=4, gen_len=256, gen_seed=0)
-    ids, tok = load_dataset(cfg)
-    assert tok.vocab_size == 14
-    assert D._LAST_CTX_MASK.shape == ids.shape
-    ids2, _ = load_dataset(cfg)  # cached path
-    assert np.array_equal(ids, ids2)
+    bundle = load_dataset_bundle(cfg)
+    assert bundle.tokenizer.vocab_size == 14
+    assert bundle.masks["constrained"].shape == bundle.ids.shape
+    assert bundle.sampler_policy == "within_trajectory"
+    cached = load_dataset_bundle(cfg)
+    assert np.array_equal(bundle.ids, cached.ids)
+    assert np.array_equal(
+        bundle.masks["constrained"], cached.masks["constrained"]
+    )
+    assert bundle.content_hash == cached.content_hash
+    assert cached.provenance["source"] == "cache"
 
 
-def test_constrained_accuracy_metric_runs():
+def test_constrained_accuracy_metric_runs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     cfg = DataConfig(kind="contextual", ctx_observables=12, ctx_context_size=4,
                      ctx_n_live=3, gen_sequences=4, gen_len=256, gen_seed=0)
-    ids, tok = load_dataset(cfg)
-    mask = D._LAST_CTX_MASK
+    bundle = load_dataset_bundle(cfg)
+    ids = bundle.ids
+    tok = bundle.tokenizer
+    mask = bundle.masks["constrained"]
     model, _ = build_model(
         ModelConfig(d_model=16, n_heads=2, n_blocks=1, d_ff=32, max_seq_len=64),
         vocab_size=tok.vocab_size)
     params = model.init(jax.random.PRNGKey(0),
-                        jnp.asarray(ids[:32][None, :]))["params"]
+                        jnp.asarray(ids[0, :32][None, :]))["params"]
     acc = constrained_accuracy(model, params, ids, mask, seq_len=32,
                                n_windows=8)
     assert set(acc) == {"constrained_acc", "unconstrained_acc", "separation"}
     assert 0.0 <= acc["constrained_acc"] <= 1.0
+
+
+def test_constrained_accuracy_never_crosses_trajectory_boundaries():
+    class RepeatTokenModel:
+        @staticmethod
+        def apply(_variables, batch):
+            return 20.0 * jax.nn.one_hot(batch, 2)
+
+    ids = np.asarray(
+        [[0, 0, 0, 0], [1, 1, 1, 1]] * 8,
+        dtype=np.int32,
+    )
+    mask = np.ones_like(ids)
+
+    result = constrained_accuracy(
+        RepeatTokenModel(),
+        params={},
+        ids=ids,
+        mask=mask,
+        seq_len=3,
+        n_windows=64,
+        seed=4,
+    )
+
+    assert result["constrained_acc"] == 1.0

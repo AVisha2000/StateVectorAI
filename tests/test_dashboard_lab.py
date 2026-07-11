@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import dataclasses
+import hashlib
+import importlib
 import sqlite3
+import sys
+import threading
 import types
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
 from qllm.config import BlockConfig, ExperimentConfig, ModelConfig, QuantumConfig, to_flat_dict, validate_config
 from qllm.dashboard.datasets import import_hf_text_dataset, list_datasets
-from qllm.dashboard.analogues import classical_analogue_for_config, classical_analogue_for_preset
+from qllm.dashboard.analogues import (
+    AnalogueSpec,
+    classical_analogue_for_config,
+    classical_analogue_for_preset,
+    config_from_flat_payload,
+)
 from qllm.dashboard.explore import (
     domain_payload,
     explore_payload,
@@ -84,6 +96,37 @@ def test_model_graph_marks_quantum_components():
     assert classical["quantum"] is None
 
 
+@pytest.mark.parametrize(
+    ("arch", "label"),
+    [
+        ("contextual_qrnn", "Contextual Quantum Memory Cell"),
+        ("routed_contextual", "Routed Contextual Quantum Memory Cell"),
+    ],
+)
+def test_contextual_recurrent_graphs_are_quantum_and_architecture_honest(
+    arch, label
+):
+    graph = model_graph_from_config(ModelConfig(arch=arch))
+    memory = next(node for node in graph["nodes"] if node["id"] == "q_memory")
+    assert memory["label"] == label
+    assert memory["kind"] == "quantum"
+    assert memory["meta"]["architecture"] == arch
+    assert graph["summary"]["uses_quantum"] is True
+    assert graph["summary"]["model_family"] == arch
+
+
+@pytest.mark.parametrize(
+    ("config", "family"),
+    [
+        (ModelConfig(attn_type="quantum_qkv"), "quantum-attention"),
+        (ModelConfig(ffn_type="quantum_linear"), "quantum-ffn"),
+        (ModelConfig(arch="two_stream"), "two-stream"),
+    ],
+)
+def test_model_family_covers_every_registered_component_variant(config, family):
+    assert model_graph_from_config(config)["summary"]["model_family"] == family
+
+
 def test_per_layer_config_validates_and_serializes():
     cfg = ExperimentConfig(
         model=ModelConfig(
@@ -143,6 +186,19 @@ def test_classical_analogue_resolver_uses_curated_twins_and_component_swaps():
     assert "same_dataset" in analogue.fairness_requirements
 
 
+def test_flat_config_adapter_preserves_sections_and_ignores_lab_metadata():
+    source = ExperimentConfig(model=ModelConfig(d_model=32, n_heads=4))
+    flat = to_flat_dict(source)
+    flat.update({
+        "lab.resource.band": "low",
+        "lab.analogue.state": "queued",
+    })
+    restored = config_from_flat_payload(flat)
+    assert restored.model.d_model == 32
+    assert restored.model.n_heads == 4
+    assert restored.train == source.train
+
+
 def test_model_spec_crud_validate_and_diff(tmp_path):
     db = ResultsDB(tmp_path / "results.db")
     config = {
@@ -177,6 +233,21 @@ def test_model_spec_crud_validate_and_diff(tmp_path):
     assert any(change["path"] == "model.ffn_type" for change in diff["changes"])
 
 
+def test_classical_model_spec_supports_omitted_quantum_config(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    payload = dataclasses.asdict(
+        ExperimentConfig(model=ModelConfig(quantum=None))
+    )
+
+    review = validation_payload(payload)
+    spec = create_spec(db, {"name": "classical-no-q", "config": payload})
+
+    assert review["ok"] is True
+    assert review["resource"]["band"] == "classical"
+    assert review["resource"]["state_dim"] == 0
+    assert spec["name"] == "classical-no-q"
+
+
 def test_model_spec_validation_surfaces_layer_resource_and_fairness_review():
     config = {
         "model": {
@@ -209,6 +280,16 @@ def test_model_spec_validation_surfaces_layer_resource_and_fairness_review():
     assert "same_dataset" in validation["fairness_review"]["requirements"]
 
 
+def test_model_spec_validation_returns_controlled_errors_before_derived_views():
+    validation = validation_payload({
+        "model": {"quantum": {"n_qubits": "many"}},
+    })
+    assert validation["ok"] is False
+    assert validation["resource"] is None
+    assert validation["graph"] is None
+    assert "model.quantum.n_qubits" in "\n".join(validation["errors"])
+
+
 def test_hf_import_validation_requires_source(tmp_path):
     db = ResultsDB(tmp_path / "results.db")
     with pytest.raises(ValueError, match="required"):
@@ -224,8 +305,6 @@ def test_hf_import_validation_rejects_bad_row_limits(tmp_path):
 
 
 def test_hf_import_with_mock_loader(monkeypatch, tmp_path):
-    import sys
-
     monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(
         load_dataset=lambda source, split, **kwargs: [
             {"text": "alpha"}, {"text": "beta"}, {"text": ""}
@@ -238,13 +317,270 @@ def test_hf_import_with_mock_loader(monkeypatch, tmp_path):
     )
     assert item["name"] == "stories"
     assert item["n_rows"] == 2
-    assert "alpha" in (tmp_path / "imported" / "stories.txt").read_text()
-    assert list_datasets(db)[1]["name"] == "stories"
+    expected = b"alpha\n\nbeta"
+    assert (tmp_path / "imported" / "stories.txt").read_bytes() == expected
+    assert item["n_bytes"] == len(expected)
+    assert item["sha256"] == hashlib.sha256(expected).hexdigest()
+    assert item["rows_examined"] == 3
+    assert item["truncated"] is False
+    stored = list_datasets(db)[1]
+    assert stored["name"] == "stories"
+    assert stored["sha256"] == item["sha256"]
+    assert stored["warnings"] == item["warnings"]
+
+
+def test_hf_import_revision_row_limit_and_fingerprint(monkeypatch, tmp_path):
+    calls = {}
+    pulls = []
+
+    class FakeDataset:
+        _fingerprint = "resolved-fingerprint-123"
+
+        def __iter__(self):
+            for index, row in enumerate([
+                {"text": None}, {"text": "alpha"}, {"text": "beta"},
+                {"text": "unreached"},
+            ]):
+                pulls.append(index)
+                yield row
+
+    def fake_load(source, split, **kwargs):
+        calls.update({"source": source, "split": split, **kwargs})
+        return FakeDataset()
+
+    monkeypatch.setitem(
+        sys.modules, "datasets", types.SimpleNamespace(load_dataset=fake_load)
+    )
+    db = ResultsDB(tmp_path / "results.db")
+    item = import_hf_text_dataset(
+        db,
+        "fake/stories",
+        "train",
+        "text",
+        "revisioned",
+        row_limit=2,
+        cache_dir=tmp_path / "imported",
+        revision="commit-abc",
+    )
+    assert calls["revision"] == "commit-abc"
+    assert calls["streaming"] is True
+    assert pulls == [0, 1, 2]  # two processed rows plus one bounded lookahead
+    assert item["n_rows"] == 1  # None consumed one row-limit slot
+    assert item["rows_examined"] == 3
+    assert item["requested_revision"] == "commit-abc"
+    assert item["resolved_fingerprint"] == "resolved-fingerprint-123"
+    assert item["revision_applicable"] is True
+    assert item["truncated"] is True
+    assert item["truncation_reason"] == "row_limit"
+    assert item["warnings"]
+
+
+def test_hf_import_enforces_utf8_character_and_byte_limits(monkeypatch, tmp_path):
+    class FakeDataset(list):
+        _fingerprint = "resolved"
+
+    monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(
+        load_dataset=lambda source, split, **kwargs: FakeDataset([
+            {"text": "ééé"}, {"text": "later"},
+        ]),
+    ))
+    db = ResultsDB(tmp_path / "results.db")
+    byte_limited = import_hf_text_dataset(
+        db, "fake/utf8", "train", "text", "utf8", 10,
+        cache_dir=tmp_path / "imported", char_limit=100, byte_limit=5,
+    )
+    assert byte_limited["truncation_reason"] == "byte_limit"
+    assert byte_limited["n_chars"] == 2
+    assert byte_limited["n_bytes"] == 4
+    assert (tmp_path / "imported" / "utf8.txt").read_text(encoding="utf-8") == "éé"
+
+    character_limited = import_hf_text_dataset(
+        db, "fake/chars", "train", "text", "chars", 10,
+        cache_dir=tmp_path / "imported", char_limit=2, byte_limit=100,
+    )
+    assert character_limited["truncation_reason"] == "character_limit"
+    assert character_limited["n_chars"] == 2
+
+
+def test_url_import_rejects_inapplicable_revision(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    with pytest.raises(ValueError, match="not applicable"):
+        import_hf_text_dataset(
+            db,
+            "https://example.invalid/data.txt",
+            "train",
+            "text",
+            revision="main",
+            cache_dir=tmp_path / "imported",
+        )
+
+
+def test_url_import_marks_revision_not_applicable(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeDataset(list):
+        _fingerprint = "url-loader-fingerprint"
+
+    def fake_load(source, split, **kwargs):
+        captured.update({"source": source, "split": split, **kwargs})
+        return FakeDataset([{"text": "url text"}])
+
+    monkeypatch.setitem(
+        sys.modules, "datasets", types.SimpleNamespace(load_dataset=fake_load)
+    )
+    db = ResultsDB(tmp_path / "results.db")
+    url = "https://example.invalid/data.txt"
+    item = import_hf_text_dataset(
+        db, url, "train", "text", "url-data", 10,
+        cache_dir=tmp_path / "imported",
+    )
+    assert captured["source"] == "text"
+    assert captured["data_files"] == url
+    assert captured["streaming"] is True
+    assert "revision" not in captured
+    assert item["requested_revision"] is None
+    assert item["revision_applicable"] is False
+    assert item["resolved_fingerprint"] == "url-loader-fingerprint"
+
+
+def test_import_avoids_overwriting_unregistered_corpus(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(
+        load_dataset=lambda source, split, **kwargs: [{"text": "new content"}],
+    ))
+    imported = tmp_path / "imported"
+    imported.mkdir()
+    existing = imported / "stories.txt"
+    existing.write_text("user artifact", encoding="utf-8")
+    db = ResultsDB(tmp_path / "results.db")
+    item = import_hf_text_dataset(
+        db, "fake/stories", "train", "text", "stories", 10,
+        cache_dir=imported,
+    )
+    assert existing.read_text(encoding="utf-8") == "user artifact"
+    assert item["name"] == "stories-2"
+    assert (imported / "stories-2.txt").read_text(encoding="utf-8") == "new content"
+
+
+def test_import_reserves_builtin_dataset_name(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(
+        load_dataset=lambda source, split, **kwargs: [{"text": "new content"}],
+    ))
+    db = ResultsDB(tmp_path / "results.db")
+
+    item = import_hf_text_dataset(
+        db, "fake/stories", "train", "text", "default-text", 10,
+        cache_dir=tmp_path / "imported",
+    )
+
+    assert item["name"] == "default-text-2"
+    assert list_datasets(db)[0]["name"] == "default-text"
+    assert list_datasets(db)[1]["name"] == "default-text-2"
+
+
+def test_concurrent_imports_claim_distinct_corpus_paths(monkeypatch, tmp_path):
+    barrier = threading.Barrier(2)
+
+    def fake_load(source, split, **kwargs):
+        barrier.wait(timeout=5)
+        return [{"text": f"content from {source}"}]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "datasets",
+        types.SimpleNamespace(load_dataset=fake_load),
+    )
+    db = ResultsDB(tmp_path / "results.db")
+
+    def run(source):
+        return import_hf_text_dataset(
+            db, source, "train", "text", "shared", 10,
+            cache_dir=tmp_path / "imported",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        items = list(pool.map(run, ("fake/one", "fake/two")))
+
+    assert len({item["name"] for item in items}) == 2
+    assert len({item["corpus_path"] for item in items}) == 2
+    for item in items:
+        assert Path(item["corpus_path"]).read_text(encoding="utf-8") == (
+            f"content from {item['source']}"
+        )
+
+
+def test_lab_dataset_migration_is_additive_and_repeatable(tmp_path):
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as con:
+        con.execute(
+            "CREATE TABLE lab_datasets ("
+            "name TEXT PRIMARY KEY, source_type TEXT NOT NULL, source TEXT NOT NULL, "
+            "split TEXT, text_column TEXT, corpus_path TEXT NOT NULL, n_rows INTEGER, "
+            "n_chars INTEGER, preview TEXT, ts TEXT NOT NULL)"
+        )
+        con.execute(
+            "INSERT INTO lab_datasets VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                "legacy", "huggingface", "fake/legacy", "train", "text",
+                "data/imported/legacy.txt", 3, 12, "old", "2026-01-01T00:00:00",
+            ),
+        )
+
+    store = ResultsDB(path)
+    ResultsDB(path)  # repeatable migration
+    with sqlite3.connect(path) as con:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(lab_datasets)")}
+        count = con.execute("SELECT COUNT(*) FROM lab_datasets").fetchone()[0]
+    assert {
+        "requested_revision", "resolved_fingerprint", "row_limit",
+        "char_limit", "byte_limit", "rows_examined", "n_bytes", "sha256",
+        "truncated", "truncation_reason", "warnings_json",
+    } <= columns
+    assert count == 1
+    legacy = store.get_lab_dataset("legacy")
+    assert legacy["n_chars"] == 12
+    assert legacy["sha256"] is None
+    assert legacy["truncated"] is False
+    assert legacy["warnings"] == []
+
+
+def test_dataset_import_api_forwards_provenance_controls(monkeypatch, tmp_path):
+    monkeypatch.setenv("QLLM_DB", str(tmp_path / "api.db"))
+    monkeypatch.delitem(sys.modules, "qllm.dashboard.server", raising=False)
+    server = importlib.import_module("qllm.dashboard.server")
+    captured = {}
+
+    def fake_import(store, **kwargs):
+        captured.update(kwargs)
+        return {"name": "api-import", **kwargs}
+
+    monkeypatch.setattr(server, "import_hf_text_dataset", fake_import)
+    response = server.api_import_hf({
+        "source": "fake/stories",
+        "split": "validation",
+        "text_column": "body",
+        "display_name": "api-import",
+        "row_limit": "12",
+        "revision": "commit-1",
+        "char_limit": "3456",
+        "byte_limit": "7890",
+    })
+    assert response["name"] == "api-import"
+    assert captured["revision"] == "commit-1"
+    assert captured["row_limit"] == "12"
+    assert captured["char_limit"] == "3456"
+    assert captured["byte_limit"] == "7890"
+    choices = server.api_config_choices()
+    assert choices["attention"] == [
+        "classical", "quantum_proj", "quantum_qkv",
+    ]
+    assert choices["backend"] == ["pennylane", "tensorcircuit"]
+    assert choices["quantum_architecture"] == [
+        "qrnn", "contextual_qrnn", "routed_contextual",
+    ]
+    assert choices["quantum_default"]["ansatz"] == "reuploading"
 
 
 def test_hf_import_validation_missing_column_and_empty_text(monkeypatch, tmp_path):
-    import sys
-
     monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(
         load_dataset=lambda source, split, **kwargs: [{"body": "alpha"}],
     ))
@@ -273,6 +609,41 @@ def test_queue_transitions_queued_and_cancelled(tmp_path):
     finally:
         db.close()
     assert rows == 1
+
+
+def test_queue_rejects_invalid_candidate_before_job_insert(tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    with pytest.raises(ValueError, match="train.seq_len must be <="):
+        q.submit(
+            "classical-small", "default-text", "invalid", 0, 2, 1,
+            seq_len=256,
+        )
+    assert ResultsDB(db_path).fetch_lab_jobs() == []
+
+
+def test_queue_rejects_invalid_analogue_before_job_insert(monkeypatch, tmp_path):
+    db_path = tmp_path / "results.db"
+    q = ExperimentQueue(str(db_path), start_worker=False)
+    invalid = ExperimentConfig(
+        model=ModelConfig(max_seq_len=8),
+        train=dataclasses.replace(ExperimentConfig().train, seq_len=64),
+    )
+    analogue = AnalogueSpec(
+        kind="classical_analogue",
+        analogue_type="component_swap",
+        resolver="test",
+        label="Invalid analogue",
+        reason="validation fixture",
+        config=invalid,
+    )
+    monkeypatch.setattr(q, "_analogue_for_source", lambda *_args, **_kwargs: analogue)
+    with pytest.raises(ValueError, match="Invalid classical analogue config"):
+        q.submit(
+            "quantum-ffn-4q", "default-text", "invalid-pair", 0, 2, 1,
+            queue_classical_comparison=True,
+        )
+    assert ResultsDB(db_path).fetch_lab_jobs() == []
 
 
 def test_queue_can_run_saved_model_spec(tmp_path):

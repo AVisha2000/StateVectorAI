@@ -2,12 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import ModelDiagram from '../components/ModelDiagram'
-
-const ATTN_TYPES = ['classical', 'quantum_proj', 'quantum_qkv']
-const FFN_TYPES = ['classical', 'quantum', 'quantum_linear', 'lowrank']
-const ANSATZ = ['reuploading', 'hardware_efficient']
-const READOUT = ['z', 'zz']
-const BACKENDS = ['pennylane', 'tensorcircuit']
+import { changeArchitecture, cloneConfig, ensureBlocks } from '../modelConfig'
 
 function flatToNested(flat = {}) {
   const out = { model: {}, train: {}, data: {}, tracking: {} }
@@ -28,23 +23,7 @@ function flatToNested(flat = {}) {
   return out
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value))
-}
-
-function ensureBlocks(config) {
-  const draft = clone(config)
-  const model = draft.model
-  const n = Number(model.n_blocks || 0)
-  if (!model.blocks) {
-    model.blocks = Array.from({ length: n }, () => ({
-      attn_type: model.attn_type || 'classical',
-      ffn_type: model.ffn_type || 'classical',
-      quantum: clone(model.quantum),
-    }))
-  }
-  return draft
-}
+const clone = cloneConfig
 
 function changeAt(config, path, value) {
   const next = clone(config)
@@ -87,6 +66,7 @@ function applyRange(config, start, end, transform) {
 }
 
 export default function Models() {
+  const [choices, setChoices] = useState(null)
   const [presets, setPresets] = useState([])
   const [specs, setSpecs] = useState([])
   const [datasets, setDatasets] = useState([])
@@ -112,6 +92,7 @@ export default function Models() {
   const refreshSpecs = () => api.modelSpecs().then(setSpecs).catch((e) => setError(e.message))
 
   useEffect(() => {
+    api.configChoices().then(setChoices).catch((e) => setError(e.message))
     api.presets().then((items) => {
       setPresets(items)
       if (items[0]) loadPreset(items[0])
@@ -132,6 +113,7 @@ export default function Models() {
   const changes = useMemo(() => diffConfigs(draft || {}, baseDraft || {}), [draft, baseDraft])
   const qnodes = quantumNodes(graph)
   const layer = draft?.model?.blocks?.[selectedLayer]
+  const activeQuantum = layer?.quantum || draft?.model?.quantum || {}
   const analogue = validation?.classical_analogue
   const blockCount = draft?.model?.blocks?.length || 0
 
@@ -156,7 +138,8 @@ export default function Models() {
     setNotes('')
     setSelectedLayer(0)
     setRangeStart(0)
-    setRangeEnd(Math.max(config.model.blocks.length - 1, 0))
+    setRangeEnd(Math.max((config.model.blocks?.length || 0) - 1, 0))
+    setTab('overview')
     setQueued(null)
   }
 
@@ -170,7 +153,8 @@ export default function Models() {
     setNotes(spec.notes || '')
     setSelectedLayer(0)
     setRangeStart(0)
-    setRangeEnd(Math.max(config.model.blocks.length - 1, 0))
+    setRangeEnd(Math.max((config.model.blocks?.length || 0) - 1, 0))
+    setTab('overview')
     setQueued(null)
   }
 
@@ -178,13 +162,23 @@ export default function Models() {
     setDraft((prev) => changeAt(prev, path, value))
   }
 
-  function editNumber(path, value) {
-    const n = Number(value)
-    edit(path, Number.isNaN(n) ? 0 : n)
-  }
-
-  function editBool(path, value) {
-    edit(path, Boolean(value))
+  function editQuantum(field, value) {
+    setDraft((previous) => {
+      const next = clone(previous)
+      const block = next.model.blocks?.[selectedLayer]
+      if (block) {
+        block.quantum = {
+          ...(block.quantum || next.model.quantum || {}),
+          [field]: value,
+        }
+      } else {
+        next.model.quantum = {
+          ...(next.model.quantum || {}),
+          [field]: value,
+        }
+      }
+      return next
+    })
   }
 
   function applyBulkSwap() {
@@ -256,7 +250,16 @@ export default function Models() {
     }
   }
 
-  if (!draft) return <div className="loading">Loading model builder...</div>
+  if (!draft || !choices) {
+    return <div className="loading">{error || 'Loading model builder...'}</div>
+  }
+
+  const attnTypes = choices.attention
+  const archTypes = choices.architecture
+  const ffnTypes = choices.feed_forward
+  const ansatzTypes = choices.circuit_ansatz
+  const readoutTypes = choices.readout
+  const backendTypes = choices.backend
 
   return (
     <div>
@@ -315,14 +318,19 @@ export default function Models() {
               <label>Spec name<input value={name} onChange={(e) => setName(e.target.value)} /></label>
               <label>Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
               <label>Architecture
-                <select value={draft.model.arch} onChange={(e) => edit('model.arch', e.target.value)}>
-                  <option value="transformer">transformer</option>
-                  <option value="gru">gru</option>
-                  <option value="qrnn">qrnn</option>
-                  <option value="two_stream">two_stream</option>
+                <select value={draft.model.arch} onChange={(e) => {
+                  const arch = e.target.value
+                  setDraft((current) => changeArchitecture(current, arch, {
+                    quantumArchitectures: choices.quantum_architecture,
+                    quantumDefault: choices.quantum_default,
+                  }))
+                  if (arch !== 'transformer' && tab === 'layers') setTab('overview')
+                }}>
+                  {archTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
-              <label>Blocks<input type="number" min="1" value={draft.model.n_blocks} onChange={(e) => {
+              <label>Blocks<input type="number" min="1" disabled={draft.model.arch !== 'transformer'} value={draft.model.n_blocks} onChange={(e) => {
+                if (draft.model.arch !== 'transformer') return
                 const count = Number(e.target.value)
                 const next = ensureBlocks(changeAt(draft, 'model.n_blocks', count))
                 next.model.blocks = Array.from({ length: count }, (_, i) => next.model.blocks[i] || { attn_type: next.model.attn_type, ffn_type: next.model.ffn_type, quantum: clone(next.model.quantum) })
@@ -331,7 +339,7 @@ export default function Models() {
             </div>
             <div className="chips">
               {['overview', 'layers', 'quantum', 'circuit', 'runs', 'diff', 'config'].map((item) => (
-                <button key={item} className={`chip ${tab === item ? 'on' : ''}`} onClick={() => setTab(item)}>{item}</button>
+                <button key={item} disabled={item === 'layers' && draft.model.arch !== 'transformer'} className={`chip ${tab === item ? 'on' : ''}`} onClick={() => setTab(item)}>{item}</button>
               ))}
             </div>
             <div className="builder-status">
@@ -418,12 +426,12 @@ export default function Models() {
                 </label>
                 <label>Bulk attention
                   <select value={bulkAttnType} onChange={(e) => setBulkAttnType(e.target.value)}>
-                    {ATTN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                    {attnTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </label>
                 <label>Bulk FFN
                   <select value={bulkFfnType} onChange={(e) => setBulkFfnType(e.target.value)}>
-                    {FFN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                    {ffnTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </label>
               </div>
@@ -439,12 +447,12 @@ export default function Models() {
                       <td>Block {index + 1}</td>
                       <td>
                         <select value={block.attn_type} onChange={(e) => edit(`model.blocks.${index}.attn_type`, e.target.value)}>
-                          {ATTN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                          {attnTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                         </select>
                       </td>
                       <td>
                         <select value={block.ffn_type} onChange={(e) => edit(`model.blocks.${index}.ffn_type`, e.target.value)}>
-                          {FFN_TYPES.map((item) => <option key={item} value={item}>{item}</option>)}
+                          {ffnTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                         </select>
                       </td>
                       <td>{block.attn_type.startsWith('quantum') || block.ffn_type.startsWith('quantum') ? <span className="badge quantum">quantum</span> : <span className="badge">classical</span>}</td>
@@ -458,34 +466,36 @@ export default function Models() {
           {tab === 'quantum' && (
             <section className="panel">
               <h3>Quantum Inspector</h3>
-              <p className="panel-copy">Editing the selected layer updates its block-level quantum config. Use this for controlled hybrid model edits.</p>
+              <p className="panel-copy">{blockCount > 0 ? 'Editing the selected layer updates its block-level quantum config. Use this for controlled hybrid model edits.' : 'Editing the architecture-level quantum configuration for this recurrent or encoder model.'}</p>
               <div className="form-grid">
-                <label>Selected layer
-                  <select value={selectedLayer} onChange={(e) => setSelectedLayer(Number(e.target.value))}>
-                    {(draft.model.blocks || []).map((_, i) => <option key={i} value={i}>Block {i + 1}</option>)}
-                  </select>
-                </label>
-                <label>Range trainable
-                  <select value={bulkTrainable} onChange={(e) => setBulkTrainable(e.target.value)}>
-                    <option value="true">trainable</option>
-                    <option value="false">frozen control</option>
-                  </select>
-                </label>
-                <label className="check-row">
-                  <input type="checkbox" checked={rangeStart === 0 && rangeEnd === Math.max(blockCount - 1, 0)} readOnly />
-                  Layer range currently covers {Math.abs(rangeEnd - rangeStart) + 1} block(s)
-                </label>
-                <div className="header-actions">
-                  <button className="small" type="button" onClick={applyBulkQuantumSettings}>Apply trainable/frozen to range</button>
-                </div>
-                <label>Qubits<input type="number" min="2" value={layer?.quantum?.n_qubits || draft.model.quantum.n_qubits} onChange={(e) => editNumber(`model.blocks.${selectedLayer}.quantum.n_qubits`, e.target.value)} /></label>
-                <label>Depth<input type="number" min="1" value={layer?.quantum?.n_circuit_layers || draft.model.quantum.n_circuit_layers} onChange={(e) => editNumber(`model.blocks.${selectedLayer}.quantum.n_circuit_layers`, e.target.value)} /></label>
-                <label>Ansatz<select value={layer?.quantum?.ansatz || draft.model.quantum.ansatz} onChange={(e) => edit(`model.blocks.${selectedLayer}.quantum.ansatz`, e.target.value)}>{ANSATZ.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-                <label>Readout<select value={layer?.quantum?.readout || draft.model.quantum.readout} onChange={(e) => edit(`model.blocks.${selectedLayer}.quantum.readout`, e.target.value)}>{READOUT.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-                <label>Backend<select value={layer?.quantum?.backend || draft.model.quantum.backend} onChange={(e) => edit(`model.blocks.${selectedLayer}.quantum.backend`, e.target.value)}>{BACKENDS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-                <label>Shots<input value={layer?.quantum?.shots ?? ''} placeholder="analytic" onChange={(e) => edit(`model.blocks.${selectedLayer}.quantum.shots`, e.target.value ? Number(e.target.value) : null)} /></label>
+                {blockCount > 0 && <>
+                  <label>Selected layer
+                    <select value={selectedLayer} onChange={(e) => setSelectedLayer(Number(e.target.value))}>
+                      {(draft.model.blocks || []).map((_, i) => <option key={i} value={i}>Block {i + 1}</option>)}
+                    </select>
+                  </label>
+                  <label>Range trainable
+                    <select value={bulkTrainable} onChange={(e) => setBulkTrainable(e.target.value)}>
+                      <option value="true">trainable</option>
+                      <option value="false">frozen control</option>
+                    </select>
+                  </label>
+                  <label className="check-row">
+                    <input type="checkbox" checked={rangeStart === 0 && rangeEnd === Math.max(blockCount - 1, 0)} readOnly />
+                    Layer range currently covers {Math.abs(rangeEnd - rangeStart) + 1} block(s)
+                  </label>
+                  <div className="header-actions">
+                    <button className="small" type="button" onClick={applyBulkQuantumSettings}>Apply trainable/frozen to range</button>
+                  </div>
+                </>}
+                <label>Qubits<input type="number" min="2" value={activeQuantum.n_qubits ?? ''} onChange={(e) => editQuantum('n_qubits', Number(e.target.value))} /></label>
+                <label>Depth<input type="number" min="1" value={activeQuantum.n_circuit_layers ?? ''} onChange={(e) => editQuantum('n_circuit_layers', Number(e.target.value))} /></label>
+                <label>Ansatz<select value={activeQuantum.ansatz || ansatzTypes[0]} onChange={(e) => editQuantum('ansatz', e.target.value)}>{ansatzTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Readout<select value={activeQuantum.readout || readoutTypes[0]} onChange={(e) => editQuantum('readout', e.target.value)}>{readoutTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Backend<select value={activeQuantum.backend || backendTypes[0]} onChange={(e) => editQuantum('backend', e.target.value)}>{backendTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Shots<input value={activeQuantum.shots ?? ''} placeholder="analytic" onChange={(e) => editQuantum('shots', e.target.value ? Number(e.target.value) : null)} /></label>
                 <label>Trainable
-                  <select value={String(layer?.quantum?.trainable ?? true)} onChange={(e) => editBool(`model.blocks.${selectedLayer}.quantum.trainable`, e.target.value === 'true')}>
+                  <select value={String(activeQuantum.trainable ?? true)} onChange={(e) => editQuantum('trainable', e.target.value === 'true')}>
                     <option value="true">trainable</option>
                     <option value="false">frozen control</option>
                   </select>

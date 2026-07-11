@@ -31,8 +31,8 @@ Acceptance evidence:
 Progress:
 
 - [x] M01 Agent system and workflow cleanup (`codex/m01-agent-workflow`),
-  implementation complete; awaiting Git delivery approval.
-- [ ] M02 Trust inputs and configuration (`codex/m02-inputs-config`).
+  delivered to `main` in commit `98b91f7`.
+- [x] M02 Trust inputs and configuration (`codex/m02-inputs-config`).
 - [ ] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`).
 - [ ] M04 Trust claims (`codex/m04-claim-integrity`).
 - [ ] M05 Trust runs (`codex/m05-durable-runs`).
@@ -41,7 +41,94 @@ Progress:
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M01 Git delivery gate, then M02 inputs and configuration.
+Current milestone: M03 causal two-stream replacement.
+
+M02 acceptance evidence:
+
+- `DatasetBundle` carries tokens, tokenizer, boundary/sampler policy, optional
+  masks, provenance metadata, and a deterministic config/content identity;
+  contextual evaluation no longer depends on module globals.
+- Canonical registries are the only source for supported model, component,
+  dataset, circuit, backend, readout, and conditioning choices.
+- CLI, model-spec, and queue paths reject the same invalid numeric and semantic
+  configurations before model initialization.
+- Kernel regularization is selected without reading final test labels.
+- Imported text datasets record revision, limits, hash, and truncation status.
+- Focused data/config/kernel/dashboard tests, full CPU tests, and a fresh
+  verifier pass.
+
+M02 progress:
+
+- [x] Deliver M01 and create `codex/m02-inputs-config` from updated `main`.
+- [x] Map registry, validation, dataset-bundle, kernel, and import gaps.
+- [x] Implement the canonical data/config contracts and compatibility paths.
+- [x] Add split-hygiene and import-provenance behavior with regression tests.
+- [x] Run focused, change-aware, and full verification.
+- [x] Obtain a fresh verifier pass and deliver under standing Git approval.
+
+M02 implementation notes:
+
+- Full transactional paired-job creation remains assigned to M05. M02
+  preflights candidate and analogue configuration errors before the first job
+  insert; no durability claim is made for later database or process failures.
+- Imported corpus character/byte limits bound materialized UTF-8 output.
+  Streaming avoids eager full-dataset materialization, but remote shard/chunk
+  transfer may exceed the stored-output limit and is labeled accordingly.
+
+M02 focused validation so far:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_config_data.py tests/test_dashboard_lab.py tests/test_advantage.py tests/test_contextual.py tests/test_quantum_data.py --basetemp .tmp/pytest-m02-registry-final
+PASS: 115 passed; 15 existing JAX complex128-to-complex64 warnings.
+npm.cmd run build  (qllm/dashboard/frontend)
+PASS: 856 modules transformed; existing bundle-size advisory only.
+desktop + 390px in-app browser inspection
+PASS: dataset provenance UI and registry-driven model controls render; narrow
+page width equals viewport, wide table is locally scrollable, console clean.
+python scripts/verify_changes.py --plan
+PASS: selected agent, dashboard, benchmark, CLI, and full Python checks.
+python scripts/verify_changes.py --run
+PASS: agent-setup, agent-tests, dashboard-build, dashboard-tests,
+benchmark-tests, script-syntax, train-entrypoint-tests, and python-tests.
+.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-m02-full
+PASS: 206 passed, 1 skipped; 37 existing JAX precision warnings.
+git diff --check
+PASS (Git emitted only the repository's CRLF checkout notices).
+first fresh verifier
+NEEDS_WORK: registry-exposed contextual recurrent architectures were rendered
+as transformers and architecture switching retained invalid block configs.
+verifier fix
+PASS: contextual/routed recurrent graphs are quantum/family-honest; recurrent
+transitions clear transformer-only fields; global quantum editing is supported;
+7 Node frontend transition tests and backend regressions pass.
+python scripts/verify_changes.py --run  (final code fingerprint)
+PASS: agent-setup, agent-tests, dashboard-frontend-tests, dashboard-build,
+dashboard-tests, benchmark-tests, script-syntax, train-entrypoint-tests, and
+python-tests.
+.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-m02-full-final
+PASS: 215 passed, 1 skipped; 37 existing JAX precision warnings.
+final in-app browser pass on code fingerprint
+dd08bd54d0d7afaff9661b9a860ebeb9bf15b48aa3ebf8735a4655407924215c
+PASS: a delayed loopback proxy exposed the Models loading state, the empty
+saved-spec state, the ready transformer state, the contextual-QRNN transition,
+the architecture-level quantum inspector, and the shared invalid-qubit error.
+PASS: the Datasets view exposed its primary/default-dataset state, empty task
+cards, disabled `Importing...` state, and the expected missing-source error.
+Direct backend validation returned HTTP 400; the proxy was corrected to relay
+upstream HTTP errors instead of misreporting them as HTTP 500.
+PASS: Models and Datasets were inspected at desktop and 390x844. Both narrow
+pages had 375px client and document widths; the dataset table remained locally
+scrollable (341px client / 792px content) with no page-level overflow. Browser
+warning/error consoles were empty.
+No model spec or job was saved. Two ignored text files created by accidental
+QA imports while diagnosing the proxy were removed by exact path; the temporary
+QA database was isolated under `.tmp` and no pre-existing artifact was changed.
+third fresh verifier review
+PASS: current fingerprint, full M02 diff, browser-state matrix, registry and
+validation contracts, dataset identity/import/migration behavior, kernel split
+hygiene, compatibility, and disclosed limitations were independently reviewed;
+M02 is acceptance-ready for its authorized Git delivery.
+```
 
 M01 acceptance evidence:
 

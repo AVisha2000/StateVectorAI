@@ -6,6 +6,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from qllm.config import ModelConfig, QuantumConfig
 from qllm.models.model import build_model
@@ -16,6 +17,7 @@ from qllm.quantum.advantage import (
     dequantization_challenge,
     geometric_difference,
     kernel_diagnostics,
+    kernel_ridge_evaluate,
     kernel_target_alignment,
     normalize_trace,
     psd_repair,
@@ -119,6 +121,54 @@ def test_dequantization_challenge_reports_classical_surrogate_gap():
     assert np.isfinite(rep.gap)
     assert isinstance(rep.matched_within_tolerance, bool)
     assert set(rep.surrogate_scores) == {"rff_16", "rff_32"}
+    assert rep.kernel_selection["quantum"]["regularization"] > 0
+
+
+def test_kernel_regularization_selection_never_reads_test_labels():
+    rng = np.random.default_rng(17)
+    X = rng.normal(size=(36, 4))
+    K = normalize_trace(classical_kernel_family(X)["rbf_1.0"])
+    y = X[:, 0] - 0.25 * X[:, 1]
+    train_idx = np.arange(24)
+    test_idx = np.arange(24, 36)
+
+    original = kernel_ridge_evaluate(K, y, train_idx, test_idx)
+    mutated = y.copy()
+    mutated[test_idx] = rng.normal(loc=100.0, scale=20.0, size=len(test_idx))
+    changed_test = kernel_ridge_evaluate(K, mutated, train_idx, test_idx)
+
+    assert original.regularization == changed_test.regularization
+    assert (original.n_fit, original.n_validation, original.n_test) == (19, 5, 12)
+    assert original.r2 != changed_test.r2
+
+
+def test_kernel_bandwidth_is_fit_without_test_features():
+    rng = np.random.default_rng(23)
+    X = rng.normal(size=(24, 3))
+    reference = X[:16].copy()
+    original = classical_kernel_family(X, reference_X=reference)["rbf_1.0"]
+    shifted = X.copy()
+    shifted[16:] += 100.0
+    changed = classical_kernel_family(
+        shifted, reference_X=reference
+    )["rbf_1.0"]
+
+    np.testing.assert_allclose(original[:16, :16], changed[:16, :16])
+
+
+def test_kernel_evaluation_rejects_duplicate_or_overlapping_indices():
+    K = np.eye(6)
+    y = np.arange(6, dtype=float)
+    with pytest.raises(ValueError, match="duplicates"):
+        kernel_ridge_evaluate(K, y, np.asarray([0, 0, 1]), np.asarray([4, 5]))
+    with pytest.raises(ValueError, match="disjoint"):
+        kernel_ridge_evaluate(K, y, np.asarray([0, 1, 2]), np.asarray([2, 5]))
+
+
+def test_advantage_report_records_validation_selection():
+    report = advantage_experiment(n_qubits=3, n_samples=60, n_layers=1, seed=9)
+    assert report.kernel_selection
+    assert all(row["n_validation"] > 0 for row in report.kernel_selection.values())
 
 
 # ---------------------------------------------------------------------------

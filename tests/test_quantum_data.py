@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import dataclasses
+from types import MappingProxyType
 
 import numpy as np
+import pytest
 
-from qllm.config import DataConfig
-from qllm.data.datasets import load_dataset, load_dataset_bundle
+from qllm.config import DataConfig, ExperimentConfig, ModelConfig, TrainConfig
+from qllm.data.datasets import data_config_hash, load_dataset, load_dataset_bundle
 from qllm.data.quantum_seq import (
     IdentityTokenizer,
     markov_control_sequences,
@@ -113,8 +115,139 @@ def test_synthetic_bundle_retains_trajectory_boundaries():
     bundle = load_dataset_bundle(cfg)
     assert bundle.is_trajectory_data
     assert bundle.ids.shape == (4, 24)
+    assert bundle.sequence_shape == (4, 24)
+    assert bundle.boundaries == (0, 24, 48, 72, 96)
+    assert bundle.sampler_policy == "within_trajectory"
+    assert bundle.metadata["kind"] == "monitored_ising"
+    assert isinstance(bundle.metadata["config"], MappingProxyType)
+    assert bundle.provenance["generator"] == "monitored_ising_sequences"
+    assert len(bundle.config_hash) == len(bundle.content_hash) == 64
     flat, _ = load_dataset(cfg)
     np.testing.assert_array_equal(flat, bundle.ids.reshape(-1))
+
+
+def test_full_config_hash_avoids_legacy_rounded_angle_collision(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    base = DataConfig(
+        kind="monitored_ising", gen_qubits=2, gen_measured=1,
+        gen_sequences=2, gen_len=12, gen_theta_zz=0.123441,
+        gen_theta_x=0.4,
+    )
+    other = dataclasses.replace(base, gen_theta_zz=0.123449)
+    assert f"{base.gen_theta_zz:.4f}" == f"{other.gen_theta_zz:.4f}"
+    assert data_config_hash(base) != data_config_hash(other)
+    first = load_dataset_bundle(base)
+    second = load_dataset_bundle(other)
+    assert first.config_hash != second.config_hash
+    caches = list((tmp_path / "results/.data_cache").glob("monitored_ising_*.npz"))
+    assert len(caches) == 2
+
+
+def test_ambiguous_rounded_legacy_cache_is_not_reused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DataConfig(
+        kind="monitored_ising", gen_qubits=2, gen_measured=1,
+        gen_sequences=2, gen_len=12, gen_theta_zz=0.123441,
+        gen_theta_x=0.4,
+    )
+    cache_dir = tmp_path / "results/.data_cache"
+    cache_dir.mkdir(parents=True)
+    legacy_name = (
+        "monitored_ising_q2_m1_s2_l12_zz0.1234_x0.4000_spt1_seed0_k3.npz"
+    )
+    np.savez(cache_dir / legacy_name, ids=np.zeros(24, dtype=np.int32), vocab=2)
+
+    bundle = load_dataset_bundle(cfg)
+
+    assert bundle.provenance["cache_identity"] == "config_sha256"
+    assert bundle.provenance["source"] == "generated"
+    assert (cache_dir / f"monitored_ising_{data_config_hash(cfg)}.npz").exists()
+
+
+def test_text_content_hash_includes_tokenizer_semantics(tmp_path):
+    first_path = tmp_path / "first.txt"
+    second_path = tmp_path / "second.txt"
+    first_path.write_text("abab", encoding="utf-8")
+    second_path.write_text("xyxy", encoding="utf-8")
+
+    first = load_dataset_bundle(DataConfig(corpus_path=str(first_path)))
+    second = load_dataset_bundle(DataConfig(corpus_path=str(second_path)))
+
+    np.testing.assert_array_equal(first.ids, second.ids)
+    assert first.content_hash != second.content_hash
+
+
+def test_legacy_synthetic_cache_remains_readable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DataConfig(
+        kind="interference", ctx_observables=8,
+        gen_sequences=2, gen_len=12, gen_seed=7,
+    )
+    expected = np.arange(24, dtype=np.int32) % 8
+    cache_dir = tmp_path / "results/.data_cache"
+    cache_dir.mkdir(parents=True)
+    np.savez(
+        cache_dir / "interference_v8_s2_l12_seed7.npz",
+        ids=expected,
+        vocab=8,
+    )
+    bundle = load_dataset_bundle(cfg)
+    np.testing.assert_array_equal(bundle.ids.reshape(-1), expected)
+    assert bundle.provenance["cache_identity"] == "legacy_key"
+    assert bundle.provenance["legacy_identity_unverified"] is True
+
+
+def test_hashed_cache_detects_content_tampering(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DataConfig(
+        kind="interference", ctx_observables=8,
+        gen_sequences=2, gen_len=12, gen_seed=11,
+    )
+    generated = load_dataset_bundle(cfg)
+    assert generated.provenance["content_identity_verified"] is True
+    path = tmp_path / "results/.data_cache" / f"interference_{data_config_hash(cfg)}.npz"
+    with np.load(path, allow_pickle=False) as loaded:
+        payload = {name: np.array(loaded[name], copy=True) for name in loaded.files}
+    payload["ids"][0] = (int(payload["ids"][0]) + 1) % int(payload["vocab"])
+    np.savez(path, **payload)
+
+    with pytest.raises(ValueError, match="identity mismatch"):
+        load_dataset_bundle(cfg)
+
+
+def test_fit_rejects_invalid_config_before_dataset_load(monkeypatch, tmp_path):
+    import qllm.train.loop as train_loop
+
+    cfg = ExperimentConfig(train=TrainConfig(steps=0))
+    monkeypatch.setattr(
+        train_loop,
+        "load_dataset_bundle",
+        lambda _cfg: pytest.fail("dataset loading must not run"),
+    )
+    with pytest.raises(ValueError, match="train.steps"):
+        train_loop.fit(cfg, verbose=False, out_dir=tmp_path)
+
+
+def test_fit_validates_runtime_qrnn_vocabulary_before_model_init(
+    monkeypatch, tmp_path
+):
+    import qllm.train.loop as train_loop
+
+    corpus = tmp_path / "three-symbols.txt"
+    corpus.write_text("abc" * 100, encoding="utf-8")
+    cfg = ExperimentConfig(
+        model=ModelConfig(arch="qrnn"),
+        train=TrainConfig(steps=1, batch_size=1, seq_len=4),
+        data=DataConfig(corpus_path=str(corpus)),
+    )
+    monkeypatch.setattr(
+        train_loop,
+        "build_model",
+        lambda *_args, **_kwargs: pytest.fail("model initialization must not run"),
+    )
+
+    with pytest.raises(ValueError, match="QRNN vocabulary size must be a power of two"):
+        train_loop.fit(cfg, verbose=False, out_dir=tmp_path)
 
 
 def test_model_complexity_prefers_own_kernel():
