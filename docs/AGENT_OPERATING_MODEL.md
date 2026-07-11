@@ -1,7 +1,7 @@
 # QLLM Agent Operating Model
 
-Status: adopted repository workflow  
-Date: 2026-07-10
+Status: adopted dual-client repository workflow
+Date: 2026-07-11
 
 QLLM uses a small agent operating system so that AI assistance improves
 research throughput without manufacturing confidence. The objective is not to
@@ -14,6 +14,16 @@ The research mission and evidence rules remain canonical in
 [RESEARCH_MAP.yaml](RESEARCH_MAP.yaml). This document explains the operating
 model; it does not duplicate those scientific policies.
 
+| Concern | Portable core | Codex adapter | Claude Code adapter |
+| --- | --- | --- | --- |
+| Instructions | Root and nested `AGENTS.md` | Native discovery | Import-only sibling `CLAUDE.md` |
+| Workflows | `.agents/skills/` | Native project skills | `.claude/skills/` metadata bridges |
+| Delegation | Canonical delegation contract | `.codex/agents/*.toml` | `.claude/agents/*.md` |
+| Verification | `scripts/verify_changes.py` | `.codex/hooks.json` | `.claude/settings.json` |
+
+The portable core owns repository meaning. Client adapters contain only
+discovery, tool, model, permission, or hook details that cannot be shared.
+
 ## Four layers
 
 ### 1. Scoped instructions
@@ -22,7 +32,9 @@ The root `AGENTS.md` contains the invariant repository contract. Nested files
 under `qllm/`, `qllm/dashboard/`, `benchmarks/`, `configs/`, `tests/`, and
 `docs/` add only local detail. A nearer file can specialize a rule, while the
 rest of the parent baseline remains active. This progressive disclosure keeps
-unrelated implementation detail out of each task's context.
+unrelated implementation detail out of each task's context. Each guide has a
+sibling `CLAUDE.md` containing only `@AGENTS.md`; the validator rejects copied
+or divergent Claude instructions.
 
 ### 2. On-demand skills
 
@@ -30,7 +42,10 @@ Repository skills under `.agents/skills/` hold reusable domain workflows:
 model development, dashboard development, experiment execution, research
 review, orchestration, and verification. Their short metadata enables routing;
 their full instructions are loaded only when the task triggers them. This
-separates always-on constraints from capability-specific procedure.
+separates always-on constraints from capability-specific procedure. Claude
+Code discovers thin `.claude/skills/` bridges whose metadata must match the
+canonical skill and whose body directs the agent back to that canonical file.
+This avoids Windows-fragile symlinks and duplicated workflow bodies.
 
 ### 3. Bounded roles
 
@@ -53,22 +68,29 @@ The main agent is the orchestrator and final integrator. Project roles are:
 The parent uses no more than two or three children at once. Parallelism is for
 independent or read-heavy work; sequential dependencies stay together. Because
 agents share a workspace, write ownership never overlaps, and only the parent
-integrates results.
+integrates results. One parent owns an objective even when Codex and Claude Code
+are both active; cross-client work uses the same disjoint-ownership contract.
 
 The main agent uses GPT-5.6 as the root orchestrator. Planner and verifier work
 remain on GPT-5.6, Terra is the default implementation tier, Luna handles
 read-only discovery, Mini handles reviewed mechanical work, and Spark is
 restricted to text-only assistance. If a configured model is unavailable, the
 runtime must report that failure rather than silently substitute another tier.
+Claude role files use the hyphenated equivalents (`terra-worker`,
+`luna-explorer`, `mini-worker`, and `spark-helper`) and inherit the active
+Claude model instead of pinning transient product identifiers.
 
 ### 4. Deterministic verification
 
 Prose guides decisions; executable checks enforce what can be checked. The
 repository validates agent configuration, plans relevant checks from changed
 paths, runs those checks on request, and exercises the orchestration setup in
-pytest. A fresh verifier checks scope, commands, failures, gates, and the final
-diff. Hooks may invoke deterministic checks, but a hook result never overrides
-the human gates in `AGENTS.md`.
+pytest on Windows and Linux. Codex and Claude Code both call the same verifier
+at Stop. The hook has a one-block loop fuse, returns only the documented
+`decision: block` shape when more work is required, and otherwise omits a
+decision. A fresh verifier checks scope, commands, failures, gates, and the
+final diff. Hooks may invoke deterministic checks, but a hook result never
+overrides the human gates in `AGENTS.md`.
 
 `PLANS.md` is the cross-session handoff for substantial work only. It records
 the objective, acceptance evidence, milestones, decisions, gates, and exact
@@ -76,12 +98,12 @@ validation. Small tasks avoid that overhead.
 
 ## Task packets and integration
 
-Every delegation packet names an objective, observable completion condition,
-exclusive write ownership, allowed read paths, required context, gates,
-validation commands, and return format. The return contains a concise summary,
-files touched, exact command results, and unresolved risks. It is a lead for the
-parent, not proof; the parent inspects repository state and reruns the checks
-that matter.
+Every delegation packet follows the sole schema in
+`.agents/skills/qllm-agent-workflow/references/delegation-contract.md`. It names
+an objective, mutation authority or exclusive write ownership, required
+context, non-goals, gates, validation, and a bounded return. The result is a
+lead for the parent, not proof; the parent inspects repository state and reruns
+the checks that matter.
 
 For research work, the packet also states the hypothesis, comparator, data
 access, resource measure, falsifier, and claim ceiling. An implementation agent
@@ -103,11 +125,12 @@ does not promote its own result.
 
 ## Adoption and checks
 
-Start Codex from the repository root so root-to-leaf instructions, project
-configuration, agents, and skills are discoverable:
+Start either client from the repository root so root-to-leaf instructions,
+project configuration, agents, and skills are discoverable:
 
 ```powershell
 codex -C .
+claude
 ```
 
 Validate the installed operating layer and preview the checks selected for the
@@ -124,9 +147,12 @@ Run the selected deterministic checks after a change:
 python scripts/verify_changes.py --run
 ```
 
-When agent configuration changes, restart the Codex session if the active
-surface does not hot-reload project agents or skill metadata. Validate from the
-same repository root used for normal work.
+After a configuration change, start a fresh client session. In Codex, inspect
+the active configuration, agents, skills, and hooks. In Claude Code, use
+`/memory`, `/agents`, `/skills`, and `/hooks`; accept workspace trust only after
+reviewing the committed hook. Static validation runs without either client,
+but these discovery checks require installed runtimes and cannot be proven by
+CI alone.
 
 ## Source basis
 
@@ -142,13 +168,15 @@ tool-specific capabilities:
   [AGENTS.md](https://github.com/openai/openai-agents-python/blob/main/AGENTS.md),
   [PLANS.md](https://github.com/openai/openai-agents-python/blob/main/PLANS.md),
   and [.agents skills](https://github.com/openai/openai-agents-python/tree/main/.agents/skills).
-- Anthropic's [subagent documentation](https://code.claude.com/docs/en/sub-agents),
-  [project-memory guidance](https://code.claude.com/docs/en/memory),
+- Anthropic's [`.claude` directory map](https://code.claude.com/docs/en/claude-directory),
+  [project-memory and `AGENTS.md` import guidance](https://code.claude.com/docs/en/memory),
+  [skills documentation](https://code.claude.com/docs/en/skills),
+  [subagent documentation](https://code.claude.com/docs/en/sub-agents),
+  [hooks reference](https://code.claude.com/docs/en/hooks),
   [context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents),
-  [Claude Code repository](https://github.com/anthropics/claude-code), and
-  [long-running-agent harness examples](https://github.com/anthropics/cwc-long-running-agents)
-  support isolated noisy work, concise handoffs, and a fresh default-fail
-  evaluator.
+  and [Claude Code repository](https://github.com/anthropics/claude-code)
+  support thin imports, on-demand workflows, isolated roles, lifecycle checks,
+  and concise handoffs.
 - The open [AGENTS.md format](https://agents.md/) and
   [reference repository](https://github.com/agentsmd/agents.md) support a
   portable root-plus-nested instruction hierarchy.

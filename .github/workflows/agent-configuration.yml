@@ -4,9 +4,13 @@ on:
   pull_request:
     paths:
       - "**/AGENTS.md"
+      - "**/CLAUDE.md"
       - "PLANS.md"
       - ".agents/**"
+      - ".claude/**"
       - ".codex/**"
+      - ".gitignore"
+      - "docs/AGENT_OPERATING_MODEL.md"
       - "scripts/check_agent_setup.py"
       - "scripts/verify_changes.py"
       - "tests/test_agent_configuration.py"
@@ -14,9 +18,13 @@ on:
   push:
     paths:
       - "**/AGENTS.md"
+      - "**/CLAUDE.md"
       - "PLANS.md"
       - ".agents/**"
+      - ".claude/**"
       - ".codex/**"
+      - ".gitignore"
+      - "docs/AGENT_OPERATING_MODEL.md"
       - "scripts/check_agent_setup.py"
       - "scripts/verify_changes.py"
       - "tests/test_agent_configuration.py"
@@ -28,8 +36,12 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,3 +49,7 @@ jobs:
           python-version: "3.12"
       - name: Validate agent operating files
         run: python scripts/check_agent_setup.py
+      - name: Install focused test dependency
+        run: python -m pip install pytest
+      - name: Run agent configuration tests
+        run: python -m pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py

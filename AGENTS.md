@@ -12,8 +12,10 @@ Use `docs/RESEARCH_PROGRAM.md` for the scientific roadmap and
 
 This file is the repository baseline. A nested `AGENTS.md` adds path-specific
 guidance and takes precedence only where it is more specific; all unrelated
-root rules remain in force. Start work from the repository root so Codex can
-discover the full instruction chain and project skills.
+root rules remain in force. Sibling `CLAUDE.md` files are import-only adapters
+for Claude Code; never duplicate substantive guidance in them. Start Codex or
+Claude Code from the repository root so the full instruction chain and project
+skills are discoverable.
 
 ## Route the task before reading broadly
 
@@ -57,8 +59,9 @@ The parent agent owns the plan, integration, final verification, and user
 handoff. Delegate only when separation saves context or wall-clock time.
 
 - Use `planner` for substantial ambiguous work and `explorer` for bounded,
-  read-only discovery. Use the built-in `worker` for a disjoint implementation
-  packet. Use `verifier` after implementation with fresh, read-only context.
+  read-only discovery. Use `terra_worker` (Claude Code: `terra-worker`) for a
+  disjoint implementation packet. Use `verifier` after implementation with
+  fresh, read-only context.
 - Spawn at most two or three children, only for independent or read-heavy
   work. Keep dependent steps in one context.
 - This is a shared workspace: give writing agents disjoint file ownership.
@@ -66,18 +69,12 @@ handoff. Delegate only when separation saves context or wall-clock time.
   every return.
 - Do not delegate trivial lookups, one-file edits, or work whose result must be
   reread in full by the parent.
-
-Every task packet must include:
-
-```text
-Objective:
-Done when:
-Owned files (write) / allowed paths (read):
-Read first:
-Constraints and human gates:
-Validation command(s):
-Return: summary, files, command results, risks/unknowns
-```
+- Use
+  `.agents/skills/qllm-agent-workflow/references/delegation-contract.md` as the
+  sole task-packet schema and role-routing reference; do not maintain a second
+  template here.
+- One parent owns an objective. If Codex and Claude Code work concurrently,
+  name the parent explicitly and give every writing agent disjoint files.
 
 ## Token and model economy
 

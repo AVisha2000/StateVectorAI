@@ -5,7 +5,377 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
-## Active plan: local platform completion
+## Completed workstream: Codex idea-to-implementation playbook
+
+Owner: parent agent
+Started: 2026-07-11
+Objective: give the repository a low-friction idea inbox and an explicit,
+human-in-the-loop path from rough feature idea to triaged implementation.
+
+Scope: add `IDEAS.md`, document the Codex/Claude operating rhythm, explain when
+to use the inbox versus `PLANS.md`, and link the playbook from onboarding.
+Product behavior, research claims, experiment execution, and Git delivery are
+excluded.
+
+Acceptance evidence:
+
+- A user can paste an unstructured idea into one obvious file without needing
+  to know the repository architecture first.
+- The playbook defines review, refinement, approval, implementation, triage,
+  verification, and completion states.
+- Agent delegation remains bounded and the user retains gates for spend,
+  hardware, claims, destructive actions, and Git publication.
+- The documentation names exact startup and verification commands.
+
+Progress:
+
+- [x] Add the idea inbox template.
+- [x] Add the Codex playbook and link it from README onboarding.
+- [x] Verify documentation and agent-configuration checks.
+
+Decisions:
+
+- Raw ideas live in `IDEAS.md`; accepted substantial work moves to `PLANS.md`.
+- The user explicitly promotes an idea before implementation agents write code.
+- An implementation loop is a triage run with one parent owner, disjoint file
+  ownership, and a fresh verification pass.
+
+Human gates: no GPU/QPU/cluster run, paid service, claim promotion,
+destructive artifact/database action, commit, push, merge, or publication is
+authorized by this documentation work.
+
+Latest validation: see the final response for the exact commands and results.
+
+## Completed workstream: Codex and Claude Code interoperability
+
+Owner: parent agent
+Started: 2026-07-11
+Objective: expose the existing verification-first QLLM agent operating system
+to both Codex and Claude Code without duplicating its substantive guidance.
+
+Scope: preserve `AGENTS.md`, `.agents/skills/`, the delegation contract, and
+`PLANS.md` as the portable policy core; add thin Claude Code discovery and role
+adapters; share deterministic Stop-hook verification; validate both client
+configurations and drift in CI; and update onboarding. Product code, research
+claims, experiment artifacts, GPU/QPU execution, paid services, and Git
+delivery are excluded.
+
+Acceptance evidence:
+
+- Every root or nested `AGENTS.md` has an import-only `CLAUDE.md` peer, so one
+  instruction hierarchy serves both clients.
+- Every canonical QLLM skill is discoverable from Claude Code through a thin,
+  drift-checked adapter that points back to `.agents/skills/`.
+- Claude Code has bounded planner, explorer, worker, helper, and verifier roles
+  with the same delegation contract and human gates as Codex.
+- Codex and Claude Code both invoke `scripts/verify_changes.py` at Stop with a
+  protocol-correct response and an infinite-loop fuse.
+- `scripts/check_agent_setup.py`, focused agent tests, change-aware
+  verification, CI path routing, documentation, and the final diff all agree
+  on the portable-core/client-adapter architecture.
+
+Progress:
+
+- [x] Inventory the current instruction hierarchy, skills, roles, hooks,
+  validators, tests, CI, and onboarding while preserving the dirty research
+  plan below.
+- [x] Verify current Codex and Claude Code configuration mechanisms against
+  official product documentation.
+- [x] Add Claude Code instruction, skill, role, and hook adapters.
+- [x] Reconcile delegation/CPU-smoke drift and generalize deterministic
+  validation, tests, CI, and onboarding for both clients.
+- [x] Run focused and change-aware checks, obtain a fresh read-only review, and
+  inspect the complete diff.
+
+Decisions:
+
+- The pasted product-level Claude prompt is design input only and is not copied
+  into the repository.
+- `AGENTS.md` and `.agents/skills/` remain canonical. Claude files contain only
+  the minimum product-specific discovery or execution adapter.
+- Import adapters are used instead of committed symlinks because this checkout
+  is native Windows/OneDrive and symlink support is not portable there.
+- Claude role definitions inherit the session model rather than pinning
+  transient Anthropic model identifiers.
+- No blanket permission grants or unverified command-interception policy is
+  added. Existing human gates remain authoritative, and deterministic checks
+  are enforced at Stop.
+
+Human gates: no GPU/QPU/cluster run, paid service, claim promotion,
+destructive artifact/database action, remote dashboard exposure, commit,
+push, merge, or publication is authorized by this workstream.
+
+Latest validation:
+
+```text
+git status --short --branch
+PASS: main matches origin/main; the pre-existing PLANS.md research-continuation
+work remains the only user change before this workstream's additive entry.
+official Codex and Claude Code configuration audit
+PASS: thin imports, native client adapters, bounded roles, and shared hooks are
+supported; Claude runtime smoke remains unavailable because `claude` is not
+installed in this environment.
+python scripts/check_agent_setup.py
+PASS: shared instructions, both client adapters, roles, skills, hooks, and
+local-ignore contracts are valid.
+.venv/Scripts/python.exe -m pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py --basetemp .tmp/pytest-agent-interop-final
+PASS: 25 passed.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 120
+PASS: agent-setup and agent-tests; no training, dashboard job, GPU, QPU, or Git
+mutation selected.
+skill-creator quick_validate.py
+PASS: all seven Claude skill bridges and all three changed canonical skill
+folders are structurally valid.
+workflow/settings syntax audit and git diff --check
+PASS: CI YAML and Claude settings JSON parse; no whitespace errors (Git emitted
+only checkout line-ending notices).
+fresh read-only verifier
+NEEDS_WORK on first review: a bridge could append duplicated workflow prose
+while preserving metadata and its canonical link. The checker now requires one
+exact generated bridge template and the negative fixture proves appended policy
+is rejected. Follow-up verdict: PASS; no material finding remains. Real client
+discovery and Stop-hook execution remain unproven until Codex and Claude Code
+can be smoke-tested outside this restricted environment.
+```
+
+## Proposed plan: engineering backlog verification and gap closure
+
+Owner: parent agent
+Started: 2026-07-11
+Status: awaiting explicit implementation approval
+Objective: close the remaining acceptance gaps in the requested engineering
+backlog, in priority order, without reimplementing behavior that is already
+present and freshly verified.
+
+Scope: the twelve user-requested backlog themes: boundary-safe sampling,
+configuration validation, two-stream honesty, fairness comparison, paired
+statistics, dashboard safety, durable queue recovery, checkpoint/resume,
+idempotent logging, runtime/resource telemetry, the claim ledger and warnings,
+and dependency/backend scaling. Existing research artifacts and the active
+claim-guided continuation plan remain untouched. No experiment execution,
+dependency installation, remote dashboard exposure, claim promotion, artifact
+or database rewrite, or Git delivery is authorized by this proposal.
+
+Audit baseline:
+
+| Requested item | Current classification | Acceptance gap or evidence |
+| --- | --- | --- |
+| 1. Boundary-safe synthetic sampling | Partial; audit status is stale | Canonical training/evaluation use 2-D trajectory-aware bundles, but `benchmarks/memory_sweep.py`, `planted_qrnn.py`, `resonance_search.py`, `seq_interference_probe.py`, `model_report.py`, and `qllm/dashboard/model_tests.py` still call the flattening compatibility loader. |
+| 2. Comprehensive config validation | Complete; revalidate only | Registry-backed validation is shared by CLI, model-spec, queue, model, data, circuit, and backend paths. |
+| 3. Two-stream metric and causality honesty | Code/dashboard complete; claim-text gap is human-gated | The current model is causal and historical dashboard rows are side-information/rerun-required, but `RESULTS.md` section 20 does not carry that historical limitation. |
+| 4. Full fairness-field comparison | Complete; revalidate only | Claim-specific schemas compare the full normalized protocol and expose every allowed/disallowed mismatch through studies and UI payloads. |
+| 5. Paired study statistics | Complete; revalidate only | Paired bootstrap/sign-flip/equivalence/power logic is wired into study cells and the conservative verdict ladder. |
+| 6. Dashboard local safety | Complete; revalidate only | Loopback/CORS gates and canonical path containment are implemented and tested. |
+| 7. Durable queue recovery | Complete for the documented local worker contract | SQLite claims, leases, heartbeats, stale recovery, fencing, and terminal reservation release are implemented. |
+| 8. Checkpoint/resume | Complete on CPU; hardware resume remains unproven | Atomic latest/best checkpoints restore optimizer, step, RNG, identity, and lineage through CLI/dashboard paths. |
+| 9. Idempotent per-step logging | Complete for UUID-backed runs | Canonical step rows use `(run_uuid, step, name)` uniqueness; same-value retry is idempotent and conflicting retry fails loudly. |
+| 10. Quantum runtime/resource telemetry | Complete for local execution | Compile/first-step, steady-state, state dimension, logical circuit-forward estimates, device, precision, and available memory are labeled; physical backend-call and GPU/QPU telemetry remain unavailable. |
+| 11. Claim ledger and dashboard warnings | Complete; revalidate only | `research/claims.yaml` is canonical and structured warnings reach API/UI with conservative status semantics. |
+| 12. Dependency matrix and backend scaling | Partial | CPU/WSL profiles and exact/sampled/unverified capability metadata exist. Clean-install/GPU compatibility is not freshly proven, and no real MPS/Lightning GPU/MPI/QPU scalable backend exists; those choices are a separate dependency/hardware gate. |
+
+Acceptance evidence:
+
+- Every synthetic caller that can load trajectory data preserves the 2-D
+  bundle through splitting, sampling, and evaluation; a regression inventory
+  fails if an executable benchmark or dashboard helper reintroduces the flat
+  compatibility loader.
+- Config, causality, fairness, paired-statistics, safety, durability, resume,
+  logging, telemetry, ledger, and warning contracts remain green under focused
+  tests after each relevant phase.
+- Historical two-stream wording is changed only after separate approval for
+  claim-bearing text and only to add the already-recorded limitation; no claim
+  level or conclusion is strengthened.
+- Dependency/backend work separates reproducible install validation from a
+  concrete scalable-backend design. No CUDA/JAX environment change, GPU/QPU
+  run, cluster work, or new backend dependency occurs without a named approved
+  packet.
+- Each implementation phase ends with focused checks, change-aware
+  verification, diff review, and a fresh read-only verifier when risk or claim
+  sensitivity warrants it.
+
+Phased execution:
+
+1. **Boundary-safe caller closure (recommended first phase).** Migrate the five
+   identified benchmarks and dashboard model-test helper to
+   `load_dataset_bundle`, preserve trajectory shape through their split/sample
+   paths, add caller-inventory and behavior regressions, and update the stale
+   completion classification. Validate data/config/benchmark/dashboard-model
+   tests, then `verify_changes.py --plan/--run`. Risk: helper-specific shape or
+   mask assumptions; no research result is rerun or rewritten.
+2. **Configuration gate confirmation.** Trace checked-in configs and all launch
+   callers once more after phase 1; add code only if a concrete registry or
+   semantic-validation hole is reproduced. Validate all YAML configs and the
+   focused config/dashboard preflight tests.
+3. **Two-stream historical labeling (separate human gate).** With explicit
+   claim-text approval, add a correction note to the historical section of
+   `RESULTS.md` identifying full-window v1 as teacher-forced side-information
+   and rerun-required. Do not alter the recorded numbers or strengthen the
+   verdict. Validate research protocol, dashboard historical filtering, links,
+   and receive fresh research-sensitive verification.
+4. **Fairness and paired-statistics confirmation.** Re-run focused protocol and
+   study tests, add only any reproduced missing field/cell regression, and
+   perform fresh API/UI evidence inspection if code changes. No study or claim
+   promotion is part of this phase.
+5. **Dashboard local-safety confirmation.** Re-run containment/CORS tests and,
+   if implementation changes are needed, inspect loopback behavior locally.
+   Remote mode is not exercised without approval.
+6. **Durable queue recovery confirmation.** Re-run deterministic SQLite
+   claim/lease/recovery/cancellation fixtures. Any live smoke uses an isolated
+   database and explicit CPU target; no existing job is cancelled or mutated.
+7. **Checkpoint/resume confirmation.** Re-run exact CPU interruption/resume,
+   optimizer/RNG, best/latest, corruption, and lineage fixtures. Long or
+   accelerator resume validation remains separately gated.
+8. **Idempotent logging confirmation.** Re-run migration, concurrent retry,
+   conflicting retry, and monotonic-curve fixtures; preserve legacy rows and
+   use additive migrations only if a reproduced gap exists.
+9. **Runtime/resource telemetry confirmation.** Re-run CPU timing, state-size,
+   capability, precision, logical-call, and unavailable-memory cases. Do not
+   relabel logical simulator work as physical QPU calls.
+10. **Claim ledger and dashboard warning confirmation.** Re-run schema,
+    conservative-classification, structured-warning, and frontend evidence
+    tests; browser-inspect changed evidence surfaces if needed. Claim status
+    changes remain out of scope.
+11. **Dependency matrix verification.** Add a clean CPU install/compatibility
+    check in an isolated environment if approved and document the unverified
+    WSL/CUDA boundary. Do not alter the active CUDA/JAX environment.
+12. **Scalable backend decision packet.** Before implementation, choose one
+    concrete target (for example MPS/tensor-network or Lightning), define exact
+    overlap/parity, approximation metadata, resource evidence, dependency and
+    hardware gates, and stopping criteria. This is deferred until the user
+    approves that architecture/dependency packet; it is not implied by the
+    local exact-backend capability work.
+
+Risks and decisions:
+
+- The completion audit overstates items 1 and 3 and must be corrected when the
+  corresponding approved phase lands; item 12 must stay explicitly split
+  between local metadata and real scaling.
+- Passing existing tests did not expose the flat-loader callers, so phase 1
+  requires an inventory-style regression in addition to behavior tests.
+- The working tree already contains user-owned agent/documentation changes,
+  including earlier `PLANS.md` edits. The parent must preserve them and keep
+  every phase diff narrowly scoped.
+- If approved, this engineering workstream takes execution priority without
+  deleting the existing claim-guided continuation plan.
+
+Human gates: implementation has not started. Separate explicit approval is
+required for the phase-3 `RESULTS.md` correction, any dependency/CUDA/JAX
+environment change, scalable-backend dependency or hardware work, remote
+dashboard exposure, destructive database/artifact action, experiment run,
+commit, push, merge, or publication.
+
+Latest planning validation:
+
+```text
+python scripts/check_agent_setup.py
+PASS: Agent setup validation passed.
+.venv/Scripts/python.exe scripts/verify_changes.py --plan
+PASS: selected only agent-setup and agent tests for the pre-existing dirty
+documentation/agent worktree.
+.venv/Scripts/python.exe -m pytest -q tests/test_config_data.py
+tests/test_quantum_data.py tests/test_contextual.py
+tests/test_seq_cancellation.py tests/test_two_stream.py
+tests/test_research_protocol.py tests/test_dashboard_security.py
+tests/test_durable_runs.py tests/test_resource_accounting.py
+tests/test_backend_capabilities.py tests/test_dashboard_lab.py
+--basetemp .tmp/pytest-backlog-audit
+PASS: 243 passed, 1 skipped, 11 warnings in 97.67s; warnings are the existing
+Starlette/httpx deprecation and JAX complex128-to-complex64 notices.
+read-only bounded audits
+PASS with gaps: items 1 and 3 are overstated by the completion audit; item 12
+is partial/deferred. All other requested items have implementation and focused
+regression evidence. No experiment, service, job, dependency, database, or
+artifact was changed.
+```
+
+## Active plan: claim-guided research continuation
+
+Owner: parent agent
+Started: 2026-07-11
+Objective: choose and prepare the next decisive QLLM research study after the
+local CPU-capable platform completion.
+
+Scope: refresh the stale loop state, reconcile current claim contracts and
+research-map priorities, select one next study track, define controls and
+resource gates, and prepare a concrete execution packet. GPU/cluster/QPU
+execution, paid services, destructive artifact/database migration, remote
+dashboard exposure, and stronger scientific claims remain excluded without
+separate approval.
+
+Acceptance evidence:
+
+- `STATE.md` no longer presents pre-M01-M09 blockers as current engineering
+  status.
+- The selected next study has a claim ID from `research/claims.yaml`, a metric
+  type, required controls, fairness fields, seed/pair count rationale, and a
+  resource gate.
+- The plan names the smallest useful CPU smoke or read-only audit before any
+  GPU or long run.
+- Any GPU queue command is treated as a proposed packet, not authorization to
+  execute.
+- No `RESULTS.md` claim level/status is strengthened during planning.
+
+Progress:
+
+- [x] Complete and push the local platform M09 audit to `main` in commit
+  `c2a7562`.
+- [x] Reload `PLANS.md`, `docs/COMPLETION_AUDIT.md`, `GPU_QUEUE.md`,
+  `research/claims.yaml`, and `docs/RESEARCH_MAP.yaml`.
+- [ ] Refresh current state with a report-only triage against post-M09 `main`.
+- [ ] Rank candidate continuation tracks by claim value, blockers, cost, and
+  falsification power.
+- [ ] Select one track and write a narrow execution packet with controls,
+  validation, and human gates.
+- [ ] Run the smallest safe CPU/read-only check that de-risks the selected
+  packet.
+
+Current candidate tracks:
+
+- **Monitored quantum memory:** highest project-value track, but currently
+  gated by predictive-memory baselines, replicated generator instances, and
+  careful resource accounting. GPU queue items 1-2 belong here but require
+  explicit hardware approval.
+- **Two-stream causal confirmation:** lower setup risk and a clean rerun path
+  because the causal replacement exists. GPU queue item 6 can test the
+  historical lean without mixing in side-information rows.
+- **Kernel geometry controls:** useful methodology hardening with finite-shot
+  and stronger classical challenger work before application claims.
+- **Contextual/parity memory:** promising mechanism track, but needs relabeling
+  discipline and theorem-faithful task design before scaling.
+- **Backend scaling:** valuable infrastructure follow-on for MPS/Lightning,
+  but this is a capability program rather than the next scientific result.
+
+Recommended first continuation:
+
+1. Run a post-M09 report-only triage to rewrite stale `STATE.md` around the
+   completed platform and current claim contracts.
+2. Choose between monitored quantum memory and causal two-stream as the first
+   continuation track.
+3. If choosing memory, start with a CPU/read-only design packet for classical
+   predictive-memory baselines and the m=12/14/16 GPU gate.
+4. If choosing two-stream, start with a CPU smoke and study packet for
+   `two-stream-causal-v2` before considering the 12-seed GPU run.
+
+Decisions:
+
+- The local platform is complete for the M01-M09 scope; continuation is a
+  research-campaign plan, not another platform-hardening milestone.
+- Serious runs should belong to a Study and claim contract.
+- GPU queue entries remain proposals until the user explicitly approves the
+  hardware gate for a named packet.
+
+Human gates: no GPU/QPU/cluster run, paid service, claim promotion,
+destructive artifact/database action, remote dashboard exposure, or push is
+authorized by this planning entry alone.
+
+Latest validation:
+
+```text
+git status --short --branch
+PASS: main is clean and aligned with origin/main before continuation planning.
+```
+
+## Completed plan: local platform completion
 
 Owner: parent agent
 Started: 2026-07-10
@@ -46,7 +416,8 @@ Progress:
   to `main` in commit `dcec571`.
 - [x] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`),
   delivered to `main` in commit `f3daa85`.
-- [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
+- [x] M09 Documentation and completion audit (`codex/m09-docs-audit`),
+  delivered to `main` in commit `c2a7562`.
 
 Current milestone: M09 documentation and completion audit.
 
@@ -72,7 +443,7 @@ M09 progress:
 - [x] Build the documentation and enhancement-status coverage map.
 - [x] Add researcher and engineer onboarding plus evidence-backed status audit.
 - [x] Validate links, commands, documentation checks, and the complete CPU suite.
-- [ ] Obtain a fresh verifier PASS and deliver M09 under standing Git approval.
+- [x] Obtain a fresh verifier PASS and deliver M09 under standing Git approval.
 
 M09 design constraints:
 

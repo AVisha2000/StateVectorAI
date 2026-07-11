@@ -22,7 +22,9 @@ This project is a research codebase with local experiment artifacts, GPU-cost ri
 - Use focused tests for the touched path before proposing a fix.
 - Use `pytest -q` for broad Python changes.
 - Use `npm run build` in `qllm/dashboard/frontend` for dashboard UI changes.
-- Use `python scripts/queue_smoke.py` for dashboard queue/API changes after the dashboard path is available.
+- After the local dashboard path is available, use
+  `python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu`
+  for queue/API changes.
 
 ## Stop Conditions
 

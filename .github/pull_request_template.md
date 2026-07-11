@@ -8,6 +8,8 @@
 - [ ] I included exact commands and results.
 - [ ] I did not disable or weaken tests to make the change pass.
 - [ ] A fresh verifier reviewed medium/high-risk work, or I recorded why it was unnecessary.
+- [ ] Agent configuration changes preserve the shared `AGENTS.md`/`.agents`
+      core and pass both Codex and Claude adapter validation.
 
 ## Gates
 

@@ -40,7 +40,7 @@ For agent instruction or operating-model changes:
 
 ```powershell
 python scripts/check_agent_setup.py
-pytest -q tests/test_agent_configuration.py
+pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py
 ```
 
 Check links, commands, dates, and file names against the repository. Do not

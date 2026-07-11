@@ -26,7 +26,7 @@ Dashboard:
 
 ```powershell
 python -m qllm.dashboard.run --port 8000
-python scripts/queue_smoke.py
+python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu
 ```
 
 GPU readiness:

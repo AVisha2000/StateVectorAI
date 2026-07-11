@@ -83,10 +83,22 @@ pytest -q
 
 ## AI-assisted development
 
-Start Codex from the repository root so it discovers the scoped `AGENTS.md`
-files, project agents, and on-demand skills. The operating model and adoption
-commands are documented in [docs/AGENT_OPERATING_MODEL.md](docs/AGENT_OPERATING_MODEL.md).
-Validate the setup with:
+Start Codex or Claude Code from the repository root. `AGENTS.md` and
+`.agents/skills/` are the shared source of truth; import-only `CLAUDE.md` files
+and `.claude/` adapters expose the same contracts to Claude Code without
+copying them. The roles, ownership rules, first-run checks, and architecture
+are documented in
+[docs/AGENT_OPERATING_MODEL.md](docs/AGENT_OPERATING_MODEL.md).
+For the day-to-day idea-to-feature workflow, use
+[docs/CODEX_PLAYBOOK.md](docs/CODEX_PLAYBOOK.md) and
+[IDEAS.md](IDEAS.md).
+
+```bash
+codex -C .
+claude
+```
+
+Validate either client setup with:
 
 ```bash
 python scripts/check_agent_setup.py

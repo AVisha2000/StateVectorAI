@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/scripts/verify_changes.py",
+              "--hook",
+              "--hook-platform",
+              "claude",
+              "--repo",
+              "${CLAUDE_PROJECT_DIR}"
+            ],
+            "timeout": 600,
+            "statusMessage": "Checking changed QLLM paths"
+          }
+        ]
+      }
+    ]
+  }
+}

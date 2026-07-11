@@ -19,13 +19,25 @@ def test_porcelain_parser_preserves_dotfiles_spaces_and_renames() -> None:
 
 def test_path_selection_is_cpu_only_and_never_launches_training() -> None:
     checks = verifier.select_checks(
-        [".agents/skills/qllm-agent-workflow/SKILL.md", "qllm/model.py"],
+        [
+            ".agents/skills/qllm-agent-workflow/SKILL.md",
+            ".claude/agents/verifier.md",
+            "qllm/model.py",
+        ],
         Path(__file__).resolve().parents[1],
     )
     assert {check.id for check in checks} >= {"agent-setup", "agent-tests", "python-tests"}
     flattened = " ".join(word for check in checks for word in check.argv).casefold()
     for forbidden in ("train.py", "queue_smoke", "qpu", "git commit", "git push"):
         assert forbidden not in flattened
+
+
+def test_agent_ci_contract_changes_run_agent_tests() -> None:
+    checks = verifier.select_checks(
+        [".github/workflows/agent-configuration.yml"],
+        Path(__file__).resolve().parents[1],
+    )
+    assert {check.id for check in checks} == {"agent-setup", "agent-tests"}
 
 
 def test_sensitive_paths_are_explicit_human_gates() -> None:
@@ -104,6 +116,20 @@ def test_stop_hook_active_immediately_allows_without_verification(tmp_path: Path
     assert result["loop_fuse"] is True
 
 
+@pytest.mark.parametrize("platform", ["codex", "claude"])
+def test_render_hook_response_omits_success_decision(platform: str) -> None:
+    assert verifier.render_hook_response({"decision": "allow", "reason": "done"}, platform) == {}
+
+
+@pytest.mark.parametrize("platform", ["codex", "claude"])
+def test_render_hook_response_preserves_only_block_contract(platform: str) -> None:
+    rendered = verifier.render_hook_response(
+        {"decision": "block", "reason": "Run tests", "verification": {"large": "payload"}},
+        platform,
+    )
+    assert rendered == {"decision": "block", "reason": "Run tests"}
+
+
 def test_hook_blocks_unchanged_failure_only_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -136,3 +162,4 @@ def test_public_mode_flags_are_supported() -> None:
     assert parser.parse_args(["--plan"]).plan is True
     assert parser.parse_args(["--run"]).run is True
     assert parser.parse_args(["--hook"]).hook is True
+    assert parser.parse_args(["--hook", "--hook-platform", "claude"]).hook_platform == "claude"

@@ -1,8 +1,10 @@
 # Engineer Guide
 
 This guide maps the extension paths that are safe to use without reading the
-whole repository. Start Codex and run commands from the repository root so the
-scoped `AGENTS.md` files and project skills are discovered.
+whole repository. Start Codex or Claude Code and run commands from the
+repository root so the scoped `AGENTS.md` contracts and project skills are
+discovered. Claude Code reaches the same canonical files through import-only
+`CLAUDE.md` and `.claude/skills/` adapters.
 
 ## Install and verify
 
@@ -43,7 +45,8 @@ entry point and must reject invalid combinations before expensive work.
 ## Change workflow
 
 1. Inspect `git status --short` and preserve existing artifacts/user changes.
-2. Read the root and nearest nested `AGENTS.md` plus the matching project skill.
+2. Read the root and nearest nested `AGENTS.md` plus the matching canonical
+   project skill. Claude Code's adapters must lead to the same files.
 3. Trace the narrow data/config/model/API path and state acceptance evidence.
 4. Change the smallest coherent contract and add behavioral tests.
 5. Run focused checks, `python scripts/verify_changes.py --plan`, then

@@ -31,7 +31,7 @@ pytest -q tests/test_quantum.py
 Agent configuration contract:
 
 ```powershell
-pytest -q tests/test_agent_configuration.py
+pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py
 python scripts/check_agent_setup.py
 ```
 

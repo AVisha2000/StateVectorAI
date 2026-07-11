@@ -4,7 +4,7 @@ The selector in `scripts/verify_changes.py` is the executable source of truth. T
 
 | Changed area | Minimum safe evidence |
 |---|---|
-| `.agents/`, `.codex/`, `AGENTS.md`, `PLANS.md` | `python scripts/check_agent_setup.py` and agent-configuration tests |
+| `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`, `CLAUDE.md`, `PLANS.md` | `python scripts/check_agent_setup.py` and agent-configuration tests |
 | `qllm/dashboard/frontend/` | `npm run build` from the frontend directory |
 | `qllm/dashboard/` backend or API | `pytest -q tests/test_dashboard_lab.py`; queue smoke when queue/API behavior changes |
 | `qllm/`, `benchmarks/`, `scripts/`, `configs/`, or `tests/` Python behavior | focused tests first; full `pytest -q` for shared contracts or broad blast radius |

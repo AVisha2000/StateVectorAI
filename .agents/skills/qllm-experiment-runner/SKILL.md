@@ -32,4 +32,5 @@ Use this skill to run experiments without losing the project's fairness discipli
 
 - For code changes to training/data/model behavior, run the focused tests that cover the touched path, then run broader `pytest -q` when the blast radius is high.
 - For benchmark-only changes, run the benchmark with tiny parameters or a smoke flag where available.
-- For dashboard queue changes, run a queue smoke such as `python scripts/queue_smoke.py` after the dashboard/API path is available.
+- For dashboard queue changes, after the local API is available run
+  `python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu`.

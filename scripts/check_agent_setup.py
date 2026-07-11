@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the repository's Codex instructions, skills, and custom agents.
+"""Validate the repository's shared Codex and Claude Code operating system.
 
 This checker intentionally uses only the Python standard library so it can run
 before the project environment has been installed.
@@ -24,6 +24,7 @@ REQUIRED_AGENT_GUIDES = (
     "benchmarks/AGENTS.md",
     "tests/AGENTS.md",
     "docs/AGENTS.md",
+    "configs/AGENTS.md",
 )
 REQUIRED_CUSTOM_AGENTS = (
     "planner.toml",
@@ -54,10 +55,44 @@ IGNORED_PARTS = {
 }
 STALE_AGENT_KEYS = {"instructions", "reasoning_effort"}
 VALID_REASONING_EFFORT = {"minimal", "low", "medium", "high", "xhigh"}
+REQUIRED_CLAUDE_AGENTS = (
+    "planner.md",
+    "explorer.md",
+    "verifier.md",
+    "terra-worker.md",
+    "luna-explorer.md",
+    "mini-worker.md",
+    "spark-helper.md",
+)
+READ_ONLY_CODEX_AGENTS = {
+    "planner",
+    "explorer",
+    "verifier",
+    "luna_explorer",
+    "spark_helper",
+}
+WRITING_CODEX_AGENTS = {"terra_worker", "mini_worker"}
+READ_ONLY_CLAUDE_AGENTS = {
+    "planner",
+    "explorer",
+    "verifier",
+    "luna-explorer",
+    "spark-helper",
+}
+WRITING_CLAUDE_AGENTS = {"terra-worker", "mini-worker"}
 
 
 def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def _discover_named_files(root: Path, filename: str) -> list[Path]:
+    discovered: list[Path] = []
+    for directory, directories, filenames in os.walk(root):
+        directories[:] = [name for name in directories if name not in IGNORED_PARTS]
+        if filename in filenames:
+            discovered.append(Path(directory) / filename)
+    return sorted(discovered)
 
 
 def _read_text(path: Path, errors: list[str], root: Path) -> str | None:
@@ -106,6 +141,45 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return values
 
 
+def render_claude_skill_bridge(name: str, description: str) -> str:
+    """Return the only allowed Claude adapter for a canonical project skill."""
+    return (
+        "---\n"
+        f"name: {name}\n"
+        f"description: {description}\n"
+        "---\n\n"
+        "# Canonical QLLM skill bridge\n\n"
+        f"Read and follow the [canonical skill](../../../.agents/skills/{name}/SKILL.md)\n"
+        "completely before taking task actions. Resolve every relative reference from\n"
+        "that canonical skill directory. This adapter exposes Claude Code discovery\n"
+        "metadata only; do not fork the workflow here.\n"
+    )
+
+
+def _command_hooks(data: object, event: str) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    groups = hooks.get(event)
+    if not isinstance(groups, list):
+        return []
+    commands: list[dict[str, Any]] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        handlers = group.get("hooks")
+        if not isinstance(handlers, list):
+            continue
+        commands.extend(
+            handler
+            for handler in handlers
+            if isinstance(handler, dict) and handler.get("type") == "command"
+        )
+    return commands
+
+
 def _validate_agent_guides(root: Path, errors: list[str]) -> None:
     for relative in REQUIRED_AGENT_GUIDES:
         path = root / relative
@@ -125,13 +199,7 @@ def _validate_agent_guides(root: Path, errors: list[str]) -> None:
             if _has_placeholder(text):
                 errors.append("PLANS.md: contains an unresolved TODO placeholder")
 
-    discovered: list[Path] = []
-    for directory, directories, filenames in os.walk(root):
-        directories[:] = [name for name in directories if name not in IGNORED_PARTS]
-        if "AGENTS.md" in filenames:
-            discovered.append(Path(directory) / "AGENTS.md")
-
-    for path in sorted(discovered):
+    for path in _discover_named_files(root, "AGENTS.md"):
         text = _read_text(path, errors, root)
         if text is None:
             continue
@@ -142,6 +210,25 @@ def _validate_agent_guides(root: Path, errors: list[str]) -> None:
             errors.append(f"{relative}: must contain a Markdown title")
         if _has_placeholder(text):
             errors.append(f"{relative}: contains an unresolved TODO placeholder")
+
+
+def _validate_claude_instruction_bridges(root: Path, errors: list[str]) -> None:
+    guides = _discover_named_files(root, "AGENTS.md")
+    for guide in guides:
+        bridge = guide.with_name("CLAUDE.md")
+        relative = _relative(bridge, root)
+        if not bridge.is_file():
+            errors.append(f"{relative}: import bridge for {_relative(guide, root)} is missing")
+            continue
+        text = _read_text(bridge, errors, root)
+        if text is not None and text.strip() != "@AGENTS.md":
+            errors.append(f"{relative}: must contain only @AGENTS.md")
+
+    for bridge in _discover_named_files(root, "CLAUDE.md"):
+        if not bridge.with_name("AGENTS.md").is_file():
+            errors.append(
+                f"{_relative(bridge, root)}: project instructions must import a sibling AGENTS.md"
+            )
 
 
 def _extract_default_prompt(text: str) -> str | None:
@@ -220,6 +307,59 @@ def _validate_skills(root: Path, errors: list[str]) -> None:
             )
 
 
+def _validate_claude_skill_bridges(root: Path, errors: list[str]) -> None:
+    canonical = root / ".agents" / "skills"
+    bridges = root / ".claude" / "skills"
+    if not bridges.is_dir():
+        errors.append(".claude/skills: Claude Code skill bridge directory is missing")
+        return
+
+    canonical_names = {path.parent.name for path in canonical.glob("*/SKILL.md")}
+    bridge_names = {path.parent.name for path in bridges.glob("*/SKILL.md")}
+    for name in sorted(canonical_names - bridge_names):
+        errors.append(f".claude/skills/{name}/SKILL.md: bridge for canonical skill is missing")
+    for name in sorted(bridge_names - canonical_names):
+        errors.append(f".claude/skills/{name}/SKILL.md: no canonical .agents skill exists")
+
+    for name in sorted(canonical_names & bridge_names):
+        canonical_path = canonical / name / "SKILL.md"
+        bridge_path = bridges / name / "SKILL.md"
+        canonical_text = _read_text(canonical_path, errors, root)
+        bridge_text = _read_text(bridge_path, errors, root)
+        if canonical_text is None or bridge_text is None:
+            continue
+        try:
+            canonical_metadata = _parse_frontmatter(canonical_text)
+            bridge_metadata = _parse_frontmatter(bridge_text)
+        except ValueError as exc:
+            errors.append(f"{_relative(bridge_path, root)}: {exc}")
+            continue
+        for key in ("name", "description"):
+            if bridge_metadata.get(key) != canonical_metadata.get(key):
+                errors.append(
+                    f"{_relative(bridge_path, root)}: {key} must match canonical skill metadata"
+                )
+        target = f"../../../.agents/skills/{name}/SKILL.md"
+        if target not in bridge_text:
+            errors.append(
+                f"{_relative(bridge_path, root)}: must reference canonical target {target}"
+            )
+        if len(bridge_text) > 1_000:
+            errors.append(
+                f"{_relative(bridge_path, root)}: bridge is too large; keep workflow in .agents/skills"
+            )
+        expected = render_claude_skill_bridge(
+            canonical_metadata.get("name", ""),
+            canonical_metadata.get("description", ""),
+        )
+        if bridge_text != expected:
+            errors.append(
+                f"{_relative(bridge_path, root)}: must match the exact canonical bridge template"
+            )
+        if _has_placeholder(bridge_text):
+            errors.append(f"{_relative(bridge_path, root)}: contains an unresolved TODO placeholder")
+
+
 def _load_toml(path: Path, errors: list[str], root: Path) -> dict[str, Any] | None:
     try:
         with path.open("rb") as handle:
@@ -272,16 +412,7 @@ def _validate_codex_config(root: Path, errors: list[str]) -> None:
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         errors.append(f".codex/hooks.json: invalid JSON ({exc})")
         return
-    try:
-        stop_groups = hooks_data["hooks"]["Stop"]
-        commands = [
-            hook
-            for group in stop_groups
-            for hook in group.get("hooks", [])
-            if isinstance(hook, dict) and hook.get("type") == "command"
-        ]
-    except (KeyError, TypeError):
-        commands = []
+    commands = _command_hooks(hooks_data, "Stop")
     if not commands:
         errors.append(".codex/hooks.json: a command-based Stop hook is required")
     else:
@@ -339,6 +470,112 @@ def _validate_custom_agents(root: Path, errors: list[str]) -> None:
         expected_model = EXPECTED_AGENT_MODELS.get(path.stem)
         if expected_model is not None and data.get("model") != expected_model:
             errors.append(f"{relative}: model must be {expected_model}")
+        if path.stem in READ_ONLY_CODEX_AGENTS and data.get("sandbox_mode") != "read-only":
+            errors.append(f"{relative}: read-only role must use sandbox_mode = 'read-only'")
+        if path.stem in WRITING_CODEX_AGENTS and data.get("sandbox_mode") != "workspace-write":
+            errors.append(f"{relative}: writing role must use sandbox_mode = 'workspace-write'")
+
+
+def _validate_claude_settings(root: Path, errors: list[str]) -> None:
+    settings_path = root / ".claude" / "settings.json"
+    if not settings_path.is_file():
+        errors.append(".claude/settings.json: project Claude Code settings are missing")
+        return
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        errors.append(f".claude/settings.json: invalid JSON ({exc})")
+        return
+    if not isinstance(settings, dict):
+        errors.append(".claude/settings.json: top-level JSON value must be an object")
+        return
+    if settings.get("disableAllHooks") is True:
+        errors.append(".claude/settings.json: shared hooks must not be disabled")
+    if (root / ".claude" / "hooks.json").exists():
+        errors.append(".claude/hooks.json: Claude project hooks belong in settings.json")
+
+    commands = _command_hooks(settings, "Stop")
+    if not commands:
+        errors.append(".claude/settings.json: a command-based Stop hook is required")
+        return
+
+    valid = False
+    for command in commands:
+        args = command.get("args")
+        if not isinstance(args, list) or not all(isinstance(value, str) for value in args):
+            continue
+        rendered = "\n".join([str(command.get("command", "")), *args])
+        timeout = command.get("timeout", 600)
+        if (
+            "${CLAUDE_PROJECT_DIR}/scripts/verify_changes.py" in rendered
+            and "--hook" in args
+            and "--hook-platform" in args
+            and "claude" in args
+            and "--repo" in args
+            and "${CLAUDE_PROJECT_DIR}" in args
+            and isinstance(timeout, int)
+            and not isinstance(timeout, bool)
+            and 1 <= timeout <= 600
+        ):
+            valid = True
+            break
+    if not valid:
+        errors.append(
+            ".claude/settings.json: Stop hook must use exec-form args to invoke "
+            "verify_changes.py --hook --hook-platform claude from ${CLAUDE_PROJECT_DIR}"
+        )
+
+
+def _validate_claude_agents(root: Path, errors: list[str]) -> None:
+    agents_dir = root / ".claude" / "agents"
+    for filename in REQUIRED_CLAUDE_AGENTS:
+        if not (agents_dir / filename).is_file():
+            errors.append(f".claude/agents/{filename}: required Claude role is missing")
+    if not agents_dir.is_dir():
+        return
+
+    for path in sorted(agents_dir.glob("*.md")):
+        relative = _relative(path, root)
+        text = _read_text(path, errors, root)
+        if text is None:
+            continue
+        try:
+            metadata = _parse_frontmatter(text)
+        except ValueError as exc:
+            errors.append(f"{relative}: {exc}")
+            continue
+        name = metadata.get("name", "").strip()
+        description = metadata.get("description", "").strip()
+        if name != path.stem:
+            errors.append(f"{relative}: name must match filename stem {path.stem!r}")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+            errors.append(f"{relative}: name must be lowercase kebab-case")
+        if len(description) < 20:
+            errors.append(f"{relative}: description must be informative")
+        if "model" in metadata:
+            errors.append(f"{relative}: omit model so the role inherits the active Claude model")
+        if len(text.strip()) < 160:
+            errors.append(f"{relative}: role instructions are too short to be actionable")
+        if _has_placeholder(text):
+            errors.append(f"{relative}: contains an unresolved TODO placeholder")
+
+        tools = {
+            value.strip()
+            for value in metadata.get("tools", "").split(",")
+            if value.strip()
+        }
+        permission_mode = metadata.get("permissionMode")
+        if name in READ_ONLY_CLAUDE_AGENTS:
+            forbidden = {"Edit", "Write", "NotebookEdit"}.intersection(tools)
+            if forbidden:
+                errors.append(f"{relative}: read-only role exposes write tools {sorted(forbidden)}")
+            if permission_mode != "plan":
+                errors.append(f"{relative}: read-only role must use permissionMode: plan")
+        if name in WRITING_CLAUDE_AGENTS:
+            if not {"Edit", "Write"}.issubset(tools):
+                errors.append(f"{relative}: writing role must expose Edit and Write")
+            if permission_mode != "default":
+                errors.append(f"{relative}: writing role must use permissionMode: default")
 
 
 def validate_repo(root: Path) -> list[str]:
@@ -346,19 +583,28 @@ def validate_repo(root: Path) -> list[str]:
     root = root.resolve()
     errors: list[str] = []
     _validate_agent_guides(root, errors)
+    _validate_claude_instruction_bridges(root, errors)
     _validate_skills(root, errors)
+    _validate_claude_skill_bridges(root, errors)
     _validate_codex_config(root, errors)
     _validate_custom_agents(root, errors)
+    _validate_claude_settings(root, errors)
+    _validate_claude_agents(root, errors)
 
     gitignore = root / ".gitignore"
     if gitignore.is_file():
         text = _read_text(gitignore, errors, root)
-        if text is not None and not any(
-            line.strip().rstrip("/") == ".tmp" for line in text.splitlines()
-        ):
-            errors.append(".gitignore: .tmp/ must be ignored for verifier state")
+        if text is not None:
+            ignored = {line.strip().rstrip("/") for line in text.splitlines()}
+            for entry, reason in (
+                (".tmp", "verifier state"),
+                ("CLAUDE.local.md", "personal Claude instructions"),
+                (".claude/settings.local.json", "personal Claude settings"),
+            ):
+                if entry not in ignored:
+                    errors.append(f".gitignore: {entry} must be ignored for {reason}")
     else:
-        errors.append(".gitignore: missing (verifier state requires ignored .tmp/)")
+        errors.append(".gitignore: missing (verifier and local agent state require ignores)")
     return sorted(set(errors))
 
 

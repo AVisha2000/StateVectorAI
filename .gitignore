@@ -20,6 +20,8 @@ qllm.egg-info/
 .pytest_cache/
 .hypothesis/
 .idea/
+CLAUDE.local.md
+.claude/settings.local.json
 qllm/dashboard/frontend/node_modules/
 qllm/dashboard/frontend/dist/
 =*

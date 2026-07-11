@@ -123,12 +123,16 @@ def _is_agent_path(path: str) -> bool:
     lowered = path.casefold()
     return (
         lowered.startswith(".agents/")
+        or lowered.startswith(".claude/")
         or lowered.startswith(".codex/")
         or lowered.endswith("/agents.md")
-        or lowered in {"agents.md", "plans.md"}
+        or lowered.endswith("/claude.md")
+        or lowered in {"agents.md", "claude.md", "plans.md"}
         or lowered in {
             "scripts/check_agent_setup.py",
             "scripts/verify_changes.py",
+            ".github/workflows/agent-configuration.yml",
+            ".github/pull_request_template.md",
             *AGENT_TESTS,
         }
     )
@@ -666,6 +670,20 @@ def run_hook(
     return {"decision": "block", "reason": reason, "verification": _hook_summary(result)}
 
 
+def render_hook_response(response: dict[str, Any], platform: str) -> dict[str, Any]:
+    """Render only the documented Stop-hook decision fields for a client."""
+    if platform not in {"codex", "claude"}:
+        raise VerificationError(f"unsupported hook platform: {platform}")
+    if response.get("decision") == "block":
+        return {
+            "decision": "block",
+            "reason": str(response.get("reason") or "Verification requires another pass."),
+        }
+    # Both clients document success by omitting a decision. The richer result
+    # remains in the ignored verifier state file and direct run_hook callers.
+    return {}
+
+
 def _print_human_plan(plan: dict[str, Any]) -> None:
     print(f"Fingerprint: {plan['fingerprint']}")
     print("Changed paths:")
@@ -687,6 +705,12 @@ def _build_parser() -> argparse.ArgumentParser:
     modes.add_argument("--plan", action="store_true", help="print the path-aware verification plan")
     modes.add_argument("--run", action="store_true", help="run the selected CPU-only checks")
     modes.add_argument("--hook", action="store_true", help="run Stop-hook JSON behavior")
+    parser.add_argument(
+        "--hook-platform",
+        choices=("codex", "claude"),
+        default="codex",
+        help="render Stop-hook output for the invoking client",
+    )
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="repository root")
     parser.add_argument("--json", action="store_true", help="emit JSON (hook always does)")
     parser.add_argument("--timeout", type=int, default=600, help="seconds allowed per check")
@@ -711,11 +735,14 @@ def main(argv: list[str] | None = None) -> int:
     repo = args.repo.resolve()
     try:
         if mode == "hook":
-            response = run_hook(
-                repo,
-                _read_hook_input(),
-                timeout=args.timeout,
-                state_path=args.state_file,
+            response = render_hook_response(
+                run_hook(
+                    repo,
+                    _read_hook_input(),
+                    timeout=args.timeout,
+                    state_path=args.state_file,
+                ),
+                args.hook_platform,
             )
             print(json.dumps(response, indent=2, sort_keys=True))
             return 0

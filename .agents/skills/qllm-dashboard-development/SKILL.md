@@ -34,5 +34,6 @@ Use this skill for QLLM Lab work. The dashboard is an experiment console, not a 
 
 - Backend-only: run focused tests for dashboard modules, then `pytest tests/test_dashboard_lab.py -q` when relevant.
 - Frontend-only: run `npm run build` from `qllm/dashboard/frontend`.
-- Queue/API changes: run `python scripts/queue_smoke.py` when the API is available.
+- Queue/API changes: when the local API is available, run
+  `python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu`.
 - Visual changes: launch the dashboard and inspect the relevant route in a browser when possible.
