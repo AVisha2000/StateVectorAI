@@ -886,7 +886,7 @@ Progress:
   record D1 and D2.
 - [x] Ship capability-aware diagnostics and focused regressions.
 - [x] Ship the additive verdict store/API; record D3.
-- [ ] Ship the bounded research-service scaffold and stop at D4.
+- [x] Ship the bounded research-service scaffold and stop at D4.
 - [ ] Regenerate the final OpenAPI snapshot and update only the backend-owned API
   contract and Backend log in `docs/BUILD_COORDINATION.md`.
 - [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
@@ -945,6 +945,15 @@ python -m pytest -q tests/test_durable_runs.py --basetemp .tmp/pytest-durable-ve
 PASS: 38 passed; additive verdict migrations preserve durable-run behavior.
 python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-verdicts-final
 PASS: 1 passed; two subprocess checks prove worker-free OpenAPI cleanup on Windows.
+python -m pytest -q tests/test_research_service.py --basetemp .tmp/pytest-research-parent
+PASS: 14 passed with no live network call; fixed query, byte/result/day bounds,
+version-aware deduplication, persistent quota, courtesy pacing, and D4 boundary covered.
+python -m pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-dashboard-research
+PASS: 74 passed.
+python -m pytest -q tests/test_dashboard_security.py --basetemp .tmp/pytest-security-research
+PASS: 14 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
+python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-research
+PASS: 1 passed; capabilities and bounded scan routes are typed in OpenAPI.
 git diff --check
 PASS: no whitespace errors; Windows line-ending notices only.
 ```

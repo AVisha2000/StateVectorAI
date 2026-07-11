@@ -1,6 +1,69 @@
 {
   "components": {
     "schemas": {
+      "ArxivScanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_results": {
+            "default": 10,
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Max Results",
+            "type": "integer"
+          },
+          "topic": {
+            "default": "qml",
+            "enum": [
+              "quant-ph",
+              "qml"
+            ],
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "title": "ArxivScanRequest",
+        "type": "object"
+      },
+      "ArxivScanResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ResearchCapabilitiesResponse"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchPaperResponse"
+            },
+            "title": "Papers",
+            "type": "array"
+          },
+          "quota_limit": {
+            "default": 50,
+            "title": "Quota Limit",
+            "type": "integer"
+          },
+          "quota_remaining": {
+            "title": "Quota Remaining",
+            "type": "integer"
+          },
+          "quota_used": {
+            "title": "Quota Used",
+            "type": "integer"
+          },
+          "request": {
+            "$ref": "#/components/schemas/ArxivScanRequest"
+          }
+        },
+        "required": [
+          "request",
+          "papers",
+          "quota_used",
+          "quota_remaining",
+          "capabilities"
+        ],
+        "title": "ArxivScanResponse",
+        "type": "object"
+      },
       "DiagnosticDimension": {
         "additionalProperties": false,
         "description": "One persisted mechanism or trainability observation.",
@@ -210,6 +273,177 @@
           "evidence"
         ],
         "title": "InterpretationWarning",
+        "type": "object"
+      },
+      "ResearchCapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claim_evidence_classification": {
+            "title": "Claim Evidence Classification",
+            "type": "boolean"
+          },
+          "d4_human_gate_open": {
+            "title": "D4 Human Gate Open",
+            "type": "boolean"
+          },
+          "daily_cost_budget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Cost Budget"
+          },
+          "embedding_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Provider"
+          },
+          "full_text": {
+            "title": "Full Text",
+            "type": "boolean"
+          },
+          "graph_store_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Store Provider"
+          },
+          "human_review_required": {
+            "title": "Human Review Required",
+            "type": "boolean"
+          },
+          "llm_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Provider"
+          },
+          "metadata_only": {
+            "title": "Metadata Only",
+            "type": "boolean"
+          },
+          "paid_services_enabled": {
+            "title": "Paid Services Enabled",
+            "type": "boolean"
+          },
+          "unreviewed_preprints": {
+            "title": "Unreviewed Preprints",
+            "type": "boolean"
+          },
+          "vector_store_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Store Provider"
+          }
+        },
+        "required": [
+          "metadata_only",
+          "full_text",
+          "unreviewed_preprints",
+          "claim_evidence_classification",
+          "human_review_required",
+          "paid_services_enabled",
+          "daily_cost_budget",
+          "llm_provider",
+          "embedding_provider",
+          "vector_store_provider",
+          "graph_store_provider",
+          "d4_human_gate_open"
+        ],
+        "title": "ResearchCapabilitiesResponse",
+        "type": "object"
+      },
+      "ResearchPaperResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abs_url": {
+            "title": "Abs Url",
+            "type": "string"
+          },
+          "abstract": {
+            "title": "Abstract",
+            "type": "string"
+          },
+          "arxiv_id": {
+            "title": "Arxiv Id",
+            "type": "string"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "published": {
+            "title": "Published",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "arxiv_id",
+          "version",
+          "title",
+          "abstract",
+          "authors",
+          "categories",
+          "published",
+          "updated",
+          "abs_url"
+        ],
+        "title": "ResearchPaperResponse",
         "type": "object"
       },
       "StatusResponse": {
@@ -725,6 +959,44 @@
           }
         },
         "summary": "Api Import Hf"
+      }
+    },
+    "/api/discover/arxiv/scan": {
+      "post": {
+        "operationId": "api_arxiv_scan_api_discover_arxiv_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArxivScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArxivScanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Arxiv Scan"
       }
     },
     "/api/explore": {
@@ -2080,6 +2352,24 @@
           }
         },
         "summary": "Api Preset Model Graph"
+      }
+    },
+    "/api/research/capabilities": {
+      "get": {
+        "operationId": "api_research_capabilities_api_research_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchCapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api Research Capabilities"
       }
     },
     "/api/run/{run_id}": {

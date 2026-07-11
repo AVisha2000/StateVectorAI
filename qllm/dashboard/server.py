@@ -21,6 +21,7 @@ from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
 from ..config import QuantumConfig
 from ..registry import supported_choices_payload
+from ..research_service import ResearchQuotaExceeded, ResearchServiceError
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
 from .diagnostics import DiagnosticsPayload, diagnostics_payload
@@ -50,6 +51,14 @@ from .model_specs import (
 from .model_tests import model_test_payload, run_model_test
 from .presets import list_presets
 from .presets import build_preset
+from .research import (
+    ArxivScanRequest,
+    ArxivScanResponse,
+    ResearchCapabilitiesResponse,
+    build_research_service,
+    capabilities_response,
+    scan_response,
+)
 from .runner import ExperimentQueue
 from .security import (
     LOOPBACK_ORIGIN_REGEX,
@@ -116,6 +125,7 @@ QUEUE = ExperimentQueue(
     results_dir=RESULTS_DIR,
     data_dir=DATA_DIR,
 )
+RESEARCH_SERVICE = build_research_service(db)
 
 
 def _payload_error(exc: Exception) -> HTTPException:
@@ -350,6 +360,29 @@ def api_explore_task(task_slug: str, domain: str | None = None) -> dict:
     if not payload.get("available"):
         raise HTTPException(status_code=404, detail=payload.get("reason"))
     return payload
+
+
+@app.get(
+    "/api/research/capabilities",
+    response_model=ResearchCapabilitiesResponse,
+)
+def api_research_capabilities() -> ResearchCapabilitiesResponse:
+    return capabilities_response(RESEARCH_SERVICE)
+
+
+@app.post(
+    "/api/discover/arxiv/scan",
+    response_model=ArxivScanResponse,
+)
+def api_arxiv_scan(payload: ArxivScanRequest) -> ArxivScanResponse:
+    try:
+        return scan_response(RESEARCH_SERVICE, payload)
+    except ResearchQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ResearchServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise _payload_error(exc) from exc
 
 
 @app.get("/api/scaling-tests")

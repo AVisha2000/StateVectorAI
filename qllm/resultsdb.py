@@ -244,6 +244,14 @@ CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_latest
     ON verdict_snapshots(verdict_key, revision DESC);
 CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_created
     ON verdict_snapshots(created_ts DESC, id DESC);
+CREATE TABLE IF NOT EXISTS research_scan_usage (
+    source TEXT NOT NULL,
+    day_utc TEXT NOT NULL,
+    reserved_items INTEGER NOT NULL DEFAULT 0,
+    updated_ts TEXT NOT NULL,
+    PRIMARY KEY(source, day_utc),
+    CHECK(reserved_items >= 0)
+);
 """
 
 
@@ -698,6 +706,51 @@ class ResultsDB:
                 (str(verdict_key),),
             ).fetchall()
         return [self._decode_verdict_snapshot(dict(row)) for row in rows]
+
+    def reserve_research_scan_quota(
+        self,
+        *,
+        source: str,
+        day_utc: str,
+        requested_items: int,
+        daily_limit: int,
+    ) -> tuple[int, int]:
+        """Atomically reserve a conservative per-source UTC-day item budget."""
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("research scan source must be a non-empty string")
+        if not isinstance(day_utc, str) or not day_utc.strip():
+            raise ValueError("research scan day_utc must be a non-empty string")
+        for name, value in (
+            ("requested_items", requested_items),
+            ("daily_limit", daily_limit),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT reserved_items FROM research_scan_usage "
+                "WHERE source=? AND day_utc=?",
+                (source, day_utc),
+            ).fetchone()
+            used = int(row[0]) if row is not None else 0
+            reserved = used + requested_items
+            if reserved > daily_limit:
+                raise ValueError(
+                    f"daily {source} scan quota exhausted: "
+                    f"{used}/{daily_limit} items already reserved"
+                )
+            con.execute(
+                "INSERT INTO research_scan_usage "
+                "(source, day_utc, reserved_items, updated_ts) VALUES (?,?,?,?) "
+                "ON CONFLICT(source, day_utc) DO UPDATE SET "
+                "reserved_items=excluded.reserved_items, "
+                "updated_ts=excluded.updated_ts",
+                (source, day_utc, reserved, now),
+            )
+        return reserved, daily_limit - reserved
 
     # ---- live-run registry + per-step logging (own MLflow replacement) ----
     def start_run(self, run_key: str, run_name: str, suite: str, variant: str,

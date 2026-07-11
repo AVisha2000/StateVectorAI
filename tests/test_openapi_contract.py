@@ -28,6 +28,8 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     assert "/api/jobs/{job_id}/diagnostics" in document["paths"]
     assert "/api/verdicts" in document["paths"]
     assert "/api/verdicts/{verdict_id}" in document["paths"]
+    assert "/api/research/capabilities" in document["paths"]
+    assert "/api/discover/arxiv/scan" in document["paths"]
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
 
@@ -67,3 +69,19 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
         "assessment_level",
         "assessment_status",
     }.issubset(verdict["properties"])
+
+    capabilities = document["components"]["schemas"][
+        "ResearchCapabilitiesResponse"
+    ]
+    assert capabilities["additionalProperties"] is False
+    assert {
+        "metadata_only",
+        "full_text",
+        "paid_services_enabled",
+        "daily_cost_budget",
+        "llm_provider",
+        "embedding_provider",
+        "vector_store_provider",
+        "graph_store_provider",
+        "d4_human_gate_open",
+    }.issubset(capabilities["properties"])
