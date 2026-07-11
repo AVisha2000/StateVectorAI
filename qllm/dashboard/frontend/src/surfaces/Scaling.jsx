@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useScalingTest } from '../lib/hooks.js'
+import { useScalingTest, useDiagnostics } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState } from '../lib/ui.jsx'
 import { ScalingChart, Legend } from '../components/charts.jsx'
 import { chartSeries } from '../chartTheme.js'
-import { scalingChartRows, scalingSummary } from '../lib/scalingView.js'
+import { scalingChartRows, scalingSummary, representativeJobId, scalingFitView } from '../lib/scalingView.js'
 import { fmtNum, fmtSeconds, DASH } from '../lib/format.js'
 
 // Folds the old ScalingTest page into the redesign (plan §4: Runs → scaling
@@ -18,6 +18,10 @@ export default function Scaling() {
 
   const { rows, dropped } = useMemo(() => scalingChartRows(data?.points), [data])
   const summary = useMemo(() => scalingSummary(data), [data])
+  // The group-level barren-plateau fit comes from a member run's diagnostics.
+  const repJobId = useMemo(() => representativeJobId(data?.points), [data])
+  const { data: diag } = useDiagnostics(repJobId)
+  const fit = useMemo(() => scalingFitView(diag?.diagnostics?.scaling_fit), [diag])
 
   if (isError) return <ErrorState error={error} label="Could not load this scaling group." />
   if (isLoading) return <Loading label="Loading scaling group…" />
@@ -65,13 +69,43 @@ export default function Scaling() {
       ) : null}
 
       <div className="card" style={{ marginTop: 14 }}>
-        <div className="hd"><h3>Barren-plateau scaling fit</h3><span className="tag plain">awaiting backend</span></div>
+        <div className="hd">
+          <h3>Barren-plateau scaling fit</h3>
+          <span className={`tag ${fit.available ? 'good' : 'plain'}`}>{fit.available ? 'measured' : 'unavailable'}</span>
+        </div>
         <div className="bd">
-          <p className="hint" style={{ margin: 0 }}>
-            Gradient-variance-vs-qubit with an exponential-decay fit (from <span className="mono">gradient_variance_scaling_fit</span>)
-            is not computed for dashboard jobs yet — it needs the proposed <span className="mono">/jobs/{'{id}'}/diagnostics</span>
-            {' '}scaling data. This card renders the fit and trainable-floor band once that ships.
-          </p>
+          {fit.available ? (
+            <>
+              <div className="kpis">
+                <div className="kpi">
+                  <span className="microlabel">Variance decay / qubit</span>
+                  <div className="v num">{fmtNum(fit.decayPerQubit, 3)}×</div>
+                  <div className="s">factor per added qubit</div>
+                </div>
+                <div className="kpi">
+                  <span className="microlabel">log Var slope</span>
+                  <div className="v num">{fmtNum(fit.slope, 3)}</div>
+                  <div className="s">fit of log Var[grad] vs qubits</div>
+                </div>
+                <div className="kpi">
+                  <span className="microlabel">Exponential decay</span>
+                  <div className="v" style={{ fontSize: 16, color: fit.exponentialDecay ? 'var(--warn)' : 'var(--good)' }}>
+                    {fit.exponentialDecay ? 'detected' : 'not detected'}
+                  </div>
+                  <div className="s">plateau signature</div>
+                </div>
+              </div>
+              <p className="hint" style={{ marginTop: 12 }}>
+                From <span className="mono">gradient_variance_scaling_fit</span> over this group's persisted qubit counts — a
+                <b> mechanism diagnostic</b>, not an advantage. Decay &lt; 1× per qubit signals a barren-plateau trend.
+              </p>
+            </>
+          ) : (
+            <p className="hint" style={{ margin: 0 }}>
+              {fit.reason} — the fit needs at least two distinct persisted qubit counts in this group, read from{' '}
+              <span className="mono">/jobs/{'{id}'}/diagnostics</span>.
+            </p>
+          )}
         </div>
       </div>
     </>
