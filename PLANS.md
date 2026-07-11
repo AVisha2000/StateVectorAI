@@ -142,8 +142,8 @@ can be smoke-tested outside this restricted environment.
 
 Owner: parent agent
 Started: 2026-07-11
-Status: implementation complete except for the separately human-gated phase-3
-claim-text correction
+Status: all twelve engineering backlog phases and the approved phase-3
+historical correction are complete; open UI issue closeout is being audited
 Objective: close the remaining acceptance gaps in the requested engineering
 backlog, in priority order, without reimplementing behavior that is already
 present and freshly verified.
@@ -158,8 +158,8 @@ remote dashboard exposure, claim promotion, artifact or database rewrite was
 part of this work. Sol approved the exact CPU-only optional dependency after a
 dry run proved that it would not replace JAX/JAXLIB or alter CUDA.
 
-Current phase: phase 12 is closed; the phase-3 claim-text correction awaits
-explicit semantic approval.
+Current phase: phase 12 and the approved phase-3 historical correction are
+closed. The remaining repository work is the open UI issue closeout audit.
 
 Phase 1 progress:
 
@@ -246,7 +246,7 @@ Audit baseline:
 | --- | --- | --- |
 | 1. Boundary-safe synthetic sampling | Complete | All identified benchmark/dashboard callers preserve bundles and shared evaluation is trajectory-aware; inventory and behavior regressions prevent flattening recurrence. |
 | 2. Comprehensive config validation | Complete; revalidate only | Registry-backed validation is shared by CLI, model-spec, queue, model, data, circuit, and backend paths. |
-| 3. Two-stream metric and causality honesty | Code/dashboard complete; claim-text gap is human-gated | The current model is causal and historical dashboard rows are side-information/rerun-required, but `RESULTS.md` section 20 does not carry that historical limitation. |
+| 3. Two-stream metric and causality honesty | Complete; causal rerun is research-dependent | The current model is causal and the approved `RESULTS.md` correction now matches dashboard/claim-ledger labeling: historical v1 rows are side-information, rerun-required, and support no strict autoregressive conclusion. |
 | 4. Full fairness-field comparison | Complete; revalidate only | Claim-specific schemas compare the full normalized protocol and expose every allowed/disallowed mismatch through studies and UI payloads. |
 | 5. Paired study statistics | Complete; revalidate only | Paired bootstrap/sign-flip/equivalence/power logic is wired into study cells and the conservative verdict ladder. |
 | 6. Dashboard local safety | Complete; revalidate only | Loopback/CORS gates and canonical path containment are implemented and tested. |
@@ -290,7 +290,7 @@ Phased execution:
    callers once more after phase 1; add code only if a concrete registry or
    semantic-validation hole is reproduced. Validate all YAML configs and the
    focused config/dashboard preflight tests.
-3. **Two-stream historical labeling (separate human gate).** With explicit
+3. **Two-stream historical labeling (approved and implemented).** With explicit
    claim-text approval, add a correction note to the historical section of
    `RESULTS.md` identifying full-window v1 as teacher-forced side-information
    and rerun-required. Do not alter the recorded numbers or strengthen the
@@ -329,9 +329,9 @@ Phased execution:
 
 Risks and decisions:
 
-- The initial completion audit overstated items 1 and 3. Item 1 is now closed,
-  item 12 is closed for local CPU execution, and item 3 remains explicitly
-  partial until the claim-text gate is approved.
+- The initial completion audit overstated items 1 and 3. Items 1 and 3 are now
+  closed, and item 12 is closed for local CPU execution. The causal-v2 study
+  remains research-dependent and is not evidence already obtained.
 - Passing existing tests did not expose the flat-loader callers, so phase 1
   requires an inventory-style regression in addition to behavior tests.
 - The working tree already contains user-owned agent/documentation changes,
@@ -340,10 +340,11 @@ Risks and decisions:
 - If approved, this engineering workstream takes execution priority without
   deleting the existing claim-guided continuation plan.
 
-Human gates: separate explicit semantic approval is still required for the
-phase-3 `RESULTS.md` correction. GPU/QPU/cluster runs, CUDA/JAX changes, remote
-dashboard exposure, destructive database/artifact action, claim promotion, and
-research experiments remain outside this completed local CPU implementation.
+Human gates: the user explicitly approved the conservative phase-3
+`RESULTS.md` correction on 2026-07-11; that approval does not authorize any
+stronger wording. GPU/QPU/cluster runs, CUDA/JAX changes, remote dashboard
+exposure, destructive database/artifact action, claim promotion, and research
+experiments remain outside this local CPU implementation.
 
 Latest planning validation:
 
@@ -449,7 +450,8 @@ PASS: all six clean CPU/MPS Windows/Linux Python 3.11/3.12 jobs succeeded.
 fresh Sol final engineering verifier
 PASS: active configs drive tags/diagnostics, mixed/native cases fail closed,
 the canonical digest matches, all tag values are bounded, and no phase-12
-engineering blocker remains. `RESULTS.md` remains a separate semantic gate.
+engineering blocker remains. At that checkpoint `RESULTS.md` was still a
+separate semantic gate; approval was granted in the later phase-3 packet.
 .venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
 PASS in 328.8s: agent setup, agent tests, dashboard frontend tests, production
 frontend build, and the complete Python suite all passed on the final
@@ -461,14 +463,55 @@ Phase 3 claim-text gate:
 - Sol verdict: `HUMAN_GATE`. The proposed `RESULTS.md` section-20 correction is
   scientifically conservative and technically approved, but the repository
   requires explicit semantic approval for claim-bearing text.
-- Until that approval, the historical numbers remain untouched, the dashboard
-  and claim ledger continue to mark `two-stream-v1` as
-  `teacher_forced_side_information` and `rerun_required`, and the completion
-  audit records this item as partial rather than complete.
+- The user explicitly granted that semantic approval on 2026-07-11 for the
+  exact constraints below. No experiment rerun, number change, claim promotion,
+  or artifact rewrite is authorized or needed.
 - Approved wording constraints are ready: preserve numbers/provenance, remove
   strict-perplexity/lead interpretation, state that no strict autoregressive
   conclusion is supported, and name `two-stream-causal-v2` as the required
   paired rerun.
+- **Objective:** correct only the historical interpretation in `RESULTS.md`
+  section 20 so it matches the canonical metric contract already enforced by
+  code, dashboard payloads, the claim ledger, and the research map.
+- **Acceptance evidence:** every historical number/table/plot reference remains;
+  the section says `teacher_forced_side_information`, `rerun_required`, and no
+  strict autoregressive conclusion; lead/exception wording is removed; the
+  required powered paired `two-stream-causal-v2` rerun is named explicitly.
+- **Risks:** accidental number/provenance drift, implying that historical
+  within-v1 differences are causal evidence, or strengthening a claim while
+  correcting it. The edit must be wording-only and conservative.
+- **Validation:** focused research-protocol/dashboard contract tests, claim and
+  research-map validation, documentation/link checks selected by
+  `verify_changes.py`, diff review proving number preservation, and a fresh Sol
+  research-sensitive verifier.
+- **Progress:** complete. Approval was received, the conservative correction
+  and regression guard were implemented, focused/change-aware checks passed,
+  and a fresh Sol research-sensitive verifier returned PASS.
+
+Phase 3 validation:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_research_protocol.py
+tests/test_two_stream.py tests/test_dashboard_lab.py
+--basetemp .tmp/pytest-two-stream-results-correction
+PASS: 117 passed with six existing JAX complex128-to-complex64 warnings.
+historical section numeric/provenance comparison against HEAD
+PASS: every pre-correction numeric token remains with at least its original
+count; all six table rows and `results/two_stream.png` remain unchanged.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
+PASS for every executable check: agent setup, agent tests, and focused research
+tests. The command correctly returned `human_review_required` because
+`RESULTS.md` is non-automatable; the user had explicitly approved the exact
+correction and Sol performed the required semantic review.
+strengthened static historical-contract regression
+PASS: all table values, remaining reported values, both canonical status
+labels, causal-v2 rerun, and removal of superseded lead/exception language are
+locked.
+fresh Sol research-sensitive verifier
+PASS: wording is strictly weaker and conservative, numeric/table/plot
+provenance is preserved, the metric contract matches the claim ledger and
+research map, and no claim is promoted.
+```
 
 ## Active plan: claim-guided research continuation
 

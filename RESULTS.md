@@ -606,7 +606,7 @@ screenshotting the running UI, not just unit tests. Roadmap (in
 dashboard/README.md): compare view, live-rendered signature plots from
 the DB, CSV export, remote-host auth.
 
-## 20. v0.16 — two-stream: quantum sentence encoder guiding a word transformer
+## 20. v0.16 — historical two-stream v1 (rerun required)
 
 Tested the idea "a quantum sentence transformer feeds/guides a classical
 word transformer." Architecture (`qllm/models/two_stream.py`, arch
@@ -618,9 +618,17 @@ or global bias (s added to every embedding). Encoder is quantum
 ~0.7%, slightly LARGER = conservative), or none. Run on both classical
 text and quantum Ising data, strict param-matched control.
 
-**Text (4 seeds for bias, 2 for others).** Conditioning helps overall
-(every encoder beats none = 9.95). The quantum-vs-classical result is
-CONDITIONING-DEPENDENT and modest:
+**Protocol correction (2026-07-11).** The `two-stream-v1` encoder computed one
+summary from the full token window and reused it at every prediction position.
+Although the word transformer itself was causal, that summary included future
+tokens. Its perplexities therefore have metric type
+`teacher_forced_side_information`, not strict autoregressive perplexity. The
+numbers and plot below are preserved as historical provenance, but the suite is
+`rerun_required` and supports no strict autoregressive conclusion.
+
+**Historical text metric (4 seeds for bias, 2 for others).** Under the v1
+side-information metric, every encoded variant recorded a lower perplexity than
+none (9.95), and the quantum/classical ordering varied by conditioning mode:
 
 | variant | val ppl (mean ± std) |
 |---|---|
@@ -631,25 +639,22 @@ CONDITIONING-DEPENDENT and modest:
 | quantum-token | 9.91 ± 0.13 |
 | classical-token | 10.01 ± 0.11 |
 
-quantum-bias leads its classical control by 0.35 ppl — the FIRST config in
-the project where a quantum component leads its param-matched classical
-twin on text. BUT honesty required: at 2 seeds the gap looked clean
-(9.01 vs 9.35); at 4 seeds the error bars overlap heavily (±0.37 vs ±0.44)
-— this is a SUGGESTIVE LEAN, not a robust separation, and it only appears
-under bias conditioning (quantum loses at film, ties at token). Needs many
-more seeds before any claim.
+Within that historical metric, quantum-bias recorded 0.35 lower perplexity
+than its classical control. At 2 seeds the values were 9.01 vs 9.35; at 4
+seeds the error bars overlap heavily (±0.37 vs ±0.44). Because every v1 value
+uses future side information, neither this difference nor the other
+conditioning-dependent orderings are evidence of a causal language-model edge.
 
-**Ising data (2 seeds).** At the resonant theta_x=0.75 the task is near-
-saturated: all encoders cluster at ppl ~1.072, quantum and classical
-indistinguishable; only none (1.093) is clearly worse. So on quantum-
-structured data the conditioning helps but quantum-vs-classical does NOT
-separate — opposite to where quantum inductive bias was expected to show.
+**Historical Ising metric (2 seeds).** At the resonant theta_x=0.75, all
+encoders recorded perplexity around 1.072 and the unconditioned variant recorded
+1.093. These values use the same full-window side information and therefore do
+not establish a strict causal conditioning benefit or a quantum/classical
+separation.
 
-**Verdict.** The two-stream idea (sentence summary guiding word model) is
-sound and helps on both data types. Whether the encoder is QUANTUM matters
-little: a tantalizing but statistically fragile lean under one conditioning
-mode on text, and a flat tie on Ising. Consistent with the project-wide
-finding that classical-readout quantum feature maps don't robustly beat
-matched classical layers — with the caveat that bias-conditioning on text
-is the closest thing to an exception seen yet and would be worth a
-high-seed-count follow-up. Plot: results/two_stream.png.
+**Corrected status.** `two-stream-v1` is historical, non-causal evidence only.
+It establishes neither that sentence conditioning improves strict
+autoregressive prediction nor that a quantum encoder beats a matched classical
+encoder. The required next test is the causal-prefix `two-stream-causal-v2`
+protocol with powered paired seeds, the parameter-matched classical encoder,
+the no-conditioning ablation, and complete resource accounting. Historical
+plot: results/two_stream.png.

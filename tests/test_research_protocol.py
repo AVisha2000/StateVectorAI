@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 import math
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
@@ -41,6 +42,39 @@ FAIR = {
     "same_device_target": True,
     "role_validation": True,
 }
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_historical_two_stream_results_match_metric_contract():
+    results = (ROOT / "RESULTS.md").read_text(encoding="utf-8")
+    section = results.split("## 20.", maxsplit=1)[1]
+
+    for required in (
+        "`teacher_forced_side_information`",
+        "`rerun_required`",
+        "supports no strict autoregressive conclusion",
+        "`two-stream-causal-v2`",
+        "results/two_stream.png",
+        "9.29 ± 0.37",
+        "9.64 ± 0.44",
+        "9.56 ± 0.22",
+        "9.70 ± 0.19",
+        "9.91 ± 0.13",
+        "10.01 ± 0.11",
+        "0.35 lower perplexity",
+        "9.01 vs 9.35",
+        "theta_x=0.75",
+        "1.072",
+        "1.093",
+    ):
+        assert required in section
+    for superseded in (
+        "the FIRST config",
+        "SUGGESTIVE LEAN",
+        "closest thing to an exception",
+    ):
+        assert superseded not in section
 
 
 def test_single_run_is_downgraded_to_anecdote():
