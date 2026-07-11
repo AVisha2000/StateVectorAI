@@ -37,6 +37,7 @@ pip install -e ".[dashboard,hf]"
 
 cd qllm/dashboard/frontend
 npm install
+npm test
 npm run build
 cd ../../..
 

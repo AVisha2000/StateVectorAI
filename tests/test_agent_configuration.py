@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from scripts.check_agent_setup import (
@@ -15,6 +16,10 @@ from scripts.check_agent_setup import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _workflow_text(name: str) -> str:
+    return (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
 
 
 def _write(path: Path, text: str) -> None:
@@ -152,10 +157,63 @@ def test_qllm_skill_catalog_covers_dashboard_research_and_issue_closeout() -> No
 
 
 def test_agent_configuration_ci_installs_collection_dependencies() -> None:
-    workflow = (ROOT / ".github/workflows/agent-configuration.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = _workflow_text("agent-configuration.yml")
     assert "python -m pip install pytest==9.0.3 PyYAML==6.0.3" in workflow
+
+
+def test_github_actions_are_immutable_least_privilege_and_bounded() -> None:
+    workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    assert {path.name for path in workflows} == {
+        "agent-configuration.yml",
+        "ci.yml",
+        "dashboard-frontend.yml",
+        "dependency-matrix.yml",
+        "dependency-review.yml",
+    }
+    action_pattern = re.compile(
+        r"^\s*(?:-\s+)?uses:\s+[-\w.]+/[-\w.]+@([0-9a-f]{40})\s+#\s+v\d[^\s]*\s*$"
+    )
+    for path in workflows:
+        workflow = path.read_text(encoding="utf-8")
+        assert "permissions:\n  contents: read" in workflow
+        assert "concurrency:" in workflow
+        assert "cancel-in-progress: true" in workflow
+        action_lines = [line for line in workflow.splitlines() if "uses:" in line]
+        assert action_lines
+        assert all(action_pattern.fullmatch(line) for line in action_lines)
+
+
+def test_default_python_ci_runs_the_complete_cpu_contract() -> None:
+    workflow = _workflow_text("ci.yml")
+    assert "pull_request:" in workflow
+    assert "branches:\n      - main" in workflow
+    assert "    paths:" not in workflow
+    assert "os: [ubuntu-latest, windows-latest]" in workflow
+    assert 'python-version: "3.12"' in workflow
+    assert "python -m pip install -r requirements-cpu.txt" in workflow
+    assert "python scripts/check_dependency_profiles.py --runtime-profile cpu" in workflow
+    assert "python -m compileall -q qllm benchmarks scripts tests" in workflow
+    assert "python -m pytest -q --basetemp .tmp/pytest-ci" in workflow
+
+
+def test_dashboard_and_dependency_automation_contracts() -> None:
+    dashboard = _workflow_text("dashboard-frontend.yml")
+    assert 'node-version: "22"' in dashboard
+    assert "os: [ubuntu-latest, windows-latest]" in dashboard
+    assert "working-directory: qllm/dashboard/frontend" in dashboard
+    for command in ("npm ci", "npm test", "npm run build"):
+        assert f"run: {command}" in dashboard
+
+    dependency_review = _workflow_text("dependency-review.yml")
+    assert "pull_request:" in dependency_review
+    assert "  push:" not in dependency_review
+    assert "actions/dependency-review-action@" in dependency_review
+    assert "fail-on-severity: moderate" in dependency_review
+
+    dependabot = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    for ecosystem in ("github-actions", "pip", "npm"):
+        assert f"package-ecosystem: {ecosystem}" in dependabot
+    assert dependabot.count("interval: weekly") == 3
 
 
 def test_valid_minimal_configuration(tmp_path: Path) -> None:

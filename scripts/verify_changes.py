@@ -125,13 +125,14 @@ def _is_agent_path(path: str) -> bool:
         lowered.startswith(".agents/")
         or lowered.startswith(".claude/")
         or lowered.startswith(".codex/")
+        or lowered.startswith(".github/workflows/")
         or lowered.endswith("/agents.md")
         or lowered.endswith("/claude.md")
         or lowered in {"agents.md", "claude.md", "plans.md"}
         or lowered in {
             "scripts/check_agent_setup.py",
             "scripts/verify_changes.py",
-            ".github/workflows/agent-configuration.yml",
+            ".github/dependabot.yml",
             ".github/pull_request_template.md",
             *AGENT_TESTS,
         }
@@ -222,7 +223,11 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
     ]
 
     agent_changed = any(_is_agent_path(path) for path in normalized)
-    frontend_changed = any(path.casefold().startswith("qllm/dashboard/frontend/") for path in normalized)
+    frontend_changed = any(
+        path.casefold().startswith("qllm/dashboard/frontend/")
+        or path.casefold() == ".github/workflows/dashboard-frontend.yml"
+        for path in normalized
+    )
     dashboard_backend_changed = any(
         path.casefold().startswith("qllm/dashboard/")
         and not path.casefold().startswith("qllm/dashboard/frontend/")
@@ -240,12 +245,15 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
         }
         for path in normalized
     )
+    python_ci_changed = any(
+        path.casefold() == ".github/workflows/ci.yml" for path in normalized
+    )
     core_changed = any(
         path.casefold().startswith("qllm/")
         and path.casefold().endswith(".py")
         and not path.casefold().startswith("qllm/dashboard/")
         for path in normalized
-    ) or dependency_changed
+    ) or dependency_changed or python_ci_changed
     benchmark_changed = any(
         path.casefold().startswith("benchmarks/") and path.casefold().endswith(".py")
         for path in normalized

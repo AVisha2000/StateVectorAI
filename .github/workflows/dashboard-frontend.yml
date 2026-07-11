@@ -1,0 +1,49 @@
+name: Dashboard frontend
+
+on:
+  pull_request:
+    paths:
+      - "qllm/dashboard/frontend/**"
+      - ".github/workflows/dashboard-frontend.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "qllm/dashboard/frontend/**"
+      - ".github/workflows/dashboard-frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Node 22 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: qllm/dashboard/frontend
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: qllm/dashboard/frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Run all frontend behavior tests
+        run: npm test
+      - name: Build production frontend
+        run: npm run build

@@ -125,7 +125,6 @@ Validation:
 ```powershell
 pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-dashboard
 npm.cmd test --prefix qllm/dashboard/frontend
-node --test qllm/dashboard/frontend/src/api.test.js qllm/dashboard/frontend/src/evidenceView.test.js
 npm.cmd run build --prefix qllm/dashboard/frontend
 python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu
 ```

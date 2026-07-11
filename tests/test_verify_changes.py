@@ -32,12 +32,42 @@ def test_path_selection_is_cpu_only_and_never_launches_training() -> None:
         assert forbidden not in flattened
 
 
-def test_agent_ci_contract_changes_run_agent_tests() -> None:
-    checks = verifier.select_checks(
-        [".github/workflows/agent-configuration.yml"],
-        Path(__file__).resolve().parents[1],
-    )
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".github/workflows/agent-configuration.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/dependabot.yml",
+    ],
+)
+def test_ci_metadata_changes_run_agent_tests(path: str) -> None:
+    checks = verifier.select_checks([path], Path(__file__).resolve().parents[1])
     assert {check.id for check in checks} == {"agent-setup", "agent-tests"}
+
+
+def test_ci_workflow_changes_run_the_checks_they_define() -> None:
+    root = Path(__file__).resolve().parents[1]
+    python_ids = {
+        check.id
+        for check in verifier.select_checks([".github/workflows/ci.yml"], root)
+    }
+    assert python_ids == {"agent-setup", "agent-tests", "python-tests"}
+
+    dashboard_ids = [
+        check.id
+        for check in verifier.select_checks(
+            [".github/workflows/dashboard-frontend.yml"], root
+        )
+    ]
+    assert set(dashboard_ids) == {
+        "agent-setup",
+        "agent-tests",
+        "dashboard-frontend-tests",
+        "dashboard-build",
+    }
+    assert dashboard_ids.index("dashboard-frontend-tests") < dashboard_ids.index(
+        "dashboard-build"
+    )
 
 
 def test_sensitive_paths_are_explicit_human_gates() -> None:

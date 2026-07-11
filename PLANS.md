@@ -5,6 +5,96 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
+## Completed workstream: GitHub Actions reliability and supply-chain hardening
+
+Owner: parent agent
+Started: 2026-07-11
+Objective: make every repository change receive an appropriate deterministic
+CI signal while reducing duplicate runs and hardening third-party Actions and
+dependency updates.
+
+Scope: add default Python, dashboard frontend, and dependency-review workflows;
+pin every third-party Action to a reviewed immutable commit; add concurrency and
+main-only push routing to existing workflows; configure weekly Dependabot for
+GitHub Actions, Python, and npm; align change-aware verification, regression
+tests, and dashboard validation docs. Runtime behavior, experiments, research
+claims, remote repository settings, branch protection, secrets policy, and
+artifact/database state are excluded. The user later authorized Git delivery
+of this completed worktree after verification and final review.
+
+Acceptance evidence:
+
+- A stable Python CI check runs the exact CPU profile and complete pytest suite
+  on Linux and Windows for every pull request and every push to `main`.
+- Frontend changes run deterministic `npm ci`, all checked-in Node tests, and a
+  production build on Linux and Windows.
+- Pull requests receive dependency review, while weekly grouped Dependabot
+  updates cover Actions, Python, and npm manifests.
+- Existing and new workflows use least-privilege permissions, cancel superseded
+  runs, avoid duplicate feature-branch push runs, and pin Actions by full SHA.
+- The local verifier routes workflow edits to the checks they define, and tests
+  reject mutable action references or missing CI contracts.
+- Dashboard documentation names the same complete frontend validation commands
+  used locally and in CI.
+
+Progress:
+
+- [x] Audit repository manifests, test surfaces, verifier routing, workflow
+  history, branch protection, security settings, and current Action releases.
+- [x] Implement workflows, Dependabot, immutable pins, and run controls.
+- [x] Update verifier routing, regression tests, and validation documentation.
+- [x] Run focused, frontend, YAML, change-aware, and full CPU verification.
+- [x] Obtain a fresh read-only verifier review and inspect the complete diff.
+
+Decisions:
+
+- Keep the default Python check unfiltered so it can become a reliable required
+  status check; specialized workflows remain path-scoped.
+- Preserve the existing `node --test` package script because it already
+  discovers all six checked-in files (22 tests); only stale docs need correction.
+- Use current official releases verified through GitHub on 2026-07-11:
+  checkout v7.0.0, setup-python v6.3.0, setup-node v6.4.0, and dependency-review
+  v5.0.0, each pinned to its exact commit.
+- Do not mutate remote settings in this workstream. `main` protection,
+  Dependabot security updates, secret scanning, and push protection remain a
+  separately approved GitHub administration step.
+
+Human gates: no commit, push, branch-rule/security-setting mutation, GPU/QPU
+work, experiment execution, claim edit, or artifact/database action was
+authorized by this plan alone. On 2026-07-11 the user explicitly authorized
+committing and pushing all completed in-scope changes after verification. No
+remote branch rule, security feature, secret setting, PR, or merge is authorized.
+
+Latest validation:
+
+```text
+.venv/Scripts/python.exe scripts/verify_changes.py --plan
+PASS: selected agent setup/tests, frontend tests/build, dependency profile
+validation/tests, and the complete Python suite; no human gate was selected.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 900
+FOCUSED PASS: agent setup; 44 agent/verifier tests; all 22 frontend tests and
+the 864-module production build; dependency profile static checks; and 37
+dependency/verifier tests. The first complete Python pass reported 453 passed,
+1 skipped, and one transient dashboard static-directory import failure.
+isolated dashboard-security retry with a repository-local basetemp
+PASS: the previously failing remote-mode case passed immediately.
+.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-ci-retry
+PASS: 454 passed, 1 skipped; 48 existing dependency/JAX warnings in 378.47s.
+npm.cmd ci; npm.cmd test; npm.cmd run build
+PASS: clean lockfile install, 22 frontend tests, and 864-module production
+build. npm audit reports one existing moderate esbuild advisory and one existing
+high Vite advisory; the available fix is a separately reviewed Vite 8 major
+upgrade that the new Dependabot configuration will propose.
+workflow/dependabot YAML parse; pip check; CPU runtime-profile validation;
+compileall; git diff --check
+PASS: six YAML files parse, all 20 installed CPU pins match, Python sources
+compile, and no whitespace error is present (checkout line-ending notices only).
+fresh read-only verifier
+PASS: all 12 in-scope paths, workflow semantics, immutable Action references,
+verifier routing, regression contracts, documentation, evidence, exclusions,
+and the complete diff were reviewed; no blocking criterion remains.
+```
+
 ## Completed workstream: QLLM skill catalog refresh and forward-test
 
 Owner: parent agent

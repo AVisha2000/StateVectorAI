@@ -9,6 +9,8 @@ on:
       - ".agents/**"
       - ".claude/**"
       - ".codex/**"
+      - ".github/dependabot.yml"
+      - ".github/workflows/**"
       - ".gitignore"
       - "docs/AGENT_OPERATING_MODEL.md"
       - "scripts/check_agent_setup.py"
@@ -16,6 +18,8 @@ on:
       - "tests/test_agent_configuration.py"
       - "tests/test_verify_changes.py"
   push:
+    branches:
+      - main
     paths:
       - "**/AGENTS.md"
       - "**/CLAUDE.md"
@@ -23,6 +27,8 @@ on:
       - ".agents/**"
       - ".claude/**"
       - ".codex/**"
+      - ".github/dependabot.yml"
+      - ".github/workflows/**"
       - ".gitignore"
       - "docs/AGENT_OPERATING_MODEL.md"
       - "scripts/check_agent_setup.py"
@@ -34,6 +40,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     strategy:
@@ -43,8 +53,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
       - name: Validate agent operating files
