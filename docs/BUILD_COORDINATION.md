@@ -70,6 +70,8 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/jobs/{id}` · `/jobs/{id}/workspace` · `/jobs/{id}/comparison` · `/jobs/{id}/model-graph` · `/jobs/{id}/model-tests` | run detail, twin comparison, model graph, tests |
 | GET | `/jobs/{id}/diagnostics` | retrieval-only saved dimensions: `gradient_variance`, `parameter_shift_gradient_snr`, `expressibility_kl`, `meyer_wallach_q`, `scaling_fit`; every dimension is measured or explicitly unavailable, with provenance and non-advantage warnings |
 | GET | `/verdicts` · `/verdicts/{id}` | latest append-only verdict snapshots and revision history; canonical `claim_level`, `claim_status`, and `replication_status` are ledger-bound and separate from derived `assessment_level`/`assessment_status`; named scorecard dimensions only |
+| GET | `/research/capabilities` | explicit D4 boundary: metadata-only, unreviewed, human review required, no full text/claim classification/paid provider/LLM/embedding/vector/graph store/cost budget |
+| POST | `/discover/arxiv/scan` | fixed-host Atom metadata scan for `quant-ph` or QML-filtered `cs.LG`; 1–25/request, persistent 50/UTC-day cap, 10s timeout, 2 MiB response ceiling |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
 | GET | `/status` | exact typed shape: `{worker: string, gpu_available: boolean, queued: integer, running: integer, runs: integer}`; `runs` is the recorded `runs` row count |
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
@@ -80,7 +82,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
 | P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
-| P3 | GET | `/library/*`, `/discover/*` | greenfield research service (human-gated provider/cost) | Phase 4 |
+| P3 | GET/POST | `/library/*`, `/discover/*` extensions | paper vault, synthesis, LLM/embedding, vector/graph storage remain stopped at D4 pending user-approved provider and daily cost budget | Phase 4 |
 
 Contract rule: never emit a composite "advantage score"; keep claim-level and
 replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md.
@@ -111,6 +113,13 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   provenance, named diagnostics/controls, and no composite advantage score.
   Evidence: verdict/research `47 passed`; dashboard `74 passed`; durability
   `38 passed`; worker-free OpenAPI lifecycle `1 passed`.
+- 2026-07-11 · backend: P3 research-service core shipped and **stopped at D4**.
+  Only bounded public arXiv metadata is enabled; requests use fixed topic/query
+  templates, a persistent 50-item UTC-day cap, courtesy pacing, timeout and byte
+  ceilings, and version-aware deduplication. No live request was made in tests,
+  and no LLM/embedding/vector/graph provider, dependency, paid service, full-text
+  store, or cost budget was selected. Evidence: offline research `14 passed`;
+  dashboard `74 passed`; security `14 passed, 1 skipped`; OpenAPI `1 passed`.
 
 ## Log — from UI (Claude appends here)
 
