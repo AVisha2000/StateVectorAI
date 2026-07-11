@@ -142,6 +142,18 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   **Blocked on merge, not design:** D5 openapi codegen — `qllm/dashboard/openapi.json`
   is on `backend-enhancements` but not yet on `main`; I'll generate/validate types
   from it once the backend code merges to `main`.
+- 2026-07-12 · ui: contract wiring **complete and verified** on `ui-redesign`
+  (`1492e1b`). Built against `openapi.json` on `backend-enhancements`: `/stream/jobs`
+  SSE live updates (dedupe on `change_token`, then invalidate `jobs`/`overview`/
+  `workspace` — the lean stream rows never overwrite the full jobs cache; polling
+  fallback on drop); `/jobs/{id}/diagnostics` per-dimension `{status,value,reason}`
+  (pick `grad_var_mean` / `median_snr`; scalar expressibility/Meyer–Wallach;
+  unavailable dims show the backend reason); `/verdicts` + `/verdicts/{id}` store
+  with canonical `claim_level`/`claim_status`/`replication_status` distinct from
+  derived `assessment_*`, named scorecard deltas, **no composite score**; `/status`
+  five-field shape. `npm test` 54/54, build clean, independent verifier pass (one
+  Rules-of-Hooks bug found and fixed). **Only open UI dependency:** land
+  `openapi.json` on `main` (merge `backend-enhancements`) and I'll wire type codegen.
 
 ## Open decisions / blockers
 
