@@ -16,7 +16,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
@@ -57,6 +56,7 @@ from .security import (
     resolve_web_asset,
 )
 from .status import environment_status
+from .static_frontend import mount_frontend
 from .studies import (
     create_study,
     list_studies,
@@ -574,19 +574,6 @@ def api_plot(name: str):
     raise HTTPException(status_code=404, detail="plot not found")
 
 
-# serve the built React app, with SPA fallback so client-side routes
-# (e.g. /suite/qnlp-v1) resolve to index.html instead of 404 on refresh
-if FRONTEND_DIST.exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"),
-              name="assets")
-
-    @app.get("/{full_path:path}")
-    def spa(full_path: str):
-        if full_path:
-            try:
-                candidate = resolve_web_asset(FRONTEND_DIST, full_path)
-            except ValueError as exc:
-                raise _payload_error(exc) from exc
-            if candidate.is_file():
-                return FileResponse(candidate)
-        return FileResponse(resolve_web_asset(FRONTEND_DIST, "index.html"))
+# Serve the built React app only when both its entrypoint and assets exist. The
+# backend API and its tests intentionally remain usable without a frontend build.
+FRONTEND_MOUNTED = mount_frontend(app, FRONTEND_DIST)

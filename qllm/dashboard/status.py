@@ -21,6 +21,14 @@ def command_ok(name: str) -> bool:
     return False
 
 
+def frontend_build_available(frontend_dist: Path) -> bool:
+    """Return whether the complete static bundle required by FastAPI exists."""
+    return (
+        (frontend_dist / "index.html").is_file()
+        and (frontend_dist / "assets").is_dir()
+    )
+
+
 def environment_status(frontend_dist: Path) -> dict:
     jax_devices = []
     jax_backend = None
@@ -72,7 +80,7 @@ def environment_status(frontend_dist: Path) -> dict:
         "install": f"{sys.executable} -m pip install -e .[hf]",
     }
     frontend = {
-        "ok": (frontend_dist / "index.html").exists(),
+        "ok": frontend_build_available(frontend_dist),
         "node": command_ok("node"),
         "npm": command_ok("npm"),
         "build": "cd qllm/dashboard/frontend && npm install && npm run build",

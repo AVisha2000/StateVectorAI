@@ -830,6 +830,103 @@ git status --short --branch
 PASS: main is clean and aligned with origin/main before continuation planning.
 ```
 
+## Active plan: StateVector backend enhancements
+
+Owner: Codex apex orchestrator
+Started: 2026-07-11
+Objective: ship the backend contracts required by the parallel dashboard redesign
+without crossing frontend ownership or weakening research and localhost safety.
+
+Scope: deterministic OpenAPI contract generation, frontend-build-independent
+backend tests, the pinned status payload, loopback-only job streaming, per-job
+quantum diagnostics, durable verdict adjudication, and a bounded metadata-only
+research scanner. `qllm/dashboard/frontend/**`, GPU/QPU execution, dependency or
+environment changes, paid services, remote exposure, claim promotion, and merging
+`backend-enhancements` to `main` are excluded.
+
+Acceptance evidence:
+
+- `scripts/dump_openapi.py` deterministically regenerates the committed
+  `qllm/dashboard/openapi.json`; tests fail when the snapshot is stale.
+- Backend security tests pass when the frontend `dist` directory is absent or
+  incomplete, while a complete build remains confined and serveable.
+- `GET /api/status` has the pinned top-level shape `{worker, gpu_available,
+  queued, running, runs}` with compatibility details nested under `worker`.
+- `GET /api/stream/jobs` is an SSE route restricted to loopback clients and emits
+  bounded snapshots when authoritative `lab_jobs` or `live_runs` rows change.
+- `GET /api/jobs/{id}/diagnostics` exposes gradient variance,
+  parameter-shift gradient SNR, expressibility, Meyer-Wallach entanglement, and
+  scaling-fit fields with explicit measured/unavailable provenance and a warning
+  that diagnostics are not advantage evidence.
+- An additive verdict table and `GET /api/verdicts[/{id}]` preserve canonical
+  claim level, derived assessment status, and replication status as separate
+  fields, retain immutable source provenance, and never produce a composite
+  advantage score.
+- The research service has a provider-neutral interface and a standard-library,
+  bounded arXiv metadata scanner with deterministic fixture tests. No LLM,
+  embedding, vector/graph store, paid call, or new dependency is selected before
+  D4 user approval and a per-day budget.
+- The generated OpenAPI snapshot and backend-owned coordination summary match the
+  shipped endpoints; no frontend file changes appear in the diff.
+- Focused dashboard/security/durability/metrics/research tests, agent setup,
+  change-aware verification, the full CPU suite, and the one-step CPU queue smoke
+  complete with fresh output and a read-only verifier review.
+
+Progress:
+
+- [x] Rebase the clean backend worktree onto `origin/main` and read the contract,
+  redesign sections, feature intake, scoped instructions, and domain maps.
+- [x] Run bounded planner/scout discovery for API, queue, diagnostics, claim, and
+  research-service boundaries.
+- [x] Ship D5: OpenAPI dump script, deterministic snapshot, and stale-snapshot
+  regression.
+- [x] Ship D6: tolerate missing/incomplete frontend build in backend imports and
+  security tests.
+- [ ] Pin `/api/status` and ship localhost-only SQLite-authoritative SSE updates;
+  record D1 and D2.
+- [ ] Ship capability-aware diagnostics and focused regressions.
+- [ ] Ship the additive verdict store/API; record D3.
+- [ ] Ship the bounded research-service scaffold and stop at D4.
+- [ ] Regenerate the final OpenAPI snapshot and update only the backend-owned API
+  contract and Backend log in `docs/BUILD_COORDINATION.md`.
+- [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
+  and commit authorized deliverables without merging the feature branch.
+
+Decisions: SQLite remains authoritative for stream events; SSE uses bounded
+change detection rather than process-local notification state. Diagnostic values
+remain capability-aware observations and cannot raise a claim. Canonical
+`claim_level`, derived `assessment_status`, and `replication_status` are distinct
+verdict dimensions. The parent owns `server.py`, `PLANS.md`, OpenAPI regeneration,
+and the shared coordination file so delegated writers have disjoint ownership.
+
+Human gates: D4 remains open for the provider, dependency, vector/graph store,
+and daily cost budget. No GPU/QPU/cluster workload, paid service, environment
+change, remote dashboard exposure, claim promotion, artifact rewrite, feature
+branch merge, or unrelated Git action is authorized.
+
+Latest validation:
+
+```text
+git fetch origin
+PASS: origin refreshed.
+git rebase origin/main
+PASS: backend-enhancements was already up to date.
+git status --short --branch
+PASS: clean backend-enhancements worktree before plan creation.
+shared-venv pytest baseline
+ENVIRONMENT: the default Windows pytest temp root raised WinError 5; all
+subsequent pytest runs will use a repository-local --basetemp as required by
+AGENTS.md. The first local path also showed that its parent `.tmp` must exist.
+python scripts/dump_openapi.py --check
+PASS: committed qllm/dashboard/openapi.json is current.
+python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-d5b
+PASS: 1 passed.
+python -m pytest -q tests/test_dashboard_security.py --basetemp .tmp/pytest-security-d6b
+PASS: 13 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
+git diff --check
+PASS: no whitespace errors; Windows line-ending notices only.
+```
+
 ## Completed plan: local platform completion
 
 Owner: parent agent

@@ -7,12 +7,13 @@ import types
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qllm.dashboard.model_tests import _artifact_dir, model_test_payload
 from qllm.dashboard.runner import ExperimentQueue
 from qllm.dashboard import run as dashboard_run
+from qllm.dashboard.static_frontend import mount_frontend
 from qllm.dashboard.security import (
     access_status,
     client_access_allowed,
@@ -282,7 +283,7 @@ def test_remote_mode_blocks_direct_url_imports_but_keeps_dataset_ids(
 
     monkeypatch.setattr(server, "import_hf_text_dataset", fake_import)
     client = TestClient(server.app)
-    if server.FRONTEND_DIST.exists():
+    if server.FRONTEND_MOUNTED:
         assert client.get("/").status_code == 200
     allowed = client.options(
         "/api/health",
@@ -324,6 +325,25 @@ def test_remote_mode_blocks_direct_url_imports_but_keeps_dataset_ids(
     ) == {"source": "https://example.invalid/data.txt"}
     assert seen == ["org/public-dataset", "https://example.invalid/data.txt"]
     server.QUEUE.close()
+
+
+def test_frontend_mount_skips_missing_or_partial_build(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+
+    assert mount_frontend(FastAPI(), dist) is False
+
+    (dist / "index.html").write_text("<main>QLLM</main>", encoding="utf-8")
+    assert mount_frontend(FastAPI(), dist) is False
+
+    assets = dist / "assets"
+    assets.mkdir()
+    (assets / "app.js").write_text("console.log('qllm')", encoding="utf-8")
+    complete_app = FastAPI()
+    assert mount_frontend(complete_app, dist) is True
+    complete_client = TestClient(complete_app)
+    assert complete_client.get("/").text == "<main>QLLM</main>"
+    assert complete_client.get("/assets/app.js").status_code == 200
 
 
 def test_wsl_launcher_uses_explicit_remote_gate():

@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SNAPSHOT = ROOT / "qllm" / "dashboard" / "openapi.json"
+
+
+def test_openapi_snapshot_is_current_and_contains_core_api():
+    completed = subprocess.run(
+        [sys.executable, "scripts/dump_openapi.py", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    document = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    assert document["info"]["title"] == "QLLM Dashboard"
+    assert "/api/status" in document["paths"]
+    assert "get" in document["paths"]["/api/jobs/{job_id}"]
+    assert "/{full_path}" not in document["paths"]
