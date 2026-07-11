@@ -53,3 +53,18 @@ python scripts/queue_smoke.py
 - `Suite`: sortable leaderboard.
 - `Run detail`: config, metrics, and training curve.
 - `Docs`: presets, dataset assumptions, metrics, and cautious quantum-result interpretation.
+
+## Evidence vocabulary
+
+Dashboard summaries use the same cautious ladder as the repository docs:
+
+- `smoke`: one fair pair or otherwise preliminary evidence.
+- `paired analysis`: three or more fair pairs with paired statistics.
+- `missing control`: required baseline, frozen/random circuit, Markov twin, or
+  analogue evidence is absent.
+- `resource caveat`: any quantum result whose quality gain is small relative to
+  measured or estimated cost.
+
+Comparison and study routes should show structured warnings before optimistic
+labels. Frontend code should not recompute scientific verdicts; it should render
+the backend payload, claim status, limitations, and resource ledger.
