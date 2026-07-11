@@ -105,6 +105,29 @@ def test_repository_agent_configuration_is_valid() -> None:
     assert validate_repo(ROOT) == []
 
 
+def test_qllm_skill_catalog_covers_dashboard_research_and_issue_closeout() -> None:
+    dashboard = (ROOT / ".agents/skills/qllm-dashboard-development/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    research = (ROOT / ".agents/skills/qllm-research-protocol/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    verification = (
+        ROOT / ".agents/skills/qllm-code-change-verification/references/check-matrix.md"
+    ).read_text(encoding="utf-8")
+    closeout = (ROOT / ".agents/skills/qllm-issue-closure/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "npm test" in dashboard
+    assert "both themes at desktop and narrow" in dashboard
+    assert "teacher_forced_side_information" in research
+    assert "rerun_required" in research
+    assert "npm test" in verification
+    assert "require explicit user" in closeout
+    assert "gh issue view" in closeout
+
+
 def test_agent_configuration_ci_installs_collection_dependencies() -> None:
     workflow = (ROOT / ".github/workflows/agent-configuration.yml").read_text(
         encoding="utf-8"

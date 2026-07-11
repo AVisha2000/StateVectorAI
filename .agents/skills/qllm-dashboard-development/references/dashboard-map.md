@@ -14,6 +14,7 @@
 - `qllm/dashboard/status.py`: environment and frontend build status.
 - `qllm/dashboard/gpu_reservation.py`: GPU lane status.
 - `qllm/dashboard/evidence.py`: evidence summaries.
+- `qllm/dashboard/explore.py`: research-cockpit exploration payloads.
 
 ## Frontend Files
 
@@ -30,6 +31,11 @@
 - `qllm/dashboard/frontend/src/pages/Studies.jsx`: study list and creation.
 - `qllm/dashboard/frontend/src/pages/Datasets.jsx`: dataset imports.
 - `qllm/dashboard/frontend/src/pages/GPU.jsx`: system/GPU readiness.
+- `qllm/dashboard/frontend/src/pages/Explore.jsx`: evidence and research-map exploration.
+- `qllm/dashboard/frontend/src/pages/ResearchResults.jsx`: claim-aware results view.
+- `qllm/dashboard/frontend/src/appShell.js`: shell navigation and page metadata.
+- `qllm/dashboard/frontend/src/chartTheme.js`: shared Recharts theme tokens.
+- `qllm/dashboard/frontend/src/exploreView.js`: exploration view-model helpers.
 
 ## Common Commands
 
@@ -44,6 +50,7 @@ Frontend:
 ```powershell
 cd qllm/dashboard/frontend
 npm install
+npm test
 npm run build
 ```
 
@@ -57,6 +64,8 @@ npm run build
 - `GET /api/jobs/{id}/comparison`: comparison payload.
 - `POST /api/model-specs/{id}/jobs`: queue editable model spec.
 - `POST /api/studies/{id}/queue`: queue study.
+- `GET /api/explore/*`: research-cockpit payloads; inspect the mounted routes
+  rather than assuming a resource detail endpoint exists.
 
 ## Common Pitfalls
 
@@ -65,3 +74,7 @@ npm run build
 - Forgetting cancellation behavior in queue changes.
 - Letting GPU-targeted jobs bypass readiness checks.
 - Starting long runs from tests instead of smoke-size jobs.
+- Testing a visual route against a persistent database or queueing a job as
+  part of browser QA.
+- Fixing a chart in one theme while hard-coded tooltip or grid colors regress
+  the other theme.

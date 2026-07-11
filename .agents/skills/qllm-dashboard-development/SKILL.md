@@ -28,12 +28,21 @@ Use this skill for QLLM Lab work. The dashboard is an experiment console, not a 
 - Add API functions in `src/api.js` before wiring pages to new endpoints.
 - Preserve existing route/navigation patterns in `App.jsx` and `main.jsx`.
 - Show loading, empty, and error states for new data surfaces.
+- Treat backend payloads as the source of truth: do not invent inferred route
+  shapes or study/detail endpoints without first locating the owning API.
+- Use shared CSS custom-property tokens for both themes. Centralize chart and
+  tooltip styling rather than introducing hard-coded per-page colors.
 - Avoid decorative landing-page patterns; this UI is for repeated research operations.
 
 ## Verification
 
 - Backend-only: run focused tests for dashboard modules, then `pytest tests/test_dashboard_lab.py -q` when relevant.
-- Frontend-only: run `npm run build` from `qllm/dashboard/frontend`.
+- Frontend-only: run `npm test` and `npm run build` from
+  `qllm/dashboard/frontend`.
 - Queue/API changes: when the local API is available, run
   `python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu`.
-- Visual changes: launch the dashboard and inspect the relevant route in a browser when possible.
+- Visual changes: launch an isolated local dashboard backed by a temporary
+  database; inspect the relevant route in both themes at desktop and narrow
+  widths, check browser-console errors, and confirm wide tables scroll locally
+  instead of causing page-level horizontal overflow. Do not queue or start
+  jobs during visual QA.

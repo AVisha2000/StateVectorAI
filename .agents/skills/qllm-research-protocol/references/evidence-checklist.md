@@ -44,6 +44,19 @@ Interpretation: <what this supports and what it does not support>
 Next check: <smallest decisive run/control>
 ```
 
+## Historical Correction Checklist
+
+- Read `qllm/research_protocol.py`, `research/claims.yaml`, and the relevant
+  `docs/RESEARCH_MAP.yaml` entry before deciding whether a correction is needed.
+- Obtain explicit approval before changing claim-bearing research prose.
+- Preserve historical metrics, plots, run IDs, and artifact provenance.
+- Record `teacher_forced_side_information` when side information enters the
+  evaluation path, and `rerun_required` when a causal replacement is needed.
+- State that the historical result does not establish a strict autoregressive
+  conclusion; identify the replacement causal protocol.
+- Add a static regression for the corrected wording and rerun relevant
+  protocol/dashboard tests.
+
 ## Red Flags
 
 - "Quantum wins" based on one seed.

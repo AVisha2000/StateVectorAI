@@ -23,6 +23,9 @@ Verification is evidence collection, not a final scientific judgment. Start focu
 - Do not let the Stop hook launch GPU/QPU work. It may only run safe local CPU checks and flag gated paths.
 - Human-gated paths remain gated after tests pass. Record the needed approval instead of claiming the gate is cleared.
 - Docs-only changes may use static checks, except evidence/claim docs, which require `$qllm-research-protocol` and human review.
+- For frontend visual work, inspect the changed route in both themes at desktop
+  and narrow widths; record console errors and whether overflow remains local
+  to its intended scroller.
 
 ## Report
 

@@ -30,6 +30,7 @@ before acting.
 | Run, queue, debug, or compare an experiment | `$qllm-experiment-runner` |
 | Interpret evidence or change claim-bearing text | `$qllm-research-protocol` |
 | Verify a repository change | `$qllm-code-change-verification` |
+| Audit, resolve, or close a QLLM backlog/GitHub issue | `$qllm-issue-closure` |
 | Daily/weekly loop triage | `$qllm-loop-triage` (it reads the loop budget and constraints) |
 
 Prefer targeted `rg`/`rg --files`, the relevant nested instructions, and the

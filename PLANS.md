@@ -5,6 +5,54 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
+## Active workstream: QLLM skill catalog refresh
+
+Owner: parent agent
+Started: 2026-07-11
+Objective: refresh reusable QLLM skill guidance after the engineering backlog
+closeout, and add a narrowly scoped issue-closeout skill where the catalog has
+a durable workflow gap.
+
+Scope: strengthen the dashboard, research-protocol, and code-verification
+skills; add `qllm-issue-closure` with its required Claude discovery bridge;
+update skill routing and the operating-model catalog; and add policy-regression
+coverage. Product behavior, claims, experiments, and remote issue operations
+are excluded.
+
+Acceptance evidence:
+
+- Dashboard guidance requires deterministic frontend tests and rendered,
+  theme-aware local QA for visual changes.
+- Research guidance preserves historical evidence while correcting causal
+  interpretation only after the existing human gate.
+- Verification routing covers frontend tests and evidence-sensitive review.
+- A discoverable issue-closeout workflow reconciles acceptance criteria,
+  current repository evidence, and external-state gates before closure.
+
+Risks and gates: skill prose must not silently grant GitHub closure or
+claim-edit authority; no issue, commit, push, or research claim is changed by
+this work without separate approval.
+
+Validation: `python scripts/check_agent_setup.py`, focused agent-configuration
+tests, `python scripts/verify_changes.py --plan`, and its selected safe checks.
+
+Progress:
+
+- [x] Update canonical skills, references, catalog routing, and bridge.
+- [x] Add regression coverage and run deterministic validation.
+
+Latest validation:
+
+- `quick_validate.py .agents/skills/qllm-issue-closure`: passed.
+- `python scripts/check_agent_setup.py`: passed.
+- `python -m pytest -q tests/test_agent_configuration.py
+  tests/test_verify_changes.py --basetemp .tmp\\pytest-skill-refresh`: 35 passed.
+- `python scripts/verify_changes.py --plan`: selected agent setup and agent
+  configuration tests.
+- `python scripts/verify_changes.py --run` with `TMP`/`TEMP` set to the
+  writable workspace temp root: passed (agent setup and agent tests).
+- `git diff --check`: passed.
+
 ## Completed workstream: Codex idea-to-implementation playbook
 
 Owner: parent agent

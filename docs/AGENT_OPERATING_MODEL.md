@@ -40,7 +40,7 @@ or divergent Claude instructions.
 
 Repository skills under `.agents/skills/` hold reusable domain workflows:
 model development, dashboard development, experiment execution, research
-review, orchestration, and verification. Their short metadata enables routing;
+review, issue closeout, orchestration, and verification. Their short metadata enables routing;
 their full instructions are loaded only when the task triggers them. This
 separates always-on constraints from capability-specific procedure. Claude
 Code discovers thin `.claude/skills/` bridges whose metadata must match the

@@ -13,6 +13,9 @@ Use this skill to keep QLLM research claims honest. The project is explicitly de
 2. Read `qllm/research_protocol.py` before classifying a claim.
 3. Read `RESULTS.md`, the relevant area in `docs/RESEARCH_MAP.yaml`, and `references/evidence-checklist.md`. Treat `docs/RESEARCH_PROGRAM.md` as a plan, not evidence.
 4. If the result comes from the dashboard, inspect linked candidate/baseline jobs and final run records before summarizing.
+5. For a correction to a historical result, inspect the canonical contract in
+   `qllm/research_protocol.py`, `research/claims.yaml`, and
+   `docs/RESEARCH_MAP.yaml` before editing the result narrative.
 
 ## Evidence Rules
 
@@ -30,6 +33,19 @@ Use this skill to keep QLLM research claims honest. The project is explicitly de
 - Use "positive but not significant" when paired runs improve but confidence/p-value is weak.
 - Use "paired empirical edge" only when fairness checks pass, enough pairs exist, and paired stats support it.
 - Avoid "quantum advantage" unless the evidence includes fair baselines, statistical support, resource accounting, dequantization/hardware caveats, and the user explicitly wants that framing.
+
+## Historical Evidence Corrections
+
+- Historical numeric rows, plots, artifact provenance, and run identifiers are
+  evidence; do not rewrite or delete them to resolve an interpretation error.
+- A semantic correction to claim-bearing text requires the existing explicit
+  human approval. Preserve the original observations and explain the revised
+  causal limitation alongside them.
+- If an evaluation exposes teacher-forced side information, label it
+  `teacher_forced_side_information`, mark the decisive rerun as
+  `rerun_required`, and do not describe it as a strict autoregressive result.
+- Name the replacement causal protocol (for example, causal v2) and add a
+  static regression that prevents the obsolete interpretation from returning.
 
 ## Output Shape
 

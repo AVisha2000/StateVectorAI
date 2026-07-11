@@ -5,11 +5,11 @@ The selector in `scripts/verify_changes.py` is the executable source of truth. T
 | Changed area | Minimum safe evidence |
 |---|---|
 | `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`, `CLAUDE.md`, `PLANS.md` | `python scripts/check_agent_setup.py` and agent-configuration tests |
-| `qllm/dashboard/frontend/` | `npm run build` from the frontend directory |
+| `qllm/dashboard/frontend/` | `npm test` and `npm run build` from the frontend directory; for visual/theme/interaction changes, browser QA in both themes at desktop and narrow widths |
 | `qllm/dashboard/` backend or API | `pytest -q tests/test_dashboard_lab.py`; queue smoke when queue/API behavior changes |
 | `qllm/`, `benchmarks/`, `scripts/`, `configs/`, or `tests/` Python behavior | focused tests first; full `pytest -q` for shared contracts or broad blast radius |
 | docs only | static agent/setup validation; no runtime test unless docs encode behavior |
-| `RESULTS.md`, claim/evidence docs, studies reports, evidence code | research-protocol review plus human gate |
+| `RESULTS.md`, claim/evidence docs, studies reports, evidence code | research-protocol review plus human gate; after approval, static/provenance diff, regression coverage, and focused protocol/dashboard checks |
 | `docs/RESEARCH_PROGRAM.md`, `docs/RESEARCH_MAP.yaml` planning/map updates | research-protocol review when claims are affected; not an automatic human gate |
 | GPU/QPU configs, providers, long runs, publishing or git delivery | human gate; never auto-execute from verification |
 
