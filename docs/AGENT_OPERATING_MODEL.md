@@ -71,14 +71,27 @@ agents share a workspace, write ownership never overlaps, and only the parent
 integrates results. One parent owns an objective even when Codex and Claude Code
 are both active; cross-client work uses the same disjoint-ownership contract.
 
-The main agent uses GPT-5.6 as the root orchestrator. Planner and verifier work
-remain on GPT-5.6, Terra is the default implementation tier, Luna handles
-read-only discovery, Mini handles reviewed mechanical work, and Spark is
-restricted to text-only assistance. If a configured model is unavailable, the
-runtime must report that failure rather than silently substitute another tier.
-Claude role files use the hyphenated equivalents (`terra-worker`,
-`luna-explorer`, `mini-worker`, and `spark-helper`) and inherit the active
-Claude model instead of pinning transient product identifiers.
+The root orchestrator is the active client's top reasoning model — GPT-5.6 for
+Codex, Claude Opus 4.8 for Claude Code. Each client pins a model triage. In
+Codex, planner and verifier remain on GPT-5.6, Terra is the default
+implementation tier, Luna handles read-only discovery, Mini handles reviewed
+mechanical work, and Spark is restricted to text-only assistance. In Claude
+Code the hyphenated role files pin the equivalent tiers: planner and verifier on
+Opus 4.8, explorer and terra-worker on Sonnet 5, and luna-explorer, mini-worker,
+and spark-helper on Haiku 4.5. `scripts/check_agent_setup.py` enforces these
+pinned model IDs **statically** (the frontmatter string must equal the expected
+pin); it cannot verify runtime availability. No silent substitution is a required
+runtime assumption the repo cannot itself prove: if a configured model is
+unavailable, the runtime must report that failure rather than substitute another
+tier.
+
+Beyond today's symmetric per-client orchestration — where each client's top model
+is its own apex — the target operating model places Claude Opus 4.8 above both
+trees, able to dispatch into either the Claude or the Codex triage tree while
+each tree triages within itself. Cross-tool delegation uses the same disjoint-ownership task-packet
+contract; where the harness does not yet support Claude invoking Codex directly,
+the two clients coordinate through the shared workspace with one named parent
+owning the objective.
 
 ### 4. Deterministic verification
 

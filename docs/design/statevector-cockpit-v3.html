@@ -1,0 +1,1172 @@
+<title>StateVector — Cockpit v3</title>
+<style>
+:root{
+  --page:#f5f5f2; --surface:#fdfdfc; --surface2:#efefea; --ink:#16151c; --ink2:#59586310; --ink2:#585763; --muted:#8a8992;
+  --hair:rgba(22,21,28,.09); --hair2:rgba(22,21,28,.05);
+  --accent:#4f46c8; --accent-soft:rgba(79,70,200,.09); --accent-ink:#fff;
+  --q:#a233a8; --c:#2a78d6; --q-soft:rgba(162,51,168,.10); --c-soft:rgba(42,120,214,.10);
+  --good:#0a7d0a; --good-soft:rgba(12,163,12,.10);
+  --warn:#9a6a00; --warn-soft:rgba(250,178,25,.15);
+  --crit:#c23636; --crit-soft:rgba(208,59,59,.10);
+  --grid:#e4e3dc; --axis:#c6c5bd;
+  --shadow:0 1px 2px rgba(22,21,28,.05),0 4px 16px rgba(22,21,28,.045);
+  --shadow-lg:0 8px 30px rgba(22,21,28,.10);
+}
+@media (prefers-color-scheme:dark){:root{
+  --page:#0d0d11; --surface:#17171c; --surface2:#1e1e25; --ink:#f1f0f5; --ink2:#b2b1bc; --muted:#83828c;
+  --hair:rgba(255,255,255,.10); --hair2:rgba(255,255,255,.05);
+  --accent:#8f8af0; --accent-soft:rgba(143,138,240,.15); --accent-ink:#0f0f17;
+  --q:#c05fc0; --c:#3987e5; --q-soft:rgba(192,95,192,.15); --c-soft:rgba(57,135,229,.15);
+  --good:#3fbf3f; --good-soft:rgba(12,163,12,.17);
+  --warn:#e0a52e; --warn-soft:rgba(250,178,25,.13);
+  --crit:#e46262; --crit-soft:rgba(208,59,59,.17);
+  --grid:#26262d; --axis:#3a3a42;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.28);
+  --shadow-lg:0 10px 34px rgba(0,0,0,.5);
+}}
+:root[data-theme="dark"]{
+  --page:#0d0d11; --surface:#17171c; --surface2:#1e1e25; --ink:#f1f0f5; --ink2:#b2b1bc; --muted:#83828c;
+  --hair:rgba(255,255,255,.10); --hair2:rgba(255,255,255,.05);
+  --accent:#8f8af0; --accent-soft:rgba(143,138,240,.15); --accent-ink:#0f0f17;
+  --q:#c05fc0; --c:#3987e5; --q-soft:rgba(192,95,192,.15); --c-soft:rgba(57,135,229,.15);
+  --good:#3fbf3f; --good-soft:rgba(12,163,12,.17);
+  --warn:#e0a52e; --warn-soft:rgba(250,178,25,.13);
+  --crit:#e46262; --crit-soft:rgba(208,59,59,.17);
+  --grid:#26262d; --axis:#3a3a42;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.28);
+  --shadow-lg:0 10px 34px rgba(0,0,0,.5);
+}
+:root[data-theme="light"]{
+  --page:#f5f5f2; --surface:#fdfdfc; --surface2:#efefea; --ink:#16151c; --ink2:#585763; --muted:#8a8992;
+  --hair:rgba(22,21,28,.09); --hair2:rgba(22,21,28,.05);
+  --accent:#4f46c8; --accent-soft:rgba(79,70,200,.09); --accent-ink:#fff;
+  --q:#a233a8; --c:#2a78d6; --q-soft:rgba(162,51,168,.10); --c-soft:rgba(42,120,214,.10);
+  --good:#0a7d0a; --good-soft:rgba(12,163,12,.10);
+  --warn:#9a6a00; --warn-soft:rgba(250,178,25,.15);
+  --crit:#c23636; --crit-soft:rgba(208,59,59,.10);
+  --grid:#e4e3dc; --axis:#c6c5bd;
+  --shadow:0 1px 2px rgba(22,21,28,.05),0 4px 16px rgba(22,21,28,.045);
+  --shadow-lg:0 8px 30px rgba(22,21,28,.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--page);color:var(--ink);
+  font:14px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"Cascadia Code",ui-monospace,Consolas,monospace;font-size:12.5px}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+a{color:var(--accent);text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.app{display:flex;min-height:100vh}
+.side{width:216px;flex:0 0 216px;background:var(--surface);border-right:1px solid var(--hair);
+  padding:16px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
+.wordmark{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.wm-glyph{width:30px;height:30px;border-radius:8px;background:linear-gradient(140deg,var(--q),var(--accent) 55%,var(--c));
+  display:grid;place-items:center;color:#fff;font-weight:600;font-size:12px;box-shadow:var(--shadow)}
+.wm-text{font-weight:660;font-size:15px;letter-spacing:-.01em;line-height:1.1}
+.wm-text small{display:block;font-weight:500;font-size:9.5px;color:var(--muted);letter-spacing:.13em;margin-top:2px}
+.navsec{margin-top:14px;padding:0 8px 2px;font-size:10px;font-weight:650;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.nav{display:flex;flex-direction:column;gap:1px}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:7px 10px;border:0;
+  background:transparent;color:var(--ink2);border-radius:8px;font-size:13.5px;transition:background .12s}
+.nav button:hover{background:var(--surface2);color:var(--ink)}
+.nav button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.nav .ic{width:17px;text-align:center;font-size:14px;opacity:.9}
+.pill{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:99px;background:var(--surface2);color:var(--muted)}
+.side .foot{margin-top:auto;padding:12px 8px 2px;border-top:1px solid var(--hair2);font-size:11px;color:var(--muted)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:54px;display:flex;align-items:center;gap:14px;padding:0 22px;border-bottom:1px solid var(--hair);
+  background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:saturate(1.4) blur(8px);position:sticky;top:0;z-index:20}
+.crumb{font-weight:650;font-size:15px;letter-spacing:-.01em}
+.crumb .sep{color:var(--muted);font-weight:400;margin:0 7px}
+.top .right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--hair);
+  background:var(--surface);font-size:12px;color:var(--ink2)}
+.dot{width:7px;height:7px;border-radius:99px;display:inline-block}
+.dot.run{background:var(--good);box-shadow:0 0 0 3px var(--good-soft);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--good-soft)}50%{box-shadow:0 0 0 5px var(--good-soft)}}
+.dot.idle{background:var(--muted)}
+.iconbtn{border:1px solid var(--hair);background:var(--surface);border-radius:8px;padding:6px 11px;color:var(--ink2);font-size:12px}
+.iconbtn:hover{background:var(--surface2);color:var(--ink)}
+.avatar{width:29px;height:29px;border-radius:99px;background:linear-gradient(140deg,var(--accent),var(--q));color:#fff;
+  display:grid;place-items:center;font-size:11.5px;font-weight:650}
+.content{padding:22px 26px;max-width:1220px;width:100%;margin:0 auto}
+.view{display:none;animation:fade .2s ease}
+.view.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+.h1{font-size:20px;font-weight:660;letter-spacing:-.015em;margin:0;text-wrap:balance}
+.sub{color:var(--ink2);margin:5px 0 0;font-size:13px;max-width:74ch}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow)}
+.card .hd{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--hair2)}
+.card .hd h3{margin:0;font-size:13px;font-weight:660;letter-spacing:-.005em}
+.card .hd .more{margin-left:auto;font-size:12px;color:var(--accent);background:none;border:0;padding:0}
+.card .bd{padding:15px 16px}
+.microlabel{font-size:10px;font-weight:650;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:2px 8px;border-radius:6px;font-weight:560;white-space:nowrap}
+.tag.q{background:var(--q-soft);color:var(--q)} .tag.c{background:var(--c-soft);color:var(--c)}
+.tag.good{background:var(--good-soft);color:var(--good)} .tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.crit{background:var(--crit-soft);color:var(--crit)} .tag.plain{background:var(--surface2);color:var(--ink2)}
+.btn{border:1px solid var(--hair);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 15px;font-size:13px;font-weight:560;transition:background .12s}
+.btn:hover{background:var(--surface2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.ghost{border-color:transparent;color:var(--accent);background:none;padding-left:4px;padding-right:4px}
+.btn.sm{padding:4px 11px;font-size:12px;border-radius:7px}
+table.data{width:100%;border-collapse:collapse;font-size:13px}
+table.data th{text-align:left;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--hair)}
+table.data td{padding:10px 12px;border-bottom:1px solid var(--hair2);vertical-align:middle}
+table.data tr:last-child td{border-bottom:0}
+table.data tr.click{cursor:pointer}
+table.data tr.click:hover td{background:var(--surface2)}
+.right-td{text-align:right}
+.progress{height:5px;border-radius:99px;background:var(--surface2);overflow:hidden;min-width:96px}
+.progress i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.legend{display:flex;gap:15px;align-items:center;font-size:12px;color:var(--ink2)}
+.legend .sw{width:13px;height:3px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+.scroll-x{overflow-x:auto}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid32{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+@media(max-width:980px){.grid2,.grid32{grid-template-columns:1fr}.side{display:none}}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));gap:14px}
+.tile{background:var(--surface);border:1px solid var(--hair);border-radius:12px;padding:15px 16px;box-shadow:var(--shadow);cursor:pointer;transition:border-color .14s,transform .14s}
+.tile:hover{border-color:var(--accent);transform:translateY(-1px)}
+.tile .v{font-size:27px;font-weight:660;letter-spacing:-.02em;margin-top:7px}
+.tile .d{font-size:12px;color:var(--ink2);margin-top:3px}
+.tile.attn{border-color:var(--good);background:linear-gradient(0deg,var(--good-soft),var(--surface) 62%)}
+
+.stepper{display:flex;align-items:center;margin:20px 0 22px}
+.step{display:flex;align-items:center;gap:9px}
+.step .n{width:25px;height:25px;border-radius:99px;display:grid;place-items:center;font-size:12px;font-weight:660;
+  border:1.5px solid var(--hair);color:var(--muted);background:var(--surface)}
+.step.done .n{background:var(--good);border-color:var(--good);color:#fff}
+.step.cur .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.step .t{font-size:13px;color:var(--muted);font-weight:560}
+.step.cur .t{color:var(--ink);font-weight:660}.step.done .t{color:var(--ink2)}
+.step-line{flex:1;height:1.5px;background:var(--hair);margin:0 13px;min-width:22px}
+
+.check{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:13px}
+.check .ok{width:17px;height:17px;border-radius:99px;background:var(--good-soft);color:var(--good);display:grid;place-items:center;font-size:10.5px;font-weight:700;flex:0 0 auto}
+.rigor{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.rig{border:1.5px solid var(--hair);border-radius:11px;padding:12px 14px;cursor:pointer;background:var(--surface);transition:border-color .12s}
+.rig:hover{border-color:var(--accent)}.rig.on{border-color:var(--accent);background:var(--accent-soft)}
+.rig b{display:block;font-size:13px}.rig span{font-size:11.5px;color:var(--ink2)}
+.seg{display:inline-flex;border:1px solid var(--hair);border-radius:9px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:6px 13px;font-size:12.5px;color:var(--ink2);border-right:1px solid var(--hair)}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+
+.ladder{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.rung{font-size:10.5px;padding:3px 9px;border-radius:6px;background:var(--surface2);color:var(--muted);font-weight:560}
+.rung.hit{background:var(--accent-soft);color:var(--accent)}
+.rung.cur{background:var(--accent);color:var(--accent-ink);font-weight:660}
+.banner{border:1px solid var(--good);border-radius:13px;padding:17px 19px;background:linear-gradient(0deg,var(--good-soft),var(--surface) 72%);box-shadow:var(--shadow)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--hair);border-radius:11px;padding:12px 14px}
+.kpi .v{font-size:20px;font-weight:660;margin-top:3px;letter-spacing:-.01em}
+.kpi .s{font-size:11px;color:var(--muted);margin-top:1px}
+.chart-wrap{position:relative}
+.tooltip{position:absolute;pointer-events:none;background:var(--ink);color:var(--page);border-radius:8px;padding:7px 10px;
+  font-size:11.5px;line-height:1.45;display:none;z-index:30;white-space:nowrap;box-shadow:var(--shadow-lg)}
+svg text{fill:var(--muted);font-family:"Segoe UI",system-ui,sans-serif}
+.gridline{stroke:var(--grid);stroke-width:1}.axisline{stroke:var(--axis);stroke-width:1}
+.s-q{stroke:var(--q)}.s-c{stroke:var(--c)}.f-q{fill:var(--q)}.f-c{fill:var(--c)}
+.band-q{fill:var(--q);opacity:.13}.band-c{fill:var(--c);opacity:.13}
+.win-mark{font-weight:700}
+.delta{font-size:11.5px;font-weight:650;padding:2px 7px;border-radius:6px}
+.delta.q{background:var(--good-soft);color:var(--good)}.delta.c{background:var(--surface2);color:var(--ink2)}.delta.tie{background:var(--surface2);color:var(--muted)}
+.hint{font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.footer-bar{display:flex;align-items:center;gap:14px;padding:13px 16px;border-top:1px solid var(--hair2);flex-wrap:wrap}
+
+/* ATLAS */
+.atlas-shell{display:grid;grid-template-columns:1fr 300px;gap:14px;margin-top:16px}
+@media(max-width:980px){.atlas-shell{grid-template-columns:1fr}}
+.atlas-canvas{position:relative;background:
+  radial-gradient(circle at 1px 1px,var(--hair) 1px,transparent 0) 0 0/22px 22px,var(--surface);
+  border:1px solid var(--hair);border-radius:13px;height:520px;overflow:hidden;box-shadow:var(--shadow)}
+.atlas-canvas svg{width:100%;height:100%;display:block}
+.atlas-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:3}
+.atlas-legend{position:absolute;bottom:12px;left:12px;display:flex;gap:6px;flex-wrap:wrap;z-index:3;max-width:80%}
+.nodebox{cursor:pointer}
+.nodebox rect{transition:filter .12s}
+.nodebox:hover rect{filter:brightness(1.05)}
+.atlas-side .card{margin-bottom:12px}
+.atlas-side .empty{color:var(--muted);font-size:13px;text-align:center;padding:34px 12px}
+.metric-row{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--hair2)}
+.metric-row:last-child{border-bottom:0}
+.metric-row b{font-variant-numeric:tabular-nums}
+.stub{border:1.5px dashed var(--hair);border-radius:12px;padding:22px;color:var(--ink2);background:var(--surface)}
+select.mini{border:1px solid var(--hair);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 9px;font-size:12.5px}
+
+/* DISCOVER: idea queue + copilot chat */
+.discover-grid{display:grid;grid-template-columns:1fr 380px;gap:14px;margin-top:16px}
+@media(max-width:980px){.discover-grid{grid-template-columns:1fr}}
+.idea{padding:13px 15px;border:1px solid var(--hair);border-radius:11px;background:var(--surface);margin-bottom:10px;transition:border-color .12s}
+.idea:hover{border-color:var(--accent)}
+.idea.top{border-color:var(--good);background:linear-gradient(180deg,var(--good-soft),var(--surface) 58%)}
+.idea-top{display:flex;align-items:center;gap:10px}
+.idea .rank{width:22px;height:22px;flex:0 0 auto;border-radius:6px;background:var(--surface2);color:var(--muted);display:grid;place-items:center;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.idea.top .rank{background:var(--good);color:#fff}
+.idea h4{margin:0;font-size:14px;font-weight:620;letter-spacing:-.005em;flex:1;min-width:0}
+.idea-desc{font-size:12.5px;color:var(--ink2);margin:7px 0 0;line-height:1.45}
+.idea .why{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.idea-foot{display:flex;align-items:center;gap:10px;margin-top:11px;flex-wrap:wrap}
+.idea .src{font-size:11.5px;color:var(--muted);display:flex;gap:5px;align-items:center;flex:1;min-width:160px}
+.idea .acts{display:flex;gap:8px;align-items:center;margin-left:auto}
+.promise{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--ink2)}
+.promise .bar{width:52px;height:5px;border-radius:99px;background:var(--surface2);overflow:hidden}
+.promise .bar i{display:block;height:100%;background:var(--good);border-radius:99px}
+.factor{font-size:10.5px;color:var(--muted);padding:2px 7px;border-radius:6px;background:var(--surface2)}
+.copilot{display:flex;flex-direction:column;height:560px;border:1px solid var(--hair);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.copilot .chd{padding:12px 15px;border-bottom:1px solid var(--hair2);display:flex;align-items:center;gap:9px}
+.copilot .chd .ra{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,var(--accent),var(--q));display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.stream{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px}
+.msg{max-width:85%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.5}
+.msg.ai{background:var(--surface2);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.me{background:var(--accent);color:var(--accent-ink);align-self:flex-end;border-bottom-right-radius:4px}
+.msg .cite{display:inline-flex;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--c-soft);color:var(--c);margin:0 2px;font-weight:600}
+.msg .ideabtn{margin-top:8px;display:inline-block;font-size:12px;padding:5px 11px;border-radius:8px;background:var(--accent);color:var(--accent-ink);border:0;font-weight:560}
+.composer{display:flex;gap:8px;padding:11px;border-top:1px solid var(--hair2)}
+.composer input{flex:1;border:1px solid var(--hair);background:var(--page);color:var(--ink);border-radius:9px;padding:9px 12px;font-size:13px}
+.composer button{border:0;background:var(--accent);color:var(--accent-ink);border-radius:9px;padding:0 15px;font-weight:600}
+.feedstrip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 15px;border:1px solid var(--hair);border-radius:11px;background:linear-gradient(90deg,var(--accent-soft),var(--surface) 55%);margin-top:16px}
+.feedstrip .np{font-size:22px;font-weight:700;letter-spacing:-.02em}
+/* LIBRARY: knowledge vault */
+.lib-grid{display:grid;grid-template-columns:1fr 320px;gap:14px;margin-top:14px}
+@media(max-width:980px){.lib-grid{grid-template-columns:1fr}}
+.score{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+.score .bar{width:40px;height:5px;border-radius:99px;background:var(--surface2);overflow:hidden}
+.score .bar i{display:block;height:100%;border-radius:99px;background:var(--q)}
+.kgraph{border:1px solid var(--hair);border-radius:12px;background:
+  radial-gradient(circle at 1px 1px,var(--hair) 1px,transparent 0) 0 0/20px 20px,var(--surface);height:260px;overflow:hidden;box-shadow:var(--shadow)}
+.scanner-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--hair2);font-size:12.5px}
+.scanner-row:last-child{border-bottom:0}
+.scanner-row .live{margin-left:auto;font-size:11px;color:var(--good);display:flex;align-items:center;gap:5px}
+/* DESIGNER: semantic zoom + circuit builder */
+.zoombar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:14px 0 0;padding:9px 12px;border:1px solid var(--hair);border-radius:10px;background:var(--surface)}
+.zlevel{font-size:12.5px;padding:4px 10px;border-radius:7px;background:var(--surface2);color:var(--ink2);border:0;cursor:pointer;white-space:nowrap}
+.zlevel:hover{filter:brightness(.97)}
+.zlevel.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.zsep{color:var(--muted);font-size:12px}
+.zhint{margin-left:auto;font-size:11.5px;color:var(--muted)}
+.designer-grid{display:grid;grid-template-columns:1fr 300px;gap:14px;margin-top:14px}
+@media(max-width:980px){.designer-grid{grid-template-columns:1fr}}
+.canvas{border:1px solid var(--hair);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.canvas .ctool{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--hair2);flex-wrap:wrap}
+.canvas .cstage{padding:14px;background:radial-gradient(circle at 1px 1px,var(--hair) 1px,transparent 0) 0 0/20px 20px;overflow-x:auto}
+.palette{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--hair2)}
+.palette .microlabel{margin-right:4px}
+.gate-chip{font-family:"Cascadia Code",ui-monospace,monospace;font-size:12px;font-weight:600;padding:5px 10px;border-radius:7px;border:1px solid var(--hair);background:var(--surface2);cursor:grab;user-select:none}
+.gate-chip:hover{border-color:var(--accent);color:var(--accent)}
+.gate-chip.ent{background:var(--q-soft);color:var(--q);border-color:transparent}
+.commrow{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--hair2);font-size:12.5px}
+.commrow:last-child{border-bottom:0}
+.commrow .qc{width:32px;height:22px;border-radius:5px;background:var(--q-soft);display:grid;place-items:center;color:var(--q);font-size:9.5px;font-weight:700;flex:0 0 auto;font-family:monospace}
+.commrow .ld{margin-left:auto}
+</style>
+
+<div class="app">
+  <aside class="side">
+    <div class="wordmark">
+      <div class="wm-glyph">|ψ⟩</div>
+      <div class="wm-text">StateVector<small>QUANTUM ML LAB</small></div>
+    </div>
+    <div class="navsec">Research</div>
+    <nav class="nav">
+      <button data-nav="overview" class="on"><span class="ic">◈</span>Overview</button>
+      <button data-nav="discover"><span class="ic">✦</span>Discover<span class="pill">COPILOT</span></button>
+      <button data-nav="library"><span class="ic">▤</span>Library</button>
+      <button data-nav="atlas"><span class="ic">⬡</span>Atlas</button>
+    </nav>
+    <div class="navsec">Experiments</div>
+    <nav class="nav">
+      <button data-nav="designer"><span class="ic">⎔</span>Designer</button>
+      <button data-nav="bench"><span class="ic">⚗</span>Bench</button>
+      <button data-nav="runs"><span class="ic">≣</span>Runs</button>
+      <button data-nav="verdict"><span class="ic">⚖</span>Verdicts</button>
+    </nav>
+    <div class="navsec">System</div>
+    <nav class="nav">
+      <button data-nav="datasets"><span class="ic">⊞</span>Datasets</button>
+      <button data-nav="system"><span class="ic">⌁</span>Queue &amp; Backends</button>
+    </nav>
+    <div class="foot">Signed in · <b>Arlind</b> (researcher)<br>Public visitors see Atlas only<br><span style="opacity:.7">v2 mockup — not live</span></div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="crumb" id="crumb">Overview</div>
+      <div class="right">
+        <span class="chip"><span class="dot run"></span>2 running · 5 queued</span>
+        <span class="chip"><span class="dot idle"></span>GPU idle</span>
+        <button class="iconbtn" id="themeToggle">◐ Theme</button>
+        <div class="avatar">AV</div>
+      </div>
+    </div>
+    <div class="content">
+
+      <!-- OVERVIEW -->
+      <section class="view on" id="view-overview">
+        <h1 class="h1">One advantage candidate is waiting for your review.</h1>
+        <p class="sub">Live lab state — no decorative widgets. Every number links to where the work is.</p>
+        <div class="tiles" style="margin-top:18px">
+          <div class="tile" data-go="runs"><div class="microlabel">Running</div><div class="v num">2</div><div class="d">qrnn-s7 · tsq-b2</div></div>
+          <div class="tile" data-go="runs"><div class="microlabel">Queued</div><div class="v num">5</div><div class="d">~41 min on CPU</div></div>
+          <div class="tile" data-go="verdict"><div class="microlabel">Verdicts / 7 days</div><div class="v num">3</div><div class="d">1 quantum · 2 classical</div></div>
+          <div class="tile attn" data-go="verdict"><div class="microlabel">Awaiting review</div><div class="v num">1</div><div class="d">QRNN sample-efficiency</div></div>
+        </div>
+        <div class="feedstrip" style="cursor:pointer" onclick="go('discover')">
+          <div class="np num">7</div>
+          <div><div style="font-weight:620">new papers today · 1 top idea ready to queue</div><div class="hint">copilot suggests: reuploading ansatz below the plateau onset · promise 0.86</div></div>
+          <span style="margin-left:auto"></span>
+          <button class="btn primary" data-go="discover">Open Discover →</button>
+        </div>
+        <div class="grid32" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Now running</h3><button class="more" data-go="runs">All runs →</button></div>
+            <div class="bd" style="padding:4px 16px 8px">
+              <table class="data">
+                <thead><tr><th>Run</th><th>Experiment</th><th>Progress</th><th class="right-td">val_ppl</th><th></th></tr></thead>
+                <tbody>
+                  <tr class="click" data-go="rundetail"><td class="mono">qrnn-s7</td><td>QRNN vs GRU · monitored_ising <span class="tag q">Q</span></td><td><div class="progress"><i style="width:71%"></i></div></td><td class="right-td num">3.42</td><td><svg class="spark" data-spark="down" width="70" height="20"></svg></td></tr>
+                  <tr class="click" data-go="rundetail"><td class="mono">tsq-b2</td><td>Two-stream Q bias · contextual <span class="tag q">Q</span></td><td><div class="progress"><i style="width:19%"></i></div></td><td class="right-td num">5.87</td><td><svg class="spark" data-spark="down2" width="70" height="20"></svg></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Advantage candidate</h3><span class="tag good">1 new</span></div>
+            <div class="bd">
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <div><span class="tag good">✦ sample efficiency</span> <span class="tag plain">5 seeds</span></div>
+                <div style="font-weight:620;font-size:14px;line-height:1.35">QRNN hits ppl ≤ 3.5 in <b>38% fewer steps</b> than its matched GRU twin</div>
+                <div class="hint">monitored_ising · param-matched 1.02× · 2h ago</div>
+                <button class="btn primary" data-go="verdict">Review verdict →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Latest verdicts</h3><button class="more" data-go="verdict">All →</button></div>
+            <div class="bd" style="padding:4px 16px 8px">
+              <table class="data"><tbody>
+                <tr class="click" data-go="verdict"><td>QRNN vs GRU · monitored_ising</td><td class="right-td"><span class="tag good">✦ quantum candidate</span></td></tr>
+                <tr class="click"><td>Quantum FFN 4q vs classical · text8</td><td class="right-td"><span class="tag plain">classical holds</span></td></tr>
+                <tr class="click"><td>Quantum attention vs classical · contextual</td><td class="right-td"><span class="tag warn">! inconclusive</span></td></tr>
+              </tbody></table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Open hypotheses</h3><button class="more" data-go="bench">Bench →</button></div>
+            <div class="bd" style="padding:4px 16px 8px">
+              <table class="data"><tbody>
+                <tr><td>Quantum two-stream encoder → sample efficiency on contextual tasks</td><td class="right-td"><button class="btn sm" data-go="bench">Bench</button></td></tr>
+                <tr><td>Q→C weight transfer seeds better classical FFNs</td><td class="right-td"><button class="btn sm" data-go="bench">Bench</button></td></tr>
+                <tr><td>Reuploading ansatz resists barren plateaus past 8 qubits</td><td class="right-td"><button class="btn sm" data-go="scaling">Scaling</button></td></tr>
+              </tbody></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DISCOVER -->
+      <section class="view" id="view-discover">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 class="h1">Discover — always have something worth running</h1>
+            <p class="sub">Your research copilot reads the literature, talks it through with you, and keeps a ranked queue of the next experiments. The top idea is always one click from the Bench.</p>
+          </div>
+          <span style="margin-left:auto"></span>
+          <label class="chip" style="gap:8px"><input type="checkbox" checked style="accent-color:var(--accent)"> Auto-prioritize</label>
+        </div>
+
+        <div class="feedstrip">
+          <div class="np num">7</div>
+          <div><div style="font-weight:620">new papers scanned today</div><div class="hint">arXiv quant-ph · cs.LG · 3 flagged high-relevance by the synthesis agent</div></div>
+          <span style="margin-left:auto"></span>
+          <button class="btn" data-go="library">Open Library →</button>
+        </div>
+
+        <div class="discover-grid">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <h3 style="margin:0;font-size:14px;font-weight:660">Experiment idea queue</h3>
+              <span class="tag plain">ranked by promise</span>
+              <span class="hint" style="margin-left:auto">novelty × feasibility × expected-advantage × Atlas-gap</span>
+            </div>
+
+            <div class="idea top">
+              <div class="idea-top">
+                <span class="rank">1</span>
+                <h4>Reuploading ansatz on contextual tasks below the plateau onset</h4>
+                <span class="promise">0.86<span class="bar"><i style="width:86%"></i></span></span>
+              </div>
+              <p class="idea-desc">Test whether the sample-efficiency edge holds at 8–12 qubits, where hardware-efficient collapses but reuploading may survive.</p>
+              <div class="why"><span class="factor">novelty 0.7</span><span class="factor">feasible · CPU</span><span class="factor">target: sample efficiency</span><span class="factor">fills Atlas gap</span></div>
+              <div class="idea-foot">
+                <span class="src">◆ from <span class="tag c" style="padding:1px 6px">Larocca 2025</span> + Atlas <b>Sequence · reuploading</b></span>
+                <span class="acts"><button class="btn ghost sm">Discuss</button><button class="btn primary sm" data-go="designer">Open in Designer</button><button class="btn primary sm" data-go="bench">Send to Bench →</button></span>
+              </div>
+            </div>
+
+            <div class="idea">
+              <div class="idea-top">
+                <span class="rank">2</span>
+                <h4>Q→C weight transfer: seed a classical FFN from a trained circuit</h4>
+                <span class="promise">0.74<span class="bar"><i style="width:74%"></i></span></span>
+              </div>
+              <p class="idea-desc">Train the quantum FFN, port its learned weights to the matched classical model, and measure whether it starts ahead.</p>
+              <div class="why"><span class="factor">novelty 0.8</span><span class="factor">feasible · CPU</span><span class="factor">target: training time</span></div>
+              <div class="idea-foot">
+                <span class="src">◆ from <span class="tag c" style="padding:1px 6px">Schuld 2024</span> · you flagged as feature candidate</span>
+                <span class="acts"><button class="btn ghost sm">Discuss</button><button class="btn primary sm" data-go="bench">Send to Bench →</button></span>
+              </div>
+            </div>
+
+            <div class="idea">
+              <div class="idea-top">
+                <span class="rank">3</span>
+                <h4>Noise-aware readout: does zero-noise extrapolation change the verdict?</h4>
+                <span class="promise">0.61<span class="bar"><i style="width:61%"></i></span></span>
+              </div>
+              <p class="idea-desc">Wrap the quantum attention run in Mitiq ZNE and re-score, anticipating the QPU-readiness question.</p>
+              <div class="why"><span class="factor">novelty 0.6</span><span class="factor">needs · Mitiq</span><span class="factor">target: QPU readiness</span></div>
+              <div class="idea-foot">
+                <span class="src">◆ from <span class="tag c" style="padding:1px 6px">Mitiq docs</span> + <span class="tag c" style="padding:1px 6px">Cai 2023</span></span>
+                <span class="acts"><button class="btn ghost sm">Discuss</button><button class="btn primary sm" data-go="bench">Send to Bench →</button></span>
+              </div>
+            </div>
+
+            <div class="idea">
+              <div class="idea-top">
+                <span class="rank">4</span>
+                <h4>Quantum kernel baseline via sQUlearn-style interface</h4>
+                <span class="promise">0.48<span class="bar"><i style="width:48%"></i></span></span>
+              </div>
+              <p class="idea-desc">Add a QSVM control arm so component swaps compete against a proper quantum-kernel baseline, not just classical.</p>
+              <div class="why"><span class="factor">novelty 0.5</span><span class="factor">feasible · CPU</span><span class="factor">target: fair control</span></div>
+              <div class="idea-foot">
+                <span class="src">◆ from <span class="tag c" style="padding:1px 6px">sQUlearn</span> · methodology, not an advantage claim</span>
+                <span class="acts"><button class="btn ghost sm">Discuss</button><button class="btn primary sm" data-go="bench">Send to Bench →</button></span>
+              </div>
+            </div>
+
+            <p class="hint" style="margin-top:6px">Falsified ideas drop out and the agent stops re-proposing them — nulls update the vault.</p>
+          </div>
+
+          <div class="copilot">
+            <div class="chd"><div class="ra">◆</div><div><div style="font-weight:640;font-size:13px">Research copilot</div><div class="hint" style="font-size:11px">grounded in your Library vault · 214 papers</div></div></div>
+            <div class="stream" id="chat-stream">
+              <div class="msg me">What should I run next on the contextual task?</div>
+              <div class="msg ai">Your strongest open thread is sample efficiency on <b>contextual</b>. The QRNN candidate holds at 4q, but nothing tests it near the barren-plateau onset. <span class="cite">Larocca 2025</span> argues reuploading ansätze resist plateaus longer than hardware-efficient — so the decisive test is reuploading at 8–12 qubits.<button class="ideabtn" data-go="bench">Draft this in the Bench →</button></div>
+              <div class="msg me">Any reason it wouldn't replicate?</div>
+              <div class="msg ai">Two risks. It's a single task instance, so the edge could be dataset-specific — pair it with the <span class="cite">interference</span> dataset for a second instance. And <span class="cite">Cerezo 2021</span> notes cost-landscape effects can masquerade as sample efficiency; the frozen-circuit control already guards that.</div>
+            </div>
+            <div class="composer"><input id="chat-input" placeholder="Ask about papers, ideas, or the next path…"><button id="chat-send">Send</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIBRARY -->
+      <section class="view" id="view-library">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 class="h1">Library — the research archive &amp; knowledge vault</h1>
+            <p class="sub">Everything the lab reads. Auto-scanned from the field, plus your manual dumps. Papers are synthesized into a knowledge graph that links ideas to our own experiments and Atlas nodes.</p>
+          </div>
+          <span style="margin-left:auto"></span>
+          <button class="btn">＋ Dump a paper</button>
+          <button class="btn primary" data-go="discover">Ask the copilot →</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin:16px 0 12px;flex-wrap:wrap;align-items:center">
+          <div class="seg"><button class="on">All</button><button>Inbox (7)</button><button>Reviewing</button><button>Linked</button><button>Feature candidates</button><button>Archived</button></div>
+          <span class="chip">Field: <b>All</b> ▾</span>
+          <span class="chip" style="margin-left:auto">⌕ Search 214 papers…</span>
+        </div>
+
+        <div class="lib-grid">
+          <div class="card scroll-x">
+            <table class="data">
+              <thead><tr><th>Paper</th><th>Field</th><th>Source</th><th>Status</th><th>Feature potential</th><th class="right-td">Links</th></tr></thead>
+              <tbody>
+                <tr class="click"><td><b>Reuploading circuits resist barren plateaus</b><div class="hint">Larocca et al. · arXiv:2503.xxxxx · 2025</div></td><td><span class="tag q">QML</span></td><td class="mono">auto-scan</td><td><span class="tag warn">reviewing</span></td><td><span class="score">0.82<span class="bar"><i style="width:82%"></i></span></span></td><td class="right-td num">idea #1</td></tr>
+                <tr class="click"><td><b>Quantum models as random features</b><div class="hint">Schuld · arXiv:2101.xxxxx · 2024</div></td><td><span class="tag q">QML</span></td><td class="mono">auto-scan</td><td><span class="tag good">linked</span></td><td><span class="score">0.71<span class="bar"><i style="width:71%"></i></span></span></td><td class="right-td num">3 exps</td></tr>
+                <tr class="click"><td><b>Cost-function-dependent barren plateaus</b><div class="hint">Cerezo et al. · Nature Comms · 2021</div></td><td><span class="tag q">QML</span></td><td class="mono">manual dump</td><td><span class="tag good">linked</span></td><td><span class="score">0.64<span class="bar"><i style="width:64%"></i></span></span></td><td class="right-td num">2 exps</td></tr>
+                <tr class="click"><td><b>State-space models scale linearly (Mamba)</b><div class="hint">Gu &amp; Dao · arXiv:2312.xxxxx · 2024</div></td><td><span class="tag plain">classical ML</span></td><td class="mono">auto-scan</td><td><span class="tag plain">inbox</span></td><td><span class="score">0.58<span class="bar"><i style="width:58%"></i></span></span></td><td class="right-td num">—</td></tr>
+                <tr class="click"><td><b>Error mitigation for near-term devices</b><div class="hint">Cai et al. review · 2023</div></td><td><span class="tag q">QML</span></td><td class="mono">manual dump</td><td><span class="tag plain">feature?</span></td><td><span class="score">0.55<span class="bar"><i style="width:55%"></i></span></span></td><td class="right-td num">idea #3</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div class="card" style="margin-bottom:12px">
+              <div class="hd"><h3>Knowledge graph</h3><span class="hint">papers ↔ concepts ↔ our work</span></div>
+              <div class="bd" style="padding:10px"><div class="kgraph"><svg id="kgraph-svg" width="100%" height="100%" viewBox="0 0 300 240" role="img" aria-label="Knowledge graph linking papers, concepts, experiments, and Atlas nodes"></svg></div></div>
+            </div>
+            <div class="card" style="margin-bottom:12px">
+              <div class="hd"><h3>Scanners</h3><span class="tag good">running</span></div>
+              <div class="bd" style="padding-top:8px">
+                <div class="scanner-row">arXiv <span class="mono">quant-ph</span><span class="live"><span class="dot run"></span>daily</span></div>
+                <div class="scanner-row">arXiv <span class="mono">cs.LG</span><span class="live"><span class="dot run"></span>daily</span></div>
+                <div class="scanner-row">arXiv <span class="mono">stat.ML</span><span class="live"><span class="dot run"></span>weekly</span></div>
+                <div class="scanner-row">PennyLane Demos<span class="live"><span class="dot run"></span>weekly</span></div>
+                <div style="margin-top:10px"><button class="btn sm" style="width:100%">＋ Add a source</button></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="hd"><h3>Synthesis</h3></div>
+              <div class="bd" style="font-size:12.5px;color:var(--ink2)">
+                <div class="metric-row"><span>Papers synthesized</span><b>214</b></div>
+                <div class="metric-row"><span>Concepts extracted</span><b>96</b></div>
+                <div class="metric-row"><span>Ideas proposed</span><b>11</b></div>
+                <div class="metric-row"><span>Last run</span><b>2h ago</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DESIGNER -->
+      <section class="view" id="view-designer">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 class="h1">Designer — zoom from the field down to the gates</h1>
+            <p class="sub">One continuous surface with the Atlas: zoom out to all of ML, zoom in until you're editing a circuit. Classical slots show the network; quantum slots show the gates. Built for people who aren't circuit experts.</p>
+          </div>
+          <span style="margin-left:auto"></span>
+          <div class="seg" id="cq-toggle"><button class="on" data-cq="q">Quantum</button><button data-cq="c">Classical</button></div>
+          <button class="btn primary" data-go="bench">Send to Bench →</button>
+        </div>
+
+        <div class="zoombar">
+          <button class="zlevel" data-z="0">Machine learning</button><span class="zsep">›</span>
+          <button class="zlevel" data-z="1">LLMs</button><span class="zsep">›</span>
+          <button class="zlevel" data-z="2">Attention</button><span class="zsep">›</span>
+          <button class="zlevel" data-z="3">Encoder</button><span class="zsep">›</span>
+          <button class="zlevel on" data-z="4">quantum-encoder-4q</button>
+          <span class="zhint">click a level to zoom out · this is the deep end of the Atlas</span>
+        </div>
+
+        <div class="designer-grid">
+          <div class="canvas">
+            <div class="ctool">
+              <span class="microlabel">Architecture</span>
+              <select class="mini" id="arch-sel"><option value="hardware_efficient">hardware_efficient</option><option value="reuploading">reuploading</option><option value="ising">ising</option></select>
+              <span class="microlabel" style="margin-left:6px">Qubits</span><span class="chip num">4</span>
+              <span class="microlabel">Depth</span><span class="chip num">2</span>
+              <span class="microlabel">Readout</span><span class="chip">ZZ</span>
+              <span style="margin-left:auto"></span>
+              <span class="hint" id="canvas-note">rendered via a reused PennyLane-style drawer</span>
+            </div>
+            <div class="cstage"><svg id="circuit-svg" width="640" height="230" viewBox="0 0 640 230" role="img" aria-label="Quantum circuit diagram with visible gates"></svg></div>
+            <div class="palette" id="gate-palette">
+              <span class="microlabel">Gates</span>
+              <span class="gate-chip">H</span><span class="gate-chip">RX</span><span class="gate-chip">RY</span><span class="gate-chip">RZ</span><span class="gate-chip">X</span><span class="gate-chip ent">CNOT</span><span class="gate-chip ent">CZ</span><span class="gate-chip ent">entangle</span>
+              <span class="hint" style="margin-left:auto">drag onto a wire to place · reuse an OSS drag-drop composer</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="card" style="margin-bottom:12px">
+              <div class="hd"><h3>Matched control</h3><span class="tag c">CLASSICAL</span></div>
+              <div class="bd" style="font-size:12.5px;color:var(--ink2)">
+                Auto-paired classical twin: <b>4-layer MLP encoder</b>, width-matched to this circuit's parameter count.
+                <div style="margin-top:8px"><span class="tag good">✓ 41.2k ≈ 40.4k params</span></div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:12px">
+              <div class="hd"><h3>Community circuits</h3><span class="tag good"><span class="dot run"></span>stream</span></div>
+              <div class="bd" style="padding-top:8px">
+                <div class="commrow"><span class="qc">RY·CX</span><div>Hardware-efficient 4q<div class="hint">MQT Bench · promise 0.79</div></div><button class="btn sm ld">Load</button></div>
+                <div class="commrow"><span class="qc">ReUp</span><div>Data-reuploading 6q<div class="hint">community · promise 0.72</div></div><button class="btn sm ld">Load</button></div>
+                <div class="commrow"><span class="qc">QAOA</span><div>QAOA p=2 ansatz<div class="hint">OpenQAOA · promise 0.60</div></div><button class="btn sm ld">Load</button></div>
+                <div style="margin-top:8px"><span class="hint">most-promising uploaded/benchmarked circuits, scored by the synthesis agent</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="hd"><h3>Properties</h3></div>
+              <div class="bd" style="font-size:12.5px">
+                <div class="metric-row"><span>Gates</span><b id="p-gates">—</b></div>
+                <div class="metric-row"><span>Depth</span><b>2</b></div>
+                <div class="metric-row"><span>Trainable params</span><b id="p-params">—</b></div>
+                <div class="metric-row"><span>Entangling</span><b id="p-ent">—</b></div>
+                <div class="metric-row"><span>Expressibility (est.)</span><b>0.18 KL</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BENCH -->
+      <section class="view" id="view-bench">
+        <h1 class="h1">Bench — hypothesis to verdict, one path</h1>
+        <p class="sub">State the claim; the Bench composes a fair test around it. A quick probe and a full study are the same object — promote later, never re-enter the config.</p>
+        <div class="stepper">
+          <div class="step done"><span class="n">✓</span><span class="t">Hypothesis</span></div><div class="step-line"></div>
+          <div class="step cur"><span class="n">2</span><span class="t">Test plan</span></div><div class="step-line"></div>
+          <div class="step"><span class="n">3</span><span class="t">Execution</span></div><div class="step-line"></div>
+          <div class="step"><span class="n">4</span><span class="t">Verdict</span></div>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <div class="bd" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <span class="microlabel" style="flex:0 0 auto">Hypothesis</span>
+            <div style="font-size:14.5px;font-weight:560;flex:1;min-width:240px">“A quantum two-stream encoder improves <u>sample efficiency</u> on contextual sequence tasks.”<div class="hint" style="margin-top:5px">◆ from Discover idea #1 · cites <span class="tag c" style="padding:1px 6px">Larocca 2025</span> · will update Atlas node <b>Sequence · reuploading</b></div></div>
+            <span class="tag plain">target: steps-to-threshold</span><button class="btn ghost">Edit</button>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card" style="border-top:3px solid var(--q)">
+            <div class="hd"><h3>Candidate</h3><span class="tag q">QUANTUM</span></div>
+            <div class="bd">
+              <div style="font-weight:660;font-size:15px">two-stream · quantum encoder · FiLM condition</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:11px">
+                <span class="tag plain">4 qubits</span><span class="tag plain">depth 2</span><span class="tag plain">hardware_efficient</span><span class="tag plain">readout zz</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:13px">
+                <span class="microlabel">Backend</span>
+                <select class="mini"><option>pennylane (statevector)</option><option>tensorcircuit</option><option>tensorcircuit_mps · bond 16</option></select>
+              </div>
+              <div class="hint" style="margin-top:11px">≈ 41.2k params · preset <span class="mono">two-stream-quantum-bias</span> · <a href="#">Model Builder</a></div>
+            </div>
+          </div>
+          <div class="card" style="border-top:3px solid var(--c)">
+            <div class="hd"><h3>Matched control</h3><span class="tag c">CLASSICAL</span></div>
+            <div class="bd">
+              <div style="font-weight:660;font-size:15px">two-stream · classical encoder · FiLM condition</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:11px">
+                <span class="tag plain">mlp encoder</span><span class="tag plain">width-matched</span><span class="tag plain">same tokenizer</span>
+              </div>
+              <div style="margin-top:13px"><span class="tag good">✓ param-matched 1.02×</span></div>
+              <div class="hint" style="margin-top:11px">≈ 40.4k params · auto-selected twin — <a href="#">swap</a></div>
+            </div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Protocol</h3></div>
+            <div class="bd" style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px">
+              <div><span class="microlabel">Dataset</span><div class="mono" style="margin-top:3px">contextual (synthetic)</div></div>
+              <div><span class="microlabel">Steps</span><div class="num" style="margin-top:3px">2,000 · eval every 100</div></div>
+              <div><span class="microlabel">Seeds</span><div class="num" style="margin-top:3px">5 × {11,23,42,77,101}</div></div>
+              <div><span class="microlabel">Extra controls</span><div style="margin-top:3px">frozen-circuit ✓ · random-feature ✓</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Fairness gate</h3><span class="tag good">4 / 4 pass</span></div>
+            <div class="bd" style="padding-top:8px">
+              <div class="check"><span class="ok">✓</span>Parameter counts matched within 5% (1.02×)</div>
+              <div class="check"><span class="ok">✓</span>Identical data, tokenizer, batch, steps, eval schedule</div>
+              <div class="check"><span class="ok">✓</span>Shared seed set across both arms</div>
+              <div class="check"><span class="ok">✓</span>Controls present: frozen circuit + random features</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="hd"><h3>Rigor</h3><span class="hint">same experiment object at every level — promote without re-entry</span></div>
+          <div class="bd"><div class="rigor">
+            <div class="rig"><b>Quick probe</b><span>1 seed · no controls · ~4 min<br>flags interest, proves nothing</span></div>
+            <div class="rig on"><b>Standard pair</b><span>5 seeds · both controls · ~38 min<br>can produce a candidate verdict</span></div>
+            <div class="rig"><b>Full study</b><span>+ qubit×depth grid · ~4 h<br>evidence for claim-ladder promotion</span></div>
+          </div></div>
+          <div class="footer-bar">
+            <span class="hint num">12 runs · est. 38 min on CPU · resource band: light · no GPU gate triggered</span>
+            <span style="margin-left:auto"></span>
+            <button class="btn">Save as draft</button><button class="btn primary" data-go="runs">Queue 12 runs →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- RUNS -->
+      <section class="view" id="view-runs">
+        <h1 class="h1">Runs</h1>
+        <p class="sub">Every run in one table — live, queued, finished, failed. No separate “suites”, “legacy results”, or “scaling” silos.</p>
+        <div style="display:flex;gap:8px;margin:16px 0 12px;flex-wrap:wrap;align-items:center">
+          <div class="seg"><button class="on">All</button><button>Running</button><button>Done</button><button>Failed</button></div>
+          <span class="chip">Type: <b>All</b> ▾</span><span class="chip">Dataset: <b>All</b> ▾</span><span class="chip">Last 7 days ▾</span>
+          <span class="chip" style="margin-left:auto">⌕ Search…</span>
+        </div>
+        <div class="card scroll-x"><table class="data">
+          <thead><tr><th>Run</th><th>Experiment</th><th>Type</th><th>Backend</th><th>Dataset</th><th>Status</th><th class="right-td">val_ppl</th><th>Trend</th><th class="right-td">Updated</th></tr></thead>
+          <tbody>
+            <tr class="click" data-go="rundetail"><td class="mono">qrnn-s7</td><td>QRNN vs GRU · seed 42</td><td><span class="tag q">Q</span></td><td class="mono">pennylane</td><td>monitored_ising</td><td><span class="tag good">● running</span></td><td class="right-td num">3.42</td><td><svg class="spark" data-spark="down" width="70" height="20"></svg></td><td class="right-td num">now</td></tr>
+            <tr class="click"><td class="mono">tsq-b2</td><td>Two-stream Q bias · seed 11</td><td><span class="tag q">Q</span></td><td class="mono">tensorcircuit</td><td>contextual</td><td><span class="tag good">● running</span></td><td class="right-td num">5.87</td><td><svg class="spark" data-spark="down2" width="70" height="20"></svg></td><td class="right-td num">now</td></tr>
+            <tr class="click"><td class="mono">tsc-b2</td><td>Two-stream C twin · seed 11</td><td><span class="tag c">C</span></td><td class="mono">—</td><td>contextual</td><td><span class="tag plain">queued</span></td><td class="right-td num">—</td><td></td><td class="right-td num">—</td></tr>
+            <tr class="click"><td class="mono">gru-s7</td><td>GRU twin · seed 42</td><td><span class="tag c">C</span></td><td class="mono">—</td><td>monitored_ising</td><td><span class="tag plain">done</span></td><td class="right-td num">3.61</td><td><svg class="spark" data-spark="down3" width="70" height="20"></svg></td><td class="right-td num">1h</td></tr>
+            <tr class="click"><td class="mono">qffn-t8</td><td>Quantum FFN 4q · seed 23</td><td><span class="tag q">Q</span></td><td class="mono">pennylane</td><td>text8</td><td><span class="tag plain">done</span></td><td class="right-td num">4.98</td><td><svg class="spark" data-spark="flat" width="70" height="20"></svg></td><td class="right-td num">3h</td></tr>
+            <tr class="click"><td class="mono">qattn-c4</td><td>Quantum attention · seed 77</td><td><span class="tag q">Q</span></td><td class="mono">tensorcircuit</td><td>contextual</td><td><span class="tag crit">✕ failed — OOM</span></td><td class="right-td num">—</td><td></td><td class="right-td num">5h</td></tr>
+            <tr class="click"><td class="mono">frz-s7</td><td>Frozen-circuit control · seed 42</td><td><span class="tag plain">CTRL</span></td><td class="mono">pennylane</td><td>monitored_ising</td><td><span class="tag plain">done</span></td><td class="right-td num">3.88</td><td><svg class="spark" data-spark="down3" width="70" height="20"></svg></td><td class="right-td num">2h</td></tr>
+          </tbody>
+        </table></div>
+        <p class="hint" style="margin-top:10px">Row → run workspace. Failed runs keep their logs and are never silently discarded.</p>
+      </section>
+
+      <!-- RUN DETAIL -->
+      <section class="view" id="view-rundetail">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <h1 class="h1 mono" style="font-size:17px">qrnn-s7</h1>
+          <span class="tag q">QUANTUM</span><span class="tag plain">monitored_ising</span><span class="tag plain">seed 42</span>
+          <span class="tag plain">pennylane · 4q · ising ansatz</span><span class="tag good">● step 1,420 / 2,000</span>
+          <span style="margin-left:auto"></span><button class="btn">Cancel</button><button class="btn primary" data-go="verdict">Compare with twin →</button>
+        </div>
+        <div class="kpis" style="margin-top:16px">
+          <div class="kpi"><span class="microlabel">val_ppl</span><div class="v num">3.42</div><div class="s">best 3.39 @ 1,300</div></div>
+          <div class="kpi"><span class="microlabel">vs twin</span><div class="v num" style="color:var(--good)">−5.3%</div><div class="s">at same step</div></div>
+          <div class="kpi"><span class="microlabel">Grad variance</span><div class="v num">1.2e−3</div><div class="s">healthy · &gt; 1e−5</div></div>
+          <div class="kpi"><span class="microlabel">Grad SNR</span><div class="v num">8.4</div><div class="s">param-shift</div></div>
+          <div class="kpi"><span class="microlabel">Expressibility KL</span><div class="v num">0.18</div><div class="s">vs Haar</div></div>
+          <div class="kpi"><span class="microlabel">Entanglement</span><div class="v num">0.61</div><div class="s">Meyer–Wallach</div></div>
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Validation perplexity</h3><div class="legend" style="margin-left:auto"><span><span class="sw" style="background:var(--q)"></span>qrnn-s7</span><span><span class="sw" style="background:var(--c)"></span>gru-s7 twin</span></div></div>
+            <div class="bd chart-wrap"><svg id="chart-ppl" width="100%" height="220" viewBox="0 0 520 220" role="img" aria-label="Validation perplexity versus training step for the quantum run and its classical twin"></svg></div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Gradient variance <span class="hint" style="display:inline">— barren-plateau watch</span></h3></div>
+            <div class="bd chart-wrap"><svg id="chart-grad" width="100%" height="220" viewBox="0 0 520 220" role="img" aria-label="Gradient variance on a log scale with a barren-plateau threshold line"></svg></div>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">Diagnostics (expressibility, gradient variance/SNR, entanglement) come from <span class="mono">quantum/metrics.py</span> — computed today, finally on screen.</p>
+      </section>
+
+      <!-- VERDICT -->
+      <section class="view" id="view-verdict">
+        <div class="banner">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="tag good" style="font-size:12.5px">✦ QUANTUM ADVANTAGE CANDIDATE</span>
+            <span class="tag plain">dimension: sample efficiency</span><span class="tag warn">awaiting human review</span>
+            <span style="margin-left:auto"></span><button class="btn">Reject with note</button><button class="btn primary">Promote to claim ladder…</button>
+          </div>
+          <h1 class="h1" style="margin-top:12px">QRNN reaches ppl ≤ 3.5 in 38% fewer steps than its matched GRU twin</h1>
+          <p class="sub">5 seeds, param-matched 1.02×; frozen-circuit and random-feature controls both trail the candidate. Auto-flagged by the scorer — <b>promotion is yours alone</b> and is logged with your note.</p>
+          <div class="ladder" style="margin-top:12px">
+            <span class="rung hit">untested</span><span class="rung hit">correctness</span><span class="rung hit">diagnostic</span><span class="rung hit">mechanism</span><span class="rung cur">paired empirical</span><span class="rung">scaling</span><span class="rung">hardware</span><span class="rung">practical</span><span class="rung">formal</span>
+          </div>
+        </div>
+        <div class="grid32" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Perplexity vs steps · 5 seeds, band = min–max</h3><div class="legend" style="margin-left:auto"><span><span class="sw" style="background:var(--q)"></span>QRNN</span><span><span class="sw" style="background:var(--c)"></span>GRU twin</span></div></div>
+            <div class="bd chart-wrap"><svg id="chart-verdict" width="100%" height="260" viewBox="0 0 640 260" role="img" aria-label="Perplexity versus steps for quantum and classical arms with per-seed bands"></svg><div class="tooltip" id="tt-verdict"></div></div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Advantage scorecard</h3><span class="hint">every dimension</span></div>
+            <div class="bd scroll-x" style="padding:4px 16px 8px"><table class="data">
+              <thead><tr><th>Dimension</th><th class="right-td" style="color:var(--q)">Quantum</th><th class="right-td" style="color:var(--c)">Classical</th><th class="right-td">Δ</th></tr></thead>
+              <tbody>
+                <tr><td>Steps to ppl ≤ 3.5</td><td class="right-td num win-mark">1,240</td><td class="right-td num">2,010</td><td class="right-td"><span class="delta q">Q −38%</span></td></tr>
+                <tr><td>Final val_ppl</td><td class="right-td num win-mark">3.39</td><td class="right-td num">3.55</td><td class="right-td"><span class="delta q">Q −4.5%</span></td></tr>
+                <tr><td>Accuracy @ 500</td><td class="right-td num win-mark">.71</td><td class="right-td num">.62</td><td class="right-td"><span class="delta q">Q +14%</span></td></tr>
+                <tr><td>Wall-clock</td><td class="right-td num">14.2 m</td><td class="right-td num win-mark">3.8 m</td><td class="right-td"><span class="delta c">C 3.7×</span></td></tr>
+                <tr><td>Inference latency</td><td class="right-td num">41 ms</td><td class="right-td num win-mark">2 ms</td><td class="right-td"><span class="delta c">C 20×</span></td></tr>
+                <tr><td>Parameters</td><td class="right-td num">18.1k</td><td class="right-td num">18.4k</td><td class="right-td"><span class="delta tie">matched</span></td></tr>
+                <tr><td>Q→C weight transfer</td><td class="right-td num" colspan="2" style="text-align:center;color:var(--muted)">not yet run</td><td class="right-td"><button class="btn sm" data-go="bench">Queue</button></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <div class="card">
+            <div class="hd"><h3>Fairness &amp; controls</h3><span class="tag good">all pass</span></div>
+            <div class="bd" style="padding-top:8px">
+              <div class="check"><span class="ok">✓</span>Param-matched 1.02× · identical data, steps, eval schedule</div>
+              <div class="check"><span class="ok">✓</span>Frozen-circuit control trails by 0.46 ppl → the circuit is learning</div>
+              <div class="check"><span class="ok">✓</span>Random-feature control trails by 0.31 ppl → not a random-kitchen-sink effect</div>
+              <div class="check"><span class="ok">✓</span>Effect holds in 5/5 seeds · min gap 0.09 ppl</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h3>Honest caveats — auto-generated</h3></div>
+            <div class="bd" style="font-size:13px;color:var(--ink2)">
+              <p style="margin:0 0 8px">• Simulator timings only; <b>not</b> a QPU cost claim.</p>
+              <p style="margin:0 0 8px">• Single task instance — replication status <span class="mono">multi_seed_single_instance</span>.</p>
+              <p style="margin:0 0 8px">• Wall-clock and inference favor classical; the claim is <b>sample efficiency only</b>.</p>
+              <p style="margin:0">• Scaling unproven — <a href="#" data-go="scaling">run the qubit sweep</a> before promoting past “paired empirical”.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCALING / BARREN PLATEAU -->
+      <section class="view" id="view-scaling">
+        <h1 class="h1">Barren-plateau scaling</h1>
+        <p class="sub">Does the trainable signal survive as you add qubits? Gradient variance is fit to an exponential decay across width — the question that decides whether any advantage survives scaling. From <span class="mono">gradient_variance_scaling_fit</span>.</p>
+        <div class="kpis" style="margin-top:16px">
+          <div class="kpi"><span class="microlabel">Decay rate</span><div class="v num">−0.34 / qubit</div><div class="s">reuploading ansatz</div></div>
+          <div class="kpi"><span class="microlabel">Plateau onset</span><div class="v num">~14 qubits</div><div class="s">extrapolated to 1e−5</div></div>
+          <div class="kpi"><span class="microlabel">Fit R²</span><div class="v num">0.97</div><div class="s">4→10 qubits measured</div></div>
+          <div class="kpi"><span class="microlabel">Verdict</span><div class="v" style="color:var(--warn);font-size:16px">trainable to ~12q</div><div class="s">then signal collapses</div></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="hd"><h3>Gradient variance vs qubit count</h3>
+            <div class="legend" style="margin-left:auto"><span><span class="sw" style="background:var(--q)"></span>reuploading</span><span><span class="sw" style="background:var(--c)"></span>hardware_efficient</span></div>
+          </div>
+          <div class="bd chart-wrap"><svg id="chart-scaling" width="100%" height="300" viewBox="0 0 720 300" role="img" aria-label="Gradient variance on a log scale versus qubit count, fitted decay for two ansatze with barren-plateau threshold"></svg><div class="tooltip" id="tt-scaling"></div></div>
+        </div>
+        <p class="hint" style="margin-top:10px">Solid = measured (4–10 qubits) · dashed = extrapolated fit · red band = below trainable threshold. Hardware-efficient plateaus earlier than reuploading — a mechanism result worth its own verdict.</p>
+      </section>
+
+      <!-- ATLAS -->
+      <section class="view" id="view-atlas">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 class="h1">Atlas — the map of quantum vs classical ML</h1>
+            <p class="sub">The public face. Classical ML as the base map, quantum overlaid. Click a domain to expand its pipeline; each component shows who wins. Rendered from <span class="mono">RESEARCH_MAP.yaml</span> + the verdict database — honest by construction.</p>
+          </div>
+          <span style="margin-left:auto"></span>
+          <div class="seg"><button class="on">Graph</button><button>List</button></div>
+        </div>
+        <div class="atlas-shell">
+          <div class="atlas-canvas">
+            <div class="atlas-toolbar">
+              <button class="iconbtn" id="atlas-reset">⟲ Collapse all</button>
+              <select class="mini" id="atlas-filter"><option>All outcomes</option><option>Quantum wins / candidates</option><option>Classical holds</option><option>Open / unexplored</option></select>
+            </div>
+            <svg id="atlas-svg" viewBox="0 0 720 520" role="img" aria-label="Interactive graph of ML domains, their pipeline components, and quantum-versus-classical outcomes"></svg>
+            <div class="atlas-legend">
+              <span class="tag good">✦ Q candidate</span><span class="tag q">Q-only paradigm</span><span class="tag c">C holds</span><span class="tag warn">open</span><span class="tag" style="background:var(--accent-soft);color:var(--accent)">◆ suggested</span><span class="tag plain">unexplored</span>
+            </div>
+          </div>
+          <div class="atlas-side">
+            <div class="card" id="atlas-detail">
+              <div class="hd"><h3 id="ad-title">Select a node</h3></div>
+              <div class="bd" id="ad-body"><div class="empty">Click any node in the graph to see its head-to-head evidence, or expand a domain to reveal its pipeline components.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DATASETS -->
+      <section class="view" id="view-datasets">
+        <h1 class="h1">Datasets</h1>
+        <p class="sub">Built-in synthetic quantum-native tasks + HuggingFace import. One table, per-dataset provenance and “which experiments used this”.</p>
+        <div class="card" style="margin-top:16px"><div class="bd scroll-x" style="padding:4px 16px 8px"><table class="data">
+          <thead><tr><th>Dataset</th><th>Kind</th><th>Why it exists</th><th class="right-td">Used by</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">monitored_ising</td><td><span class="tag q">quantum-native</span></td><td>dynamics only a monitored quantum chain produces</td><td class="right-td num">14 runs</td></tr>
+            <tr><td class="mono">contextual</td><td><span class="tag q">quantum-native</span></td><td>contextuality — no classical hidden-variable shortcut</td><td class="right-td num">9 runs</td></tr>
+            <tr><td class="mono">interference</td><td><span class="tag q">quantum-native</span></td><td>sequence cancellation via amplitude interference</td><td class="right-td num">6 runs</td></tr>
+            <tr><td class="mono">text8</td><td><span class="tag plain">text</span></td><td>classical language baseline</td><td class="right-td num">22 runs</td></tr>
+          </tbody>
+        </table></div></div>
+      </section>
+
+      <!-- SYSTEM -->
+      <section class="view" id="view-system">
+        <h1 class="h1">Queue &amp; Backends</h1>
+        <p class="sub">The worker, quantum backends, device readiness, reservations. GPU/QPU runs stay human-gated — the queue asks, never assumes.</p>
+        <div class="kpis" style="margin-top:16px">
+          <div class="kpi"><span class="microlabel">Worker</span><div class="v" style="font-size:16px">CPU · active</div><div class="s">single in-process</div></div>
+          <div class="kpi"><span class="microlabel">GPU</span><div class="v" style="font-size:16px">idle · gated</div><div class="s">JAX + CUDA ready</div></div>
+          <div class="kpi"><span class="microlabel">Queue depth</span><div class="v num">5</div><div class="s">~41 min est.</div></div>
+          <div class="kpi"><span class="microlabel">Runs recorded</span><div class="v num">312</div><div class="s">SQLite · 1.2 GB</div></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="hd"><h3>Quantum backends</h3></div>
+          <div class="bd scroll-x" style="padding:4px 16px 8px"><table class="data">
+            <thead><tr><th>Backend</th><th>Method</th><th>Max qubits (practical)</th><th>Device</th><th class="right-td">Status</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">pennylane</td><td>dense statevector</td><td class="num">~16</td><td>cpu / gpu</td><td class="right-td"><span class="tag good">ready</span></td></tr>
+              <tr><td class="mono">tensorcircuit</td><td>dense statevector</td><td class="num">~20</td><td>cpu / gpu</td><td class="right-td"><span class="tag good">ready</span></td></tr>
+              <tr><td class="mono">tensorcircuit_mps</td><td>matrix-product state · bond 16</td><td class="num">~40 (low entangle.)</td><td>mps</td><td class="right-td"><span class="tag warn">gated</span></td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const titles={overview:'Overview',discover:'Discover',library:'Library',designer:'Designer',bench:'Bench',runs:'Runs',rundetail:'Runs / qrnn-s7',verdict:'Verdicts / QRNN vs GRU',scaling:'Scaling / barren plateau',atlas:'Atlas',datasets:'Datasets',system:'Queue & Backends'};
+function go(v){
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='view-'+v));
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.nav===v||(v==='rundetail'&&b.dataset.nav==='runs')||(v==='scaling'&&b.dataset.nav==='runs')));
+  document.getElementById('crumb').innerHTML=titles[v].replace(' / ',' <span class="sep">/</span> ');
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
+document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();go(el.dataset.go);}));
+document.getElementById('themeToggle').addEventListener('click',()=>{
+  const r=document.documentElement;
+  const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme=dark?'light':'dark';
+});
+
+/* curves */
+function curve(n,a,b,tau,wob,ph){const p=[];for(let i=0;i<=n;i++){const t=i/n;p.push(a+b*Math.exp(-t*tau)+wob*Math.sin(t*19+ph)*(1-t*.6));}return p;}
+function path(p,x0,x1,y0,y1,vmin,vmax){return p.map((v,i)=>{const x=x0+(x1-x0)*i/(p.length-1);const y=y1-(y1-y0)*((v-vmin)/(vmax-vmin));return(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);}).join(' ');}
+const sparks={down:curve(24,3.4,2.4,3,.05,1),down2:curve(24,5.8,3.2,2.2,.08,4),down3:curve(24,3.6,2.2,2.6,.05,2),flat:curve(24,4.9,.6,1.2,.06,3)};
+document.querySelectorAll('.spark').forEach(svg=>{const p=sparks[svg.dataset.spark];if(!p)return;const vmin=Math.min(...p),vmax=Math.max(...p);svg.setAttribute('viewBox','0 0 70 20');
+  svg.innerHTML='<path d="'+path(p,2,68,3,17,vmin,vmax)+'" fill="none" stroke="var(--ink2)" stroke-width="1.5" stroke-linecap="round"/><circle cx="68" cy="'+(17-14*((p[p.length-1]-vmin)/(vmax-vmin))).toFixed(1)+'" r="2.2" fill="var(--accent)"/>';});
+
+/* ppl chart */
+(function(){const svg=document.getElementById('chart-ppl');if(!svg)return;const W=520,H=220,L=44,R=14,T=14,B=30;
+  const q=curve(40,3.35,3.1,3.4,.06,1),c=curve(40,3.55,3,2.6,.06,5),vmin=3.2,vmax=6.8;let g='';
+  [3.5,4.5,5.5,6.5].forEach(v=>{const y=(H-B)-((H-B-T))*((v-vmin)/(vmax-vmin));g+='<line x1="'+L+'" y1="'+y+'" x2="'+(W-R)+'" y2="'+y+'" class="gridline"/><text x="'+(L-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10.5">'+v.toFixed(1)+'</text>';});
+  [0,500,1000,1500,2000].forEach((s,i)=>{g+='<text x="'+(L+(W-R-L)*i/4)+'" y="'+(H-10)+'" text-anchor="middle" font-size="10.5">'+(s?s/1000+'k':'0')+'</text>';});
+  g+='<line x1="'+L+'" y1="'+(H-B)+'" x2="'+(W-R)+'" y2="'+(H-B)+'" class="axisline"/>';
+  g+='<path d="'+path(c,L,W-R,T,H-B,vmin,vmax)+'" fill="none" class="s-c" stroke-width="2" stroke-linecap="round"/><path d="'+path(q,L,W-R,T,H-B,vmin,vmax)+'" fill="none" class="s-q" stroke-width="2" stroke-linecap="round"/>';
+  const qe=(H-B)-((H-B-T))*((q[40]-vmin)/(vmax-vmin)),ce=(H-B)-((H-B-T))*((c[40]-vmin)/(vmax-vmin));
+  g+='<circle cx="'+(W-R)+'" cy="'+qe+'" r="3.5" class="f-q"/><circle cx="'+(W-R)+'" cy="'+ce+'" r="3.5" class="f-c"/>';
+  g+='<text x="'+(W-R-6)+'" y="'+(qe-8)+'" text-anchor="end" font-size="10.5" style="fill:var(--q);font-weight:600">3.42</text><text x="'+(W-R-6)+'" y="'+(ce+16)+'" text-anchor="end" font-size="10.5" style="fill:var(--c);font-weight:600">3.61</text>';
+  svg.innerHTML=g;})();
+
+/* grad chart */
+(function(){const svg=document.getElementById('chart-grad');if(!svg)return;const W=520,H=220,L=48,R=14,T=14,B=30;
+  const pts=[];for(let i=0;i<=40;i++){const t=i/40;pts.push(-2-.9*t+.14*Math.sin(t*23+2));}const vmin=-5.2,vmax=-1.6,Y=v=>(H-B)-((H-B-T))*((v-vmin)/(vmax-vmin));let g='';
+  g+='<rect x="'+L+'" y="'+Y(-5)+'" width="'+(W-R-L)+'" height="'+((H-B)-Y(-5))+'" fill="var(--crit)" opacity="0.07"/>';
+  g+='<line x1="'+L+'" y1="'+Y(-5)+'" x2="'+(W-R)+'" y2="'+Y(-5)+'" stroke="var(--crit)" stroke-width="1" stroke-dasharray="4 4" opacity=".6"/><text x="'+(W-R-4)+'" y="'+(Y(-5)-6)+'" text-anchor="end" font-size="10" style="fill:var(--crit)">barren-plateau threshold 1e−5</text>';
+  [-2,-3,-4,-5].forEach(v=>{g+='<line x1="'+L+'" y1="'+Y(v)+'" x2="'+(W-R)+'" y2="'+Y(v)+'" class="gridline"/><text x="'+(L-8)+'" y="'+(Y(v)+4)+'" text-anchor="end" font-size="10.5">1e'+v+'</text>';});
+  g+='<line x1="'+L+'" y1="'+(H-B)+'" x2="'+(W-R)+'" y2="'+(H-B)+'" class="axisline"/>';
+  [0,500,1000,1500,2000].forEach((s,i)=>{g+='<text x="'+(L+(W-R-L)*i/4)+'" y="'+(H-10)+'" text-anchor="middle" font-size="10.5">'+(s?s/1000+'k':'0')+'</text>';});
+  g+='<path d="'+pts.map((v,i)=>{const x=L+(W-R-L)*i/40;return(i?'L':'M')+x.toFixed(1)+' '+Y(v).toFixed(1);}).join(' ')+'" fill="none" class="s-q" stroke-width="2" stroke-linecap="round"/><circle cx="'+(W-R)+'" cy="'+Y(pts[40])+'" r="3.5" class="f-q"/><text x="'+(W-R-6)+'" y="'+(Y(pts[40])-8)+'" text-anchor="end" font-size="10.5" style="fill:var(--q);font-weight:600">1.2e−3</text>';
+  svg.innerHTML=g;})();
+
+/* verdict chart */
+(function(){const svg=document.getElementById('chart-verdict');if(!svg)return;const W=640,H=260,L=44,R=16,T=16,B=32,N=40,vmin=3.1,vmax=7;
+  const qm=curve(N,3.35,3.2,3.6,.04,1),cm=curve(N,3.5,3.1,2.3,.04,5);
+  const band=(m,w)=>({lo:m.map((v,i)=>v-w*(.4+.6*Math.abs(Math.sin(i*1.7)))),hi:m.map((v,i)=>v+w*(.4+.6*Math.abs(Math.sin(i*2.3))))});
+  const qb=band(qm,.16),cb=band(cm,.18),X=i=>L+(W-R-L)*i/N,Y=v=>(H-B)-((H-B-T))*((v-vmin)/(vmax-vmin));
+  const area=b=>{let d=b.hi.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');for(let i=N;i>=0;i--)d+=' L'+X(i).toFixed(1)+' '+Y(b.lo[i]).toFixed(1);return d+' Z';};let g='';
+  [3.5,4.5,5.5,6.5].forEach(v=>{g+='<line x1="'+L+'" y1="'+Y(v)+'" x2="'+(W-R)+'" y2="'+Y(v)+'" class="gridline"/><text x="'+(L-8)+'" y="'+(Y(v)+4)+'" text-anchor="end" font-size="10.5">'+v.toFixed(1)+'</text>';});
+  g+='<line x1="'+L+'" y1="'+Y(3.5)+'" x2="'+(W-R)+'" y2="'+Y(3.5)+'" stroke="var(--ink2)" stroke-dasharray="4 4" stroke-width="1" opacity=".5"/><text x="'+(L+6)+'" y="'+(Y(3.5)-6)+'" font-size="10" style="fill:var(--ink2)">threshold ppl 3.5</text>';
+  g+='<line x1="'+L+'" y1="'+(H-B)+'" x2="'+(W-R)+'" y2="'+(H-B)+'" class="axisline"/>';
+  [0,500,1000,1500,2000].forEach((s,i)=>{g+='<text x="'+(L+(W-R-L)*i/4)+'" y="'+(H-12)+'" text-anchor="middle" font-size="10.5">'+(s?s/1000+'k':'0')+'</text>';});
+  g+='<path d="'+area(cb)+'" class="band-c"/><path d="'+area(qb)+'" class="band-q"/>';
+  g+='<path d="'+cm.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ')+'" fill="none" class="s-c" stroke-width="2.2" stroke-linecap="round"/><path d="'+qm.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ')+'" fill="none" class="s-q" stroke-width="2.2" stroke-linecap="round"/>';
+  const hit=m=>{for(let i=0;i<=N;i++)if(m[i]<=3.5)return i;return N;};const qi=hit(qm),ci=hit(cm);
+  g+='<circle cx="'+X(qi)+'" cy="'+Y(3.5)+'" r="4.5" class="f-q" stroke="var(--surface)" stroke-width="2"/><circle cx="'+X(ci)+'" cy="'+Y(3.5)+'" r="4.5" class="f-c" stroke="var(--surface)" stroke-width="2"/>';
+  g+='<text x="'+X(qi)+'" y="'+(Y(3.5)+20)+'" text-anchor="middle" font-size="10.5" style="fill:var(--q);font-weight:600">'+Math.round(2000*qi/N)+'</text><text x="'+X(ci)+'" y="'+(Y(3.5)+20)+'" text-anchor="middle" font-size="10.5" style="fill:var(--c);font-weight:600">'+Math.round(2000*ci/N)+'</text>';
+  g+='<line id="xh" x1="0" y1="'+T+'" x2="0" y2="'+(H-B)+'" stroke="var(--ink2)" stroke-width="1" opacity="0"/>';svg.innerHTML=g;
+  const tt=document.getElementById('tt-verdict'),xh=svg.querySelector('#xh');
+  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)*(W/r.width);if(sx<L||sx>W-R){tt.style.display='none';xh.style.opacity=0;return;}
+    const i=Math.round((sx-L)/(W-R-L)*N);xh.setAttribute('x1',X(i));xh.setAttribute('x2',X(i));xh.style.opacity=.4;tt.style.display='block';
+    tt.innerHTML='<b>step '+Math.round(2000*i/N)+'</b><br><span style="color:var(--q)">■</span> QRNN '+qm[i].toFixed(2)+'<br><span style="color:var(--c)">■</span> GRU '+cm[i].toFixed(2);
+    const wr=svg.parentElement.getBoundingClientRect();tt.style.left=Math.min(e.clientX-wr.left+14,wr.width-140)+'px';tt.style.top=(e.clientY-wr.top-10)+'px';});
+  svg.addEventListener('mouseleave',()=>{tt.style.display='none';xh.style.opacity=0;});})();
+
+/* scaling chart — grad variance vs qubit count, log y */
+(function(){const svg=document.getElementById('chart-scaling');if(!svg)return;const W=720,H=300,L=52,R=90,T=18,B=38;
+  const qubits=[4,5,6,7,8,9,10,11,12,13,14,16];const meas=6; // first 6 measured
+  const reup=qubits.map(q=>-1.2-0.34*(q-4));const hweff=qubits.map(q=>-1.0-0.52*(q-4));
+  const vmin=-6.2,vmax=-1,X=q=>L+(W-R-L)*(q-4)/(16-4),Y=v=>(H-B)-((H-B-T))*((Math.max(v,vmin)-vmin)/(vmax-vmin));let g='';
+  g+='<rect x="'+L+'" y="'+Y(-5)+'" width="'+(W-R-L)+'" height="'+((H-B)-Y(-5))+'" fill="var(--crit)" opacity="0.07"/>';
+  g+='<line x1="'+L+'" y1="'+Y(-5)+'" x2="'+(W-R)+'" y2="'+Y(-5)+'" stroke="var(--crit)" stroke-dasharray="4 4" stroke-width="1" opacity=".6"/><text x="'+(W-R-4)+'" y="'+(Y(-5)-6)+'" text-anchor="end" font-size="10.5" style="fill:var(--crit)">trainable threshold 1e−5</text>';
+  [-1,-2,-3,-4,-5,-6].forEach(v=>{g+='<line x1="'+L+'" y1="'+Y(v)+'" x2="'+(W-R)+'" y2="'+Y(v)+'" class="gridline"/><text x="'+(L-8)+'" y="'+(Y(v)+4)+'" text-anchor="end" font-size="10.5">1e'+v+'</text>';});
+  g+='<line x1="'+L+'" y1="'+(H-B)+'" x2="'+(W-R)+'" y2="'+(H-B)+'" class="axisline"/>';
+  qubits.forEach(q=>{g+='<text x="'+X(q)+'" y="'+(H-14)+'" text-anchor="middle" font-size="10.5">'+q+'</text>';});
+  g+='<text x="'+((L+W-R)/2)+'" y="'+(H-1)+'" text-anchor="middle" font-size="10.5">qubits</text>';
+  function draw(vals,cls){
+    const solid=vals.slice(0,meas),sd=solid.map((v,i)=>(i?'L':'M')+X(qubits[i]).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+    const dd=vals.slice(meas-1).map((v,i)=>(i?'L':'M')+X(qubits[meas-1+i]).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+    let s='<path d="'+sd+'" fill="none" class="'+cls+'" stroke-width="2.4" stroke-linecap="round"/>';
+    s+='<path d="'+dd+'" fill="none" class="'+cls+'" stroke-width="2" stroke-dasharray="5 5" opacity=".75"/>';
+    solid.forEach((v,i)=>{s+='<circle cx="'+X(qubits[i])+'" cy="'+Y(v)+'" r="3.4" class="'+cls.replace('s-','f-')+'"/>';});
+    return s;
+  }
+  g+=draw(hweff,'s-c');g+=draw(reup,'s-q');
+  // onset marker where reup crosses -5
+  let onset=16;for(let i=0;i<qubits.length;i++){if(reup[i]<=-5){onset=qubits[i];break;}}
+  g+='<line x1="'+X(onset)+'" y1="'+T+'" x2="'+X(onset)+'" y2="'+(H-B)+'" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="3 3" opacity=".8"/>';
+  g+='<text x="'+(X(onset)+5)+'" y="'+(T+12)+'" font-size="10.5" style="fill:var(--warn);font-weight:600">reuploading onset ~'+onset+'q</text>';
+  g+='<text x="'+X(6)+'" y="'+(Y(reup[2])-12)+'" font-size="10.5" style="fill:var(--q);font-weight:600">reuploading</text>';
+  g+='<text x="'+X(6)+'" y="'+(Y(hweff[2])+18)+'" font-size="10.5" style="fill:var(--c);font-weight:600">hardware_efficient</text>';
+  svg.innerHTML=g;})();
+
+/* ===== ATLAS interactive graph ===== */
+(function(){
+  const svg=document.getElementById('atlas-svg');if(!svg)return;
+  const NS='http://www.w3.org/2000/svg';
+  // data model: domains -> components -> outcome
+  const outcomes={ candidate:{fill:'var(--good-soft)',stroke:'var(--good)',text:'var(--good)',label:'✦ Quantum candidate'},
+    qonly:{fill:'var(--q-soft)',stroke:'var(--q)',text:'var(--q)',label:'Quantum-only paradigm'},
+    chold:{fill:'var(--c-soft)',stroke:'var(--c)',text:'var(--c)',label:'Classical holds'},
+    open:{fill:'var(--warn-soft)',stroke:'var(--warn)',text:'var(--warn)',label:'Open question'},
+    suggested:{fill:'var(--accent-soft)',stroke:'var(--accent)',text:'var(--accent)',label:'◆ Suggested by literature'},
+    unexplored:{fill:'var(--surface2)',stroke:'var(--axis)',text:'var(--muted)',label:'Unexplored'} };
+  const domains=[
+    {id:'llm',label:'LLMs',kids:[
+      {id:'attn',label:'Attention',out:'chold',ev:'Quantum QKV projection tied 3/3 seeds vs matched control on text8. No sample-efficiency edge.',rung:'diagnostic'},
+      {id:'ffn',label:'FFN',out:'chold',ev:'Quantum FFN 4q underperforms classical-small by 0.9 ppl at matched params.',rung:'diagnostic'},
+      {id:'embed',label:'Embedding',out:'open',ev:'Amplitude-encoded embeddings untested at scale; one probe inconclusive.',rung:'untested'},
+      {id:'tstream',label:'Two-stream ⊗',out:'candidate',ev:'Quantum encoder reaches threshold in 38% fewer steps, 5/5 seeds, controls trail. Awaiting review.',rung:'paired_empirical'}
+    ]},
+    {id:'seq',label:'Sequence models',kids:[
+      {id:'qrnn',label:'QRNN cell',out:'candidate',ev:'QRNN vs GRU sample-efficiency candidate on monitored_ising. Same effect powering the LLM two-stream node.',rung:'paired_empirical'},
+      {id:'reup',label:'Reuploading ⌁',out:'suggested',ev:'Proposed by the copilot from Larocca 2025: test whether the QRNN edge survives near the barren-plateau onset (8–12 qubits). Top of the idea queue, promise 0.86.',rung:'untested'},
+      {id:'mem',label:'Quantum memory',out:'qonly',ev:'Coherent recurrent memory has no direct classical analogue — quantum-only branch.',rung:'mechanism'}
+    ]},
+    {id:'qnative',label:'Quantum-only paradigms',kids:[
+      {id:'context',label:'Contextuality features',out:'qonly',ev:'Tasks with no classical hidden-variable model. Advantage is definitional, not comparative.',rung:'mechanism'},
+      {id:'interf',label:'Interference readout',out:'open',ev:'Amplitude-interference sequence cancellation; mechanism shown, end-to-end open.',rung:'mechanism'}
+    ]},
+    {id:'rl',label:'Reinforcement learning',kids:[
+      {id:'qpolicy',label:'Quantum policy',out:'unexplored',ev:'No runs yet. Proposed greenfield area from RESEARCH_MAP.',rung:'untested'}
+    ]}
+  ];
+  const expanded=new Set();
+  let filter='all';
+  const rootY=60, domainY=170, leafGapY=86;
+  function node(x,y,w,h,o,label,cls,onClick,dim){
+    const g=document.createElementNS(NS,'g');g.setAttribute('class','nodebox');g.setAttribute('transform','translate('+x+','+y+')');
+    const rect=document.createElementNS(NS,'rect');rect.setAttribute('width',w);rect.setAttribute('height',h);rect.setAttribute('rx',9);
+    rect.setAttribute('fill',o.fill);rect.setAttribute('stroke',o.stroke);rect.setAttribute('stroke-width','1.5');
+    if(dim)rect.setAttribute('opacity','.32');g.appendChild(rect);
+    const t=document.createElementNS(NS,'text');t.setAttribute('x',w/2);t.setAttribute('y',h/2-2);t.setAttribute('text-anchor','middle');
+    t.setAttribute('font-size','12.5');t.setAttribute('font-weight','600');t.setAttribute('style','fill:'+o.text);t.textContent=label;
+    if(dim)t.setAttribute('opacity','.4');g.appendChild(t);
+    if(cls==='domain'){const c=document.createElementNS(NS,'text');c.setAttribute('x',w-14);c.setAttribute('y',h/2+4);c.setAttribute('font-size','12');c.setAttribute('style','fill:'+o.text);c.textContent=expanded.has(label)?'−':'+';g.appendChild(c);}
+    g.style.cursor='pointer';g.addEventListener('click',onClick);
+    return g;
+  }
+  function edge(x1,y1,x2,y2,dim){const p=document.createElementNS(NS,'path');
+    p.setAttribute('d','M'+x1+' '+y1+' C '+x1+' '+((y1+y2)/2)+' '+x2+' '+((y1+y2)/2)+' '+x2+' '+y2);
+    p.setAttribute('fill','none');p.setAttribute('stroke','var(--axis)');p.setAttribute('stroke-width','1.4');if(dim)p.setAttribute('opacity','.2');return p;}
+  function matches(out){if(filter==='all')return true;if(filter==='q')return out==='candidate'||out==='qonly';if(filter==='c')return out==='chold';if(filter==='open')return out==='open'||out==='unexplored';return true;}
+  function render(){
+    while(svg.firstChild)svg.removeChild(svg.firstChild);
+    const W=720;const dw=150,dh=40,root={x:W/2-70,y:rootY,w:140,h:38};
+    // root
+    const ro={fill:'var(--accent-soft)',stroke:'var(--accent)',text:'var(--accent)'};
+    // domain layout
+    const n=domains.length,span=W-80,step=span/n;
+    const dpos=domains.map((d,i)=>({d,x:40+step*i+step/2-dw/2,y:domainY}));
+    // edges root->domain
+    dpos.forEach(p=>svg.appendChild(edge(root.x+root.w/2,root.y+root.h,p.x+dw/2,p.y)));
+    // domain nodes + expanded leaves
+    dpos.forEach(p=>{
+      const anyMatch=p.d.kids.some(k=>matches(k.out));
+      const dim=filter!=='all'&&!anyMatch;
+      // leaves
+      if(expanded.has(p.d.label)){
+        const kids=p.d.kids,lw=138,lh=38;const totalH=kids.length*leafGapY;
+        kids.forEach((k,j)=>{
+          const lx=p.x+dw/2-lw/2, ly=p.y+dh+34+j*leafGapY;
+          const kdim=filter!=='all'&&!matches(k.out);
+          svg.appendChild(edge(p.x+dw/2,p.y+dh,lx+lw/2,ly,kdim));
+          const o=outcomes[k.out];
+          svg.appendChild(node(lx,ly,lw,lh,o,k.label,'leaf',()=>select(k,p.d),kdim));
+        });
+      }
+      svg.appendChild(node(p.x,p.y,dw,dh,{fill:'var(--surface2)',stroke:'var(--accent)',text:'var(--ink)'},p.d.label,'domain',()=>{
+        if(expanded.has(p.d.label))expanded.delete(p.d.label);else expanded.add(p.d.label);render();
+      },dim));
+    });
+    // root last (on top)
+    svg.appendChild(node(root.x,root.y,root.w,root.h,ro,'Machine learning','root',()=>{expanded.clear();render();selectClear();}));
+    // expand viewport height if needed
+    let maxY=domainY+dh+40;dpos.forEach(p=>{if(expanded.has(p.d.label))maxY=Math.max(maxY,p.y+dh+34+p.d.kids.length*leafGapY);});
+    svg.setAttribute('viewBox','0 0 720 '+Math.max(520,maxY+20));
+  }
+  function select(k,dom){
+    const o=outcomes[k.out];
+    document.getElementById('ad-title').textContent=k.label;
+    document.getElementById('ad-body').innerHTML=
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"><span class="tag" style="background:'+o.fill+';color:'+o.text+'">'+o.label+'</span><span class="tag plain">'+dom.label+'</span></div>'+
+      '<p style="margin:0 0 14px;font-size:13px;color:var(--ink2);line-height:1.5">'+k.ev+'</p>'+
+      '<div class="metric-row"><span class="microlabel">Claim level</span><b>'+k.rung+'</b></div>'+
+      '<div class="metric-row"><span class="microlabel">Pipeline stage</span><b>'+dom.label+'</b></div>'+
+      (k.out==='candidate'?'<button class="btn primary" style="margin-top:14px;width:100%">Open verdict →</button>':
+       k.out==='suggested'?'<button class="btn primary" style="margin-top:14px;width:100%">Send to Bench →</button><button class="btn" style="margin-top:8px;width:100%">Discuss in Discover</button>':
+       k.out==='unexplored'?'<button class="btn" style="margin-top:14px;width:100%">Send to Bench →</button>':
+       '<button class="btn" style="margin-top:14px;width:100%">View evidence →</button>');
+  }
+  function selectClear(){document.getElementById('ad-title').textContent='Select a node';document.getElementById('ad-body').innerHTML='<div class="empty">Click any node in the graph to see its head-to-head evidence, or expand a domain to reveal its pipeline components.</div>';}
+  document.getElementById('atlas-reset').addEventListener('click',()=>{expanded.clear();render();selectClear();});
+  document.getElementById('atlas-filter').addEventListener('change',e=>{
+    const v=e.target.value;filter=v.startsWith('Quantum')?'q':v.startsWith('Classical')?'c':v.startsWith('Open')?'open':'all';render();
+  });
+  // seed with one domain open so it's inviting
+  expanded.add('LLMs');render();
+})();
+
+/* ===== Copilot chat echo ===== */
+(function(){
+  const input=document.getElementById('chat-input'),send=document.getElementById('chat-send'),stream=document.getElementById('chat-stream');
+  if(!input)return;
+  const canned="Good question. Grounded in the vault, the closest evidence is the QRNN sample-efficiency thread — I'd frame a paired test and add a second dataset instance so the result isn't task-specific. Want me to draft it in the Bench?";
+  function push(text,cls,extra){const d=document.createElement('div');d.className='msg '+cls;d.innerHTML=text+(extra||'');stream.appendChild(d);stream.scrollTop=stream.scrollHeight;return d;}
+  function submit(){const v=input.value.trim();if(!v)return;push(v,'me');input.value='';
+    setTimeout(()=>push(canned,'ai','<button class="ideabtn" onclick="go(\'bench\')">Draft this in the Bench →</button>'),240);}
+  send.addEventListener('click',submit);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+})();
+
+/* ===== Knowledge graph (papers ↔ concepts ↔ our work) ===== */
+(function(){
+  const svg=document.getElementById('kgraph-svg');if(!svg)return;const NS='http://www.w3.org/2000/svg';
+  const nodes=[
+    {x:60,y:50,r:8,t:'paper',lab:'Larocca'},{x:60,y:120,r:8,t:'paper',lab:'Schuld'},{x:60,y:195,r:8,t:'paper',lab:'Cerezo'},
+    {x:155,y:70,r:11,t:'concept',lab:'barren\nplateau'},{x:155,y:165,r:11,t:'concept',lab:'random\nfeatures'},
+    {x:250,y:55,r:9,t:'exp',lab:'reup'},{x:250,y:120,r:9,t:'exp',lab:'QRNN'},{x:250,y:190,r:9,t:'atlas',lab:'Atlas'}
+  ];
+  const edges=[[0,3],[2,3],[1,4],[3,5],[3,6],[4,6],[5,7],[6,7]];
+  const col=t=>t==='paper'?'var(--c)':t==='concept'?'var(--accent)':t==='atlas'?'var(--good)':'var(--q)';
+  let g='';
+  edges.forEach(([a,b])=>{g+='<line x1="'+nodes[a].x+'" y1="'+nodes[a].y+'" x2="'+nodes[b].x+'" y2="'+nodes[b].y+'" stroke="var(--axis)" stroke-width="1.2" opacity=".6"/>';});
+  nodes.forEach(n=>{g+='<circle cx="'+n.x+'" cy="'+n.y+'" r="'+n.r+'" fill="'+col(n.t)+'" opacity=".9"/>';
+    const lines=n.lab.split('\n');lines.forEach((ln,i)=>{g+='<text x="'+n.x+'" y="'+(n.y+n.r+11+i*10)+'" text-anchor="middle" font-size="9.5" style="fill:var(--ink2)">'+ln+'</text>';});});
+  g+='<text x="60" y="222" text-anchor="middle" font-size="9" style="fill:var(--muted)">papers</text>';
+  g+='<text x="155" y="222" text-anchor="middle" font-size="9" style="fill:var(--muted)">concepts</text>';
+  g+='<text x="250" y="222" text-anchor="middle" font-size="9" style="fill:var(--muted)">our work</text>';
+  svg.innerHTML=g;
+})();
+
+/* ===== Designer: circuit / neural-net renderer ===== */
+(function(){
+  const svg=document.getElementById('circuit-svg');if(!svg)return;
+  const archSel=document.getElementById('arch-sel'),note=document.getElementById('canvas-note');
+  let mode='q';const NQ=4,L=72,R=612;
+  const rowY=i=>42+i*46;
+  const box=(x,y,w,label,col)=>`<rect x="${x}" y="${y-15}" width="${w}" height="30" rx="6" fill="var(--surface)" stroke="${col}" stroke-width="1.6"/><text x="${x+w/2}" y="${y+4.5}" text-anchor="middle" font-size="11.5" font-family="monospace" style="fill:${col};font-weight:600">${label}</text>`;
+  function circuit(arch){
+    let g='',gates=0,params=0,ent=0;
+    for(let q=0;q<NQ;q++){g+=`<line x1="${L}" y1="${rowY(q)}" x2="${R}" y2="${rowY(q)}" stroke="var(--axis)" stroke-width="1.5"/>`;
+      g+=`<text x="${L-12}" y="${rowY(q)+4}" text-anchor="end" font-size="12" font-family="monospace" style="fill:var(--muted)">q${q}</text>`;}
+    let x=L+24;
+    const rot=lab=>{for(let q=0;q<NQ;q++){g+=box(x,rowY(q),36,lab,'var(--q)');gates++;params++;}x+=60;};
+    const ladder=()=>{for(let q=0;q<NQ-1;q++){const y1=rowY(q),y2=rowY(q+1);
+      g+=`<circle cx="${x+15}" cy="${y1}" r="4" fill="var(--q)"/><line x1="${x+15}" y1="${y1}" x2="${x+15}" y2="${y2}" stroke="var(--q)" stroke-width="1.6"/>`;
+      g+=`<circle cx="${x+15}" cy="${y2}" r="9" fill="var(--surface)" stroke="var(--q)" stroke-width="1.6"/><line x1="${x+15}" y1="${y2-9}" x2="${x+15}" y2="${y2+9}" stroke="var(--q)" stroke-width="1.4"/>`;
+      x+=28;ent++;gates++;}x+=18;};
+    if(arch==='hardware_efficient'){rot('RY');ladder();rot('RY');ladder();}
+    else if(arch==='reuploading'){rot('RX');rot('RZ');ladder();rot('RX');ladder();}
+    else{rot('RX');for(let q=0;q<NQ-1;q++){g+=box(x,(rowY(q)+rowY(q+1))/2,38,'ZZ','var(--q)');ent++;gates++;}x+=60;rot('RX');}
+    for(let q=0;q<NQ;q++)g+=`<rect x="${R-32}" y="${rowY(q)-15}" width="30" height="30" rx="6" fill="var(--c-soft)" stroke="var(--c)" stroke-width="1.4"/><text x="${R-17}" y="${rowY(q)+4}" text-anchor="middle" font-size="11" style="fill:var(--c)">⟨Z⟩</text>`;
+    document.getElementById('p-gates').textContent=gates;
+    document.getElementById('p-params').textContent=(params*2)+' θ';
+    document.getElementById('p-ent').textContent=ent+' · 2-qubit';
+    return g;
+  }
+  function nn(){
+    const layers=[4,6,6,4],px=i=>L+(R-L-30)*i/(layers.length-1);let g='';
+    const pos=layers.map((n,li)=>Array.from({length:n},(_,k)=>({x:px(li),y:34+176*(k+0.5)/n})));
+    for(let li=0;li<layers.length-1;li++)pos[li].forEach(a=>pos[li+1].forEach(b=>{g+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--c)" stroke-width="0.6" opacity=".28"/>`;}));
+    pos.forEach(layer=>layer.forEach(nd=>{g+=`<circle cx="${nd.x}" cy="${nd.y}" r="8" fill="var(--c-soft)" stroke="var(--c)" stroke-width="1.6"/>`;}));
+    ['input','hidden','hidden','output'].forEach((lab,li)=>{g+=`<text x="${px(li)}" y="224" text-anchor="middle" font-size="10.5" style="fill:var(--muted)">${lab}</text>`;});
+    document.getElementById('p-gates').textContent='— (dense)';
+    document.getElementById('p-params').textContent='40.4k';
+    document.getElementById('p-ent').textContent='n/a';
+    return g;
+  }
+  function render(){
+    if(mode==='q'){svg.innerHTML=circuit(archSel.value);note.textContent='quantum slot — rendered via a reused PennyLane-style drawer';}
+    else{svg.innerHTML=nn();note.textContent='classical twin — a plain neural network';}
+  }
+  archSel.addEventListener('change',render);
+  document.querySelectorAll('#cq-toggle button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#cq-toggle button').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.cq;
+    document.getElementById('gate-palette').style.display=mode==='q'?'flex':'none';render();
+  }));
+  // zoom-level jump (visual): clicking an outer level routes to Atlas
+  document.querySelectorAll('#view-designer .zlevel').forEach(z=>z.addEventListener('click',()=>{
+    if(z.dataset.z<='2'){go('atlas');}
+  }));
+  render();
+})();
+</script>

@@ -1,5 +1,10 @@
 # QLLM Lab UI Upgrade Plan
 
+> **Superseded as the forward roadmap.** This document is the historical record
+> of the *shipped* dashboard. The current UI direction is a full redesign —
+> see [UI_REDESIGN_PLAN.md](UI_REDESIGN_PLAN.md). Retain this file for history;
+> do not treat it as the active plan.
+
 ## Implementation status
 
 The original phases are retained as a design record. All structural phases are
