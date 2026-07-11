@@ -42,11 +42,76 @@ Progress:
   `e901139`.
 - [x] M06 Local safety and resource reproducibility
   (`codex/m06-safety-resources`), delivered to `main` in commit `182192c`.
-- [ ] M07 Local scaling architecture (`codex/m07-local-scaling`).
+- [x] M07 Local scaling architecture (`codex/m07-local-scaling`), delivered
+  to `main` in commit `dcec571`.
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M07 local scaling architecture.
+Current milestone: M08 dashboard and UI evidence completion.
+
+M08 acceptance evidence:
+
+- Existing cockpit, diagrams, comparisons, studies, per-layer specifications,
+  and visual builder remain backward compatible while evidence views expose
+  metric type, claim identity/status, paired and equivalence statistics,
+  power, complete fairness mismatches, analogue limitations, immutable
+  manifests, checkpoints/recovery state, and resource/capability ledgers.
+- Backend payloads make single-seed, unmatched, missing-control,
+  negligible-gain/high-cost, and invalid-protocol conditions explicit and
+  unavoidable; the UI renders them as prominent interpretation warnings rather
+  than hiding them behind optional detail panels.
+- Primary routes have deterministic loading, empty, error, filtering,
+  comparison, rerun, and study-report behavior at desktop and narrow widths.
+  Existing response keys remain compatible and new fields are additive.
+- Focused dashboard/backend tests, frontend tests/build, CPU queue/API smoke,
+  desktop+narrow browser inspection, change-aware/full CPU verification, and a
+  fresh verifier PASS complete without GPU/QPU execution or claim promotion.
+
+M08 progress:
+
+- [x] Deliver M07 and create `codex/m08-dashboard-evidence` from updated main.
+- [x] Audit route, payload, component, and warning coverage against the M04-M07
+  evidence contracts and existing UI behavior.
+- [x] Define additive backend view models and unavoidable warning semantics.
+- [x] Implement backend/API integration with regression tests.
+- [x] Implement frontend evidence presentation and resilient route states.
+- [x] Run backend/frontend/queue/browser and full CPU verification.
+- [ ] Obtain a fresh verifier PASS and deliver M08 under standing Git approval.
+
+M08 design constraints:
+
+- Research protocol code remains the authority for statistical/fairness
+  interpretation; the dashboard presents those results without recomputing or
+  strengthening them in JavaScript.
+- Warning severity and visibility derive from explicit backend codes, with
+  human-readable text as an additive presentation field. Missing evidence is
+  never converted into a neutral or successful state.
+- Existing dashboard response keys and saved jobs remain readable. Contract
+  changes are additive unless an adapter and regression fixture are included.
+- Browser and queue validation stay local and CPU-only. No `RESULTS.md` edit,
+  claim promotion, artifact deletion, remote exposure, GPU/QPU work, or paid
+  service is part of M08.
+
+M08 validation results:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-m08-dashboard-final
+PASS: 74 passed after verifier corrections.
+npm.cmd test; node --test src/api.test.js src/evidenceView.test.js; npm.cmd run build
+PASS: 7 model-config tests, 6 API/evidence tests, and 861-module production build; existing bundle-size advisory only.
+python scripts/queue_smoke.py --url http://127.0.0.1:8173 --steps 1 --eval-every 1 --device-target cpu
+PASS: isolated copied database job #77 completed one step and wrote its latest checkpoint; live port 8000 queue untouched.
+desktop + 390x844 in-app browser inspection
+PASS: comparison warnings and ledgers, run workspace, studies empty state, experiment filtering and filtered-empty state, and recoverable API error render correctly; isolated server stopped after QA.
+.venv/Scripts/python.exe scripts/verify_changes.py --run
+PASS: agent setup/tests, frontend tests/build, and dashboard tests.
+.venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-m08-full-final
+PASS: 351 passed, 2 skipped; 44 existing dependency/JAX precision warnings.
+git diff --check
+PASS: no whitespace errors; line-ending notices only.
+fresh read-only verifier
+PASS: warning-first legacy route coverage, truthful standalone single-seed semantics, polling recovery, additive compatibility, and server-authoritative interpretation verified after corrections.
+```
 
 M07 acceptance evidence:
 

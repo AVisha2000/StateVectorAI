@@ -10,6 +10,8 @@ import {
   YAxis,
 } from 'recharts'
 import { api } from '../api'
+import EvidenceWarnings from '../components/EvidenceWarnings'
+import RunLedger from '../components/RunLedger'
 
 function fmt(value, digits = 3) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -33,7 +35,13 @@ export default function ScalingTest() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.scalingTest(groupId).then(setPayload).catch((e) => setError(e.message))
+    let active = true
+    setPayload(null)
+    setError('')
+    api.scalingTest(groupId)
+      .then((result) => { if (active) { setPayload(result); setError('') } })
+      .catch((e) => { if (active) setError(e.message) })
+    return () => { active = false }
   }, [groupId])
 
   const points = payload?.points || []
@@ -46,7 +54,9 @@ export default function ScalingTest() {
       <h1>Scaling Test</h1>
       <h2>Same preset across qubit and depth scales, grouped as one experiment.</h2>
       {error && <div className="alert error">{error}</div>}
+      <EvidenceWarnings warnings={payload?.interpretation_warnings} />
       {(payload?.protocol_warnings || []).map((warning) => <div className="alert error" key={warning}>{warning}</div>)}
+      {payload && !payload.available && <div className="panel muted">No scaling test data is available for this group.</div>}
 
       {payload?.available && (
         <>
@@ -134,6 +144,17 @@ export default function ScalingTest() {
                 ))}
               </tbody>
             </table>
+          </section>
+
+          <section className="resource-ledger-list" aria-label="Scaling point resource ledgers">
+            <h3>Recorded scaling ledgers</h3>
+            {points.map((point) => (
+              <details className="ledger-details" key={`${point.job.id}-ledger`}>
+                <summary>Job #{point.job.id} — q{point.n_qubits}/d{point.n_circuit_layers}</summary>
+                <EvidenceWarnings warnings={point.interpretation_warnings} />
+                <RunLedger manifest={point.manifest} durability={point.durability} resourceLedger={point.resource_ledger} backendCapabilities={point.backend_capabilities} />
+              </details>
+            ))}
           </section>
         </>
       )}

@@ -5,6 +5,9 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import ModelDiagram from '../components/ModelDiagram'
+import EvidenceSummary from '../components/EvidenceSummary'
+import EvidenceWarnings from '../components/EvidenceWarnings'
+import RunLedger from '../components/RunLedger'
 
 const METRICS = ['train_loss', 'val_loss', 'val_ppl', 'val_bpc', 'grad_norm_ratio']
 
@@ -119,7 +122,12 @@ export default function RunWorkspace() {
   const [testTokens, setTestTokens] = useState(120)
   const [testTemperature, setTestTemperature] = useState(0.8)
 
-  const refresh = () => api.workspace(id).then(setPayload).catch((e) => setError(e.message))
+  const refresh = () => api.workspace(id)
+    .then((nextPayload) => {
+      setPayload(nextPayload)
+      setError('')
+    })
+    .catch((e) => setError(e.message))
 
   useEffect(() => {
     refresh()
@@ -150,6 +158,15 @@ export default function RunWorkspace() {
   ), [comparison, comparisonMetric])
 
   if (!payload && !error) return <div className="loading">Loading run workspace...</div>
+  if (!payload && error) {
+    return (
+      <div className="panel empty-state">
+        <h1>Run workspace unavailable</h1>
+        <div className="alert error">{error}</div>
+        <button type="button" onClick={refresh}>Retry</button>
+      </div>
+    )
+  }
 
   const progressStep = live?.current_step ?? (job?.status === 'done' ? job?.steps : 0)
   const totalSteps = live?.total_steps ?? job?.steps ?? 1
@@ -212,6 +229,10 @@ export default function RunWorkspace() {
               {canCancel(job) && <button className="small" onClick={cancel}>Cancel</button>}
             </div>
           </div>
+
+          <EvidenceWarnings warnings={payload?.interpretation_warnings} />
+          <EvidenceSummary evidence={{ ...payload, ...(comparison || {}), interpretation_warnings: payload?.interpretation_warnings }} title="Run evidence contract" />
+          <RunLedger manifest={payload?.manifest} durability={payload?.durability} resourceLedger={payload?.resource_ledger} backendCapabilities={payload?.backend_capabilities} />
 
           <div className="panel">
             <div className="stat-row">

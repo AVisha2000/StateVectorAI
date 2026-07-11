@@ -4,6 +4,8 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { api } from '../api'
+import EvidenceSummary from '../components/EvidenceSummary'
+import EvidenceWarnings from '../components/EvidenceWarnings'
 
 function fmt(value, digits = 3) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -19,7 +21,9 @@ export default function Study() {
   const [payload, setPayload] = useState(null)
   const [error, setError] = useState('')
 
-  const refresh = () => api.study(id).then(setPayload).catch((e) => setError(e.message))
+  const refresh = () => api.study(id)
+    .then((nextPayload) => { setPayload(nextPayload); setError('') })
+    .catch((e) => setError(e.message))
 
   useEffect(() => {
     refresh()
@@ -51,7 +55,9 @@ export default function Study() {
               <Link className="small" to={`/experiments?group=${payload.group_id}`}>Open group</Link>
             </div>
           </div>
+          <EvidenceWarnings warnings={payload.interpretation_warnings} />
           {(payload.evidence?.rerun_required_pairs || 0) > 0 && <div className="alert error">{payload.evidence.reason}</div>}
+          <EvidenceSummary evidence={{ ...payload.evidence, ...payload, evidence: undefined }} title="Study evidence contract" />
 
           <section className="panel">
             <div className="stat-row">

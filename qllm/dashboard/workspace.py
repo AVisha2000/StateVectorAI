@@ -10,6 +10,11 @@ from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
 from .datasets import get_dataset
+from .evidence import (
+    interpretation_warnings,
+    job_durability_payload,
+    run_resource_payload,
+)
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 
@@ -71,6 +76,10 @@ def _final_run(db: ResultsDB, job: dict | None) -> dict | None:
     )
     if run:
         run["config"] = _decode_config(run)
+        if run.get("run_uuid"):
+            stored_manifest = db.get_run_manifest(str(run["run_uuid"]))
+            if stored_manifest:
+                run["manifest"] = stored_manifest.get("manifest")
     return run
 
 
@@ -146,13 +155,16 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
             data_kind=config.get("data.kind"),
             circuit_applicable=uses_quantum_config(config),
         )
-    return {
+    final_run = _final_run(db, job)
+    durability = job_durability_payload(job)
+    resources = run_resource_payload(final_run)
+    payload = {
         "job": job,
         "preset": preset,
         "dataset": get_dataset(db, job["dataset_name"]),
         "live": _live(db, job.get("run_key"), job.get("run_uuid")),
         "curve": _curve(db, job.get("run_key"), job.get("run_uuid")),
-        "final_run": _final_run(db, job),
+        "final_run": final_run,
         "metric_contract": metric_contract,
         "claim_id": claim_id,
         "claim": claim,
@@ -163,7 +175,14 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         ),
         "seed_axes": seed_axes,
         "assessment_status": "unassigned" if claim_id is None else "descriptive",
+        "manifest": durability["manifest"],
+        "durability": durability,
+        **resources,
     }
+    payload["interpretation_warnings"] = list(
+        durability["interpretation_warnings"]
+    )
+    return payload
 
 
 def _comparison_metric_contract(*rows: dict | None) -> dict | None:
@@ -181,11 +200,15 @@ def _comparison_metric_contract(*rows: dict | None) -> dict | None:
 def comparison_payload(db: ResultsDB, job_id: int) -> dict:
     job = _job(db, job_id)
     if not job:
-        return {"available": False, "reason": "job not found"}
+        payload = {"available": False, "reason": "job not found"}
+        payload["interpretation_warnings"] = interpretation_warnings(
+            available=False, baseline_linked=False
+        )
+        return payload
     other = _job(db, job.get("compare_to_job_id"))
     if not other:
         candidate_payload = _job_payload(db, job)
-        return {
+        payload = {
             "available": False,
             "reason": "no linked classical comparison",
             "candidate": candidate_payload,
@@ -197,6 +220,12 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
             "metric_type": (candidate_payload or {}).get("metric_type"),
             "seed_axes": (candidate_payload or {}).get("seed_axes"),
         }
+        payload["interpretation_warnings"] = interpretation_warnings(
+            available=False,
+            baseline_linked=False,
+            candidate_uses_quantum=uses_quantum_config(job.get("config") or {}),
+        )
+        return payload
 
     if job.get("comparison_role") == "baseline":
         baseline, candidate = job, other
@@ -219,7 +248,7 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         candidate_payload,
         baseline_payload,
     )
-    return {
+    payload = {
         "available": True,
         "candidate": candidate_payload,
         "baseline": baseline_payload,
@@ -233,6 +262,18 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         ),
         "seed_axes": (candidate_payload or {}).get("seed_axes"),
     }
+    payload["paired_stats"] = None
+    payload["equivalence"] = None
+    payload["power"] = None
+    payload["interpretation_warnings"] = interpretation_warnings(
+        available=True,
+        independent_pairs=1 if candidate_run and baseline_run else None,
+        baseline_linked=True,
+        candidate_uses_quantum=uses_quantum_config(candidate.get("config") or {}),
+        metric_contract=metric_contract,
+        metric_type=payload.get("metric_type"),
+    )
+    return payload
 
 
 def _delta(candidate: dict, baseline: dict, key: str):
@@ -247,4 +288,8 @@ def workspace_payload(db: ResultsDB, job_id: int) -> dict | None:
         return None
     payload = _job_payload(db, job)
     payload["comparison"] = comparison_payload(db, job_id)
+    payload["interpretation_warnings"] = [
+        *(payload.get("interpretation_warnings") or []),
+        *((payload["comparison"] or {}).get("interpretation_warnings") or []),
+    ]
     return payload

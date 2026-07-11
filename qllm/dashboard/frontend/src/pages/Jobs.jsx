@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import EvidenceWarnings from '../components/EvidenceWarnings'
 
 function canCancel(job) {
   return job.status === 'queued' || job.status === 'running'
@@ -8,6 +9,8 @@ function canCancel(job) {
 
 export default function Jobs() {
   const [jobs, setJobs] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('all')
   const [dataset, setDataset] = useState('all')
@@ -16,7 +19,14 @@ export default function Jobs() {
   const [group, setGroup] = useState('all')
   const [notice, setNotice] = useState('')
 
-  const refresh = () => api.jobs().then(setJobs).catch((e) => setError(e.message))
+  const refresh = () => api.jobs()
+    .then((payload) => {
+      setJobs(payload)
+      setLoaded(true)
+      setError('')
+    })
+    .catch((e) => setError(e.message))
+    .finally(() => setLoading(false))
 
   useEffect(() => {
     refresh()
@@ -40,6 +50,7 @@ export default function Jobs() {
     && (family === 'all' || j.model_family === family)
     && (group === 'all' || j.group_id === group)
   ))
+  const filtersActive = status !== 'all' || dataset !== 'all' || preset !== 'all' || family !== 'all' || group !== 'all'
   const groupCounts = useMemo(() => jobs.reduce((acc, job) => {
     if (!job.group_id) return acc
     acc[job.group_id] = (acc[job.group_id] || 0) + 1
@@ -85,6 +96,9 @@ export default function Jobs() {
       setError(e.message)
     }
   }
+
+  if (loading) return <div className="loading">Loading experiments...</div>
+  if (!loaded) return <div><h1>Experiments</h1><div className="alert error">{error}</div></div>
 
   return (
     <div>
@@ -192,6 +206,7 @@ export default function Jobs() {
                 <td>
                   <Link to={`/jobs/${j.id}`}>#{j.id} {j.run_name}</Link>
                   {j.group_id && <div className="muted mono">group {j.group_id.slice(0, 8)}</div>}
+                  <EvidenceWarnings warnings={j.interpretation_warnings} compact />
                 </td>
                 <td><span className={`badge ${j.status}`}>{j.status}</span></td>
                 <td><span className="badge">{j.comparison_role || 'primary'}</span></td>
@@ -233,7 +248,11 @@ export default function Jobs() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan="10">No lab jobs yet. Queue one from Run.</td></tr>
+              <tr><td colSpan="10">
+                {filtersActive
+                  ? 'No experiments match the active filters. Clear or change a filter to see other jobs.'
+                  : 'No lab jobs yet. Queue one from Run.'}
+              </td></tr>
             )}
           </tbody>
         </table>

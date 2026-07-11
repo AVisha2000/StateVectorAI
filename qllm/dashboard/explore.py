@@ -11,6 +11,11 @@ from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .datasets import list_datasets
 from .model_graph import model_family, uses_quantum_config
+from .evidence import (
+    interpretation_warnings,
+    job_durability_payload,
+    run_resource_payload,
+)
 
 
 def _decode_config(row: dict) -> dict:
@@ -180,6 +185,16 @@ def _run_item(row: dict) -> dict:
     ))
     if contract:
         item["metric_type"] = contract.get("metric_type")
+    item.update(run_resource_payload(row))
+    item["interpretation_warnings"] = interpretation_warnings(
+        single_seed=True,
+        metric_contract=contract,
+        metric_type=item.get("metric_type"),
+        assessment_status=(
+            "rerun_required" if contract and contract.get("rerun_required")
+            else item.get("assessment_status")
+        ),
+    )
     return item
 
 
@@ -223,13 +238,26 @@ def _job_item(row: dict) -> dict:
     ))
     if contract:
         item["metric_type"] = contract.get("metric_type")
+    durability = job_durability_payload(row)
+    item["manifest"] = durability["manifest"]
+    item["durability"] = durability
+    item["interpretation_warnings"] = durability["interpretation_warnings"]
     return item
 
 
 def _all_run_items(db: ResultsDB) -> list[dict]:
     with db._conn() as con:
         rows = con.execute("SELECT * FROM runs ORDER BY ts DESC").fetchall()
-    return [_run_item(db.decode_result_row(dict(row))) for row in rows]
+    items = []
+    for row in rows:
+        decoded = db.decode_result_row(dict(row))
+        item = _run_item(decoded)
+        if decoded.get("run_uuid"):
+            manifest_row = db.get_run_manifest(str(decoded["run_uuid"]))
+            if manifest_row:
+                item["manifest"] = manifest_row.get("manifest")
+        items.append(item)
+    return items
 
 
 def _all_job_items(db: ResultsDB) -> list[dict]:
@@ -372,6 +400,11 @@ def explore_payload(db: ResultsDB) -> dict:
         "runs": runs,
         "jobs": jobs,
         "registered_datasets": datasets,
+        "interpretation_warnings": [
+            warning
+            for item in items
+            for warning in item.get("interpretation_warnings") or []
+        ],
     }
 
 
@@ -391,6 +424,11 @@ def domain_payload(db: ResultsDB, domain_slug: str) -> dict:
         "datasets": datasets,
         "runs": runs,
         "jobs": jobs,
+        "interpretation_warnings": [
+            warning
+            for item in [*runs, *jobs]
+            for warning in item.get("interpretation_warnings") or []
+        ],
     }
 
 
@@ -416,11 +454,19 @@ def _summary_card(label: str, row: dict | None, note: str) -> dict:
         "verdict_label": row.get("verdict_label"),
         "link": row.get("link"),
         "note": note,
+        "interpretation_warnings": row.get("interpretation_warnings") or [],
     }
 
 
-def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
+def _run_result_row(
+    db: ResultsDB, row: dict, metrics_by_key: dict[tuple, dict]
+) -> dict:
     item = _run_item(row)
+    manifest = None
+    if row.get("run_uuid"):
+        manifest_row = db.get_run_manifest(str(row["run_uuid"]))
+        if manifest_row:
+            manifest = manifest_row.get("manifest")
     metrics = metrics_by_key.get((row["suite"], row["variant"], row["dataset"], row["seed"]), {})
     return {
         "source": "run",
@@ -442,6 +488,9 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
         "n_params": row["n_params"],
         "resource": item["resource"],
         "resources": row.get("resources"),
+        "resource_ledger": item.get("resource_ledger"),
+        "backend_capabilities": item.get("backend_capabilities"),
+        "manifest": manifest,
         "metric_contract": item.get("metric_contract"),
         "metric_type": item.get("metric_type"),
         "claim_id": item.get("claim_id"),
@@ -454,6 +503,7 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
         "link": item["link"],
         "comparison_link": None,
         "inferred_from": item["context"]["inferred_from"],
+        "interpretation_warnings": item.get("interpretation_warnings") or [],
     }
 
 
@@ -462,6 +512,8 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
     final = _lab_final_run(db, job) or {}
     verdict = {}
     resource_normalized = None
+    comparison_warnings = []
+    analogue_limitations = []
     if job.get("compare_to_job_id"):
         try:
             from .lab import comparison_research_payload
@@ -469,6 +521,12 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
             comparison = comparison_research_payload(db, int(job["id"]))
             verdict = comparison.get("verdict") or {}
             resource_normalized = comparison.get("resource_normalized")
+            comparison_warnings = comparison.get("interpretation_warnings") or []
+            analogue_limitations = [
+                row.get("limitation")
+                for row in (comparison.get("analogue_ladder") or {}).get("rungs") or []
+                if row.get("limitation")
+            ]
         except Exception:
             verdict = {}
     return {
@@ -491,6 +549,9 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "n_params": final.get("n_params"),
         "resource": item["resource"],
         "resources": final.get("resources"),
+        **run_resource_payload(final),
+        "manifest": item.get("manifest"),
+        "durability": item.get("durability"),
         "metric_contract": item.get("metric_contract"),
         "metric_type": item.get("metric_type"),
         "claim_id": item.get("claim_id"),
@@ -504,6 +565,11 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "link": item["link"],
         "comparison_link": item["comparison_link"],
         "inferred_from": item["context"]["inferred_from"],
+        "interpretation_warnings": [
+            *(item.get("interpretation_warnings") or []),
+            *comparison_warnings,
+        ],
+        "analogue_limitations": analogue_limitations,
     }
 
 
@@ -535,7 +601,7 @@ def result_dashboard_payload(
     for metric in [m for suite in {r["suite"] for r in run_rows if r.get("suite")} for m in db.fetch_metrics(suite)]:
         metrics_by_key[(metric["suite"], metric["variant"], metric["dataset"], metric["seed"])][metric["name"]] = metric["value"]
 
-    rows = [_run_result_row(row, metrics_by_key) for row in run_rows]
+    rows = [_run_result_row(db, row, metrics_by_key) for row in run_rows]
     rows.extend(_job_result_row(db, job) for job in lab_jobs)
 
     if dataset is not None:
@@ -601,4 +667,9 @@ def result_dashboard_payload(
         "protocol_warnings": protocol_warnings,
         "summaries": summaries,
         "rows": rows,
+        "interpretation_warnings": [
+            warning
+            for row in rows
+            for warning in row.get("interpretation_warnings") or []
+        ],
     }

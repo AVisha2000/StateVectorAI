@@ -1,8 +1,17 @@
 const base = ''
 
+export async function responseError(response, path) {
+  let detail = `${path}: ${response.status}`
+  try {
+    const payload = await response.json()
+    detail = payload.detail || detail
+  } catch (_) {}
+  return new Error(detail)
+}
+
 export async function get(path) {
   const r = await fetch(`${base}/api${path}`)
-  if (!r.ok) throw new Error(`${path}: ${r.status}`)
+  if (!r.ok) throw await responseError(r, path)
   return r.json()
 }
 
@@ -12,14 +21,7 @@ export async function post(path, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    let detail = `${path}: ${r.status}`
-    try {
-      const payload = await r.json()
-      detail = payload.detail || detail
-    } catch (_) {}
-    throw new Error(detail)
-  }
+  if (!r.ok) throw await responseError(r, path)
   return r.json()
 }
 
@@ -29,14 +31,7 @@ export async function patch(path, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    let detail = `${path}: ${r.status}`
-    try {
-      const payload = await r.json()
-      detail = payload.detail || detail
-    } catch (_) {}
-    throw new Error(detail)
-  }
+  if (!r.ok) throw await responseError(r, path)
   return r.json()
 }
 

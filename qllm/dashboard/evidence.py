@@ -1,11 +1,227 @@
 """Cautious quantum-advantage evidence ladder payloads."""
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any
 
 from .analogues import DEFAULT_FAIRNESS_REQUIREMENTS
 
 REQUIRED_FAIRNESS = DEFAULT_FAIRNESS_REQUIREMENTS
+
+
+def _warning(
+    code: str,
+    severity: str,
+    title: str,
+    message: str,
+    evidence: Any,
+) -> dict[str, Any]:
+    """Return the stable warning shape consumed by every evidence view."""
+    return {
+        "code": code,
+        "severity": severity,
+        "title": title,
+        "message": message,
+        "evidence": evidence,
+    }
+
+
+def job_durability_payload(job: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Project additive immutable/recovery state without rejecting legacy rows."""
+    row = dict(job or {})
+    manifest = row.get("manifest")
+    manifest_warning = None
+    if manifest is None and row.get("manifest_json"):
+        try:
+            decoded = json.loads(str(row["manifest_json"]))
+            if not isinstance(decoded, dict):
+                raise TypeError("manifest JSON is not an object")
+            manifest = decoded
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            manifest_warning = _warning(
+                "invalid_protocol",
+                "error",
+                "Unreadable legacy manifest",
+                "The stored manifest is malformed; the job remains readable but its immutable identity cannot be verified.",
+                {"field": "manifest_json", "error": f"{type(exc).__name__}: {exc}"},
+            )
+            manifest = None
+    if manifest is not None and not isinstance(manifest, Mapping):
+        manifest_warning = _warning(
+            "invalid_protocol",
+            "error",
+            "Unreadable legacy manifest",
+            "The stored manifest is not an object; immutable identity cannot be verified.",
+            {"field": "manifest", "value_type": type(manifest).__name__},
+        )
+        manifest = None
+    manifest = dict(manifest) if isinstance(manifest, Mapping) else None
+    identity_fields = (
+        "experiment_uuid", "run_uuid", "manifest_hash", "config_hash",
+        "code_hash", "data_hash", "environment_hash", "seed_axes_hash",
+    )
+    identity = {
+        key: row.get(key) if row.get(key) is not None else (manifest or {}).get(key)
+        for key in identity_fields
+    }
+    warnings = [manifest_warning] if manifest_warning else []
+    return {
+        "status": row.get("status"),
+        "manifest": manifest,
+        "immutable_identity": identity,
+        "checkpoint": {
+            "latest": row.get("checkpoint_path"),
+            "best": row.get("best_checkpoint_path"),
+            "resume_from": row.get("resume_from"),
+            "completed_step": row.get("completed_step"),
+        },
+        "worker": {
+            "id": row.get("worker_id"),
+            "claimed_ts": row.get("claimed_ts"),
+            "heartbeat_ts": row.get("heartbeat_ts"),
+            "lease_expires_ts": row.get("lease_expires_ts"),
+        },
+        "recovery": {
+            "attempt_count": row.get("attempt_count"),
+            "recovery_count": row.get("recovery_count"),
+            "parent_run_uuid": row.get("parent_run_uuid"),
+        },
+        "interpretation_warnings": warnings,
+    }
+
+
+def run_resource_payload(final_run: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Expose the complete resource ledger and recorded component capabilities."""
+    run = dict(final_run or {})
+    resources = run.get("resources")
+    if not isinstance(resources, Mapping):
+        resources = None
+    ledger = dict(resources) if resources is not None else None
+    quantum_backend = (ledger or {}).get("quantum_backend")
+    if not isinstance(quantum_backend, Mapping):
+        quantum_backend = {}
+    components = quantum_backend.get("components")
+    if not isinstance(components, Mapping):
+        components = {}
+    capabilities = {
+        str(name): value.get("capabilities")
+        for name, value in components.items()
+        if isinstance(value, Mapping) and value.get("capabilities") is not None
+    }
+    return {
+        "resource_ledger": ledger,
+        "backend_capabilities": capabilities or None,
+    }
+
+
+def interpretation_warnings(
+    *,
+    available: bool = True,
+    independent_pairs: int | None = None,
+    single_seed: bool = False,
+    baseline_linked: bool | None = None,
+    candidate_uses_quantum: bool = False,
+    analogue_ladder: Mapping[str, Any] | None = None,
+    resource_normalized: Mapping[str, Any] | None = None,
+    claim: Mapping[str, Any] | None = None,
+    metric_contract: Mapping[str, Any] | None = None,
+    metric_type: str | None = None,
+    fairness: Mapping[str, Any] | None = None,
+    duplicate_seeds: list[Any] | None = None,
+    assessment_status: str | None = None,
+    mixed_metric_types: bool = False,
+    mixed_claim_ids: bool = False,
+) -> list[dict[str, Any]]:
+    """Classify presentation warnings from recorded evidence only.
+
+    No threshold is inferred: the cost warning is possible only when a claim
+    supplies its predeclared practical-equivalence margin.
+    """
+    warnings: list[dict[str, Any]] = []
+    if independent_pairs == 1 or single_seed:
+        pair_evidence = independent_pairs == 1
+        warnings.append(_warning(
+            "single_seed", "warning", "Single-seed evidence",
+            (
+                "One independent pair is smoke evidence only; repeat matched seeds before interpreting an edge."
+                if pair_evidence
+                else "This standalone run uses one seed and is descriptive only; a matched multi-seed comparison is required for comparative interpretation."
+            ),
+            {"independent_pairs": 1} if pair_evidence else {"independent_seeds": 1, "comparison_linked": False},
+        ))
+    if baseline_linked is False or not available:
+        warnings.append(_warning(
+            "unmatched_comparison", "error", "Unmatched comparison",
+            "A linked candidate and baseline are required before interpreting this comparison.",
+            {"available": bool(available), "baseline_linked": baseline_linked},
+        ))
+
+    ladder = dict(analogue_ladder or {})
+    missing = list(ladder.get("missing_required") or [])
+    if candidate_uses_quantum and not ladder and claim:
+        missing = [
+            str(row.get("id") or row.get("rung_id"))
+            for row in (claim.get("analogue_ladder") or [])
+            if isinstance(row, Mapping)
+            and row.get("required")
+            and (row.get("id") or row.get("rung_id"))
+        ]
+    if candidate_uses_quantum and (baseline_linked is False or missing):
+        warnings.append(_warning(
+            "missing_control", "error", "Required control missing",
+            "The candidate is missing a required classical analogue or control rung.",
+            {"missing_required": missing or ["linked_component_analogue"]},
+        ))
+
+    normalized = dict(resource_normalized or {})
+    settings = dict((claim or {}).get("analysis_settings") or {})
+    margin = settings.get("practical_equivalence_margin")
+    improvement = normalized.get("improvement")
+    candidate_wall = normalized.get("candidate_wall_seconds")
+    baseline_wall = normalized.get("baseline_wall_seconds")
+    compatible_cost_metric = metric_type in {
+        "validation_perplexity", "strict_autoregressive_next_token",
+    }
+    if compatible_cost_metric and all(
+        value is not None
+        for value in (margin, improvement, candidate_wall, baseline_wall)
+    ):
+        extra_wall = float(candidate_wall) - float(baseline_wall)
+        if extra_wall > 0 and 0.0 < float(improvement) < float(margin):
+            warnings.append(_warning(
+                "negligible_gain_high_cost", "warning", "Gain below practical margin",
+                "The candidate costs more wall time and its improvement does not clear the claim's predeclared practical margin.",
+                {"improvement": float(improvement), "practical_equivalence_margin": float(margin), "extra_wall_seconds": extra_wall},
+            ))
+
+    invalid_reasons: list[str] = []
+    if (metric_contract or {}).get("rerun_required"):
+        invalid_reasons.append("rerun_required")
+    if assessment_status in {"invalid", "unsupported", "rerun_required"}:
+        invalid_reasons.append(str(assessment_status))
+    if mixed_metric_types:
+        invalid_reasons.append("mixed_metric_types")
+    if mixed_claim_ids:
+        invalid_reasons.append("mixed_claim_ids")
+    if duplicate_seeds:
+        invalid_reasons.append("duplicate_seeds")
+    fairness_payload = dict(fairness or {})
+    mismatches = list(fairness_payload.get("disallowed_mismatches") or [])
+    if not mismatches and fairness_payload.get("valid") is False:
+        mismatches = list(fairness_payload.get("mismatches") or [])
+    if fairness_payload.get("valid") is False or mismatches:
+        invalid_reasons.append("fairness_mismatches")
+    if metric_type in {"teacher_forced_side_information", None} and metric_contract:
+        if (metric_contract or {}).get("protocol_status") != "current":
+            invalid_reasons.append("unsupported_metric_contract")
+    if invalid_reasons:
+        warnings.append(_warning(
+            "invalid_protocol", "error", "Invalid research protocol",
+            "This result cannot support comparative interpretation until the protocol issues are resolved.",
+            {"reasons": sorted(set(invalid_reasons)), "fairness_mismatches": mismatches, "duplicate_seeds": list(duplicate_seeds or [])},
+        ))
+    return warnings
 
 
 def _step(key: str, label: str, ok: bool, detail: str, caution: str | None = None) -> dict:

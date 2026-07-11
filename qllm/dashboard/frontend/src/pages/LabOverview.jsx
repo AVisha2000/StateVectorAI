@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import EvidenceWarnings from '../components/EvidenceWarnings'
 
 function count(counts, key) {
   return counts?.[key] || 0
@@ -16,7 +17,9 @@ export default function LabOverview() {
   const [error, setError] = useState('')
   const reservation = data?.gpu_reservation
 
-  const refresh = () => api.overview().then(setData).catch((e) => setError(e.message))
+  const refresh = () => api.overview()
+    .then((payload) => { setData(payload); setError('') })
+    .catch((e) => setError(e.message))
   useEffect(() => {
     refresh()
     const id = setInterval(refresh, 3000)
@@ -30,6 +33,7 @@ export default function LabOverview() {
       <h1>Lab Overview</h1>
       <h2>Running work, queue health, recent comparisons, and system readiness.</h2>
       {error && <div className="alert error">{error}</div>}
+      <EvidenceWarnings warnings={data?.interpretation_warnings} />
 
       <div className="stat-row">
         <div className="metric-card"><div className="metric-label">Running</div><div className="metric-value">{count(data?.counts, 'running')}</div></div>
@@ -97,12 +101,15 @@ export default function LabOverview() {
         <section className="panel">
           <h3>Recent Comparisons</h3>
           {(data?.recent_comparisons || []).map((item) => (
-            <div className="comparison-row" key={item.job_id}>
-              <div>
-                <Link to={`/comparisons/${item.job_id}`}>#{item.candidate?.id} vs #{item.baseline?.id}</Link>
-                <div className="muted">{item.candidate?.preset_id} vs {item.baseline?.preset_id}</div>
+            <div key={item.job_id}>
+              <EvidenceWarnings warnings={item.interpretation_warnings} compact />
+              <div className="comparison-row">
+                <div>
+                  <Link to={`/comparisons/${item.job_id}`}>#{item.candidate?.id} vs #{item.baseline?.id}</Link>
+                  <div className="muted">{item.candidate?.preset_id} vs {item.baseline?.preset_id}</div>
+                </div>
+                <span className="badge">{item.verdict?.label || 'pending'}</span>
               </div>
-              <span className="badge">{item.verdict?.label || 'pending'}</span>
             </div>
           ))}
           {(data?.recent_comparisons || []).length === 0 && <p className="muted">No linked comparisons yet.</p>}

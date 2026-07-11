@@ -14,6 +14,7 @@ from ..research_protocol import two_stream_metric_contract
 from ..research_protocol import normalize_seed_axes
 from ..resultsdb import ResultsDB
 from .model_graph import uses_quantum_config
+from .evidence import interpretation_warnings, run_resource_payload
 
 
 def _contract_for_run(run: dict) -> dict | None:
@@ -64,7 +65,7 @@ def suites_overview(db: ResultsDB) -> list[dict]:
     with db._conn() as con:
         rows = con.execute(
             "SELECT suite, COUNT(*) n, COUNT(DISTINCT variant) variants, "
-            "COUNT(DISTINCT dataset) datasets, MIN(val_ppl) best_ppl, "
+            "COUNT(DISTINCT dataset) datasets, COUNT(DISTINCT seed) independent_seeds, MIN(val_ppl) best_ppl, "
             "MAX(ts) last_ts FROM runs GROUP BY suite ORDER BY last_ts DESC"
         ).fetchall()
     suites = []
@@ -75,6 +76,12 @@ def suites_overview(db: ResultsDB) -> list[dict]:
         if contract and contract["rerun_required"]:
             row["historical_best_ppl"] = row["best_ppl"]
             row["best_ppl"] = None
+        row["interpretation_warnings"] = interpretation_warnings(
+            single_seed=int(row.get("independent_seeds") or 0) == 1,
+            metric_contract=contract,
+            metric_type=(contract or {}).get("metric_type"),
+            assessment_status=("rerun_required" if contract and contract.get("rerun_required") else None),
+        )
         suites.append(row)
     return suites
 
@@ -105,6 +112,16 @@ def suite_detail(db: ResultsDB, suite: str, dataset: str | None = None) -> dict:
             "seeds": sorted({r["seed"] for r in rs}),
             "steps": sorted({r["steps"] for r in rs}),
         }
+        entry["interpretation_warnings"] = interpretation_warnings(
+            single_seed=len(entry["seeds"]) == 1,
+            metric_contract=two_stream_metric_contract(suite=suite),
+            metric_type=(two_stream_metric_contract(suite=suite) or {}).get("metric_type"),
+            assessment_status=(
+                "rerun_required"
+                if (two_stream_metric_contract(suite=suite) or {}).get("rerun_required")
+                else None
+            ),
+        )
         for name, vals in met_by_var.get(variant, {}).items():
             entry[f"metric_{name}"] = st.mean(vals)
         leaderboard.append(entry)
@@ -112,12 +129,18 @@ def suite_detail(db: ResultsDB, suite: str, dataset: str | None = None) -> dict:
                                     e["val_ppl_mean"] or 0))
     datasets = sorted({r["dataset"] for r in db.fetch(suite)})
     metric_names = sorted({m["name"] for m in metrics})
+    contract = two_stream_metric_contract(suite=suite)
     return {
         "suite": suite,
         "datasets": datasets,
         "metric_names": metric_names,
         "leaderboard": leaderboard,
-        "metric_contract": two_stream_metric_contract(suite=suite),
+        "metric_contract": contract,
+        "interpretation_warnings": [
+            warning
+            for row in leaderboard
+            for warning in row.get("interpretation_warnings") or []
+        ],
     }
 
 
@@ -139,6 +162,21 @@ def all_runs(db: ResultsDB, suite: str | None = None) -> list[dict]:
         except json.JSONDecodeError:
             config = {}
         row.update(_claim_fields(row, config))
+        if row.get("run_uuid"):
+            manifest_row = db.get_run_manifest(str(row["run_uuid"]))
+            if manifest_row:
+                row["manifest"] = manifest_row.get("manifest")
+        row.update(run_resource_payload(row))
+        row["interpretation_warnings"] = interpretation_warnings(
+            single_seed=True,
+            metric_contract=row.get("metric_contract"),
+            metric_type=row.get("metric_type"),
+            assessment_status=(
+                "rerun_required"
+                if (row.get("metric_contract") or {}).get("rerun_required")
+                else row.get("assessment_status")
+            ),
+        )
     return rows
 
 
@@ -154,6 +192,21 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
         config=run["config"],
     )
     run.update(_claim_fields(run, run["config"]))
+    if run.get("run_uuid"):
+        manifest_row = db.get_run_manifest(str(run["run_uuid"]))
+        if manifest_row:
+            run["manifest"] = manifest_row.get("manifest")
+    run.update(run_resource_payload(run))
+    run["interpretation_warnings"] = interpretation_warnings(
+        single_seed=True,
+        metric_contract=run.get("metric_contract"),
+        metric_type=run.get("metric_type"),
+        assessment_status=(
+            "rerun_required"
+            if (run.get("metric_contract") or {}).get("rerun_required")
+            else run.get("assessment_status")
+        ),
+    )
     # matching extra metrics (same suite/variant/dataset/seed)
     with db._conn() as con:
         mets = con.execute(

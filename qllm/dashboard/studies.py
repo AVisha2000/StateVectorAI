@@ -19,7 +19,12 @@ from ..research_protocol import (
 )
 from ..resultsdb import ResultsDB
 from .datasets import get_dataset
-from .evidence import study_evidence_ladder
+from .evidence import (
+    interpretation_warnings,
+    job_durability_payload,
+    run_resource_payload,
+    study_evidence_ladder,
+)
 from .lab import (
     PAIRABLE_VAL_PPL_METRIC_TYPES,
     comparison_research_payload,
@@ -386,6 +391,9 @@ def _evidence_for_jobs(
                 "available": False,
                 "reason": payload.get("reason"),
                 "fairness_mismatches": payload.get("fairness_mismatches") or [],
+                "disallowed_fairness_mismatches": (
+                    (payload.get("fairness") or {}).get("disallowed_mismatches") or []
+                ),
             })
             continue
         flags = payload.get("fairness") or {}
@@ -428,6 +436,7 @@ def _evidence_for_jobs(
             "delta_val_ppl": delta,
             "comparison_link": f"/comparisons/{job['id']}",
             "fairness_mismatches": payload.get("fairness_mismatches") or [],
+            "disallowed_fairness_mismatches": flags.get("disallowed_mismatches") or [],
             "analysis_eligible": metric_type in PAIRABLE_VAL_PPL_METRIC_TYPES,
             "cell": {
                 "claim_id": payload_claim_id,
@@ -611,6 +620,11 @@ def _evidence_for_jobs(
         for row in comparisons
         for mismatch in row.get("fairness_mismatches") or []
     ]
+    aggregate_disallowed_mismatches = [
+        {"job_id": row.get("job_id"), **mismatch}
+        for row in comparisons
+        for mismatch in row.get("disallowed_fairness_mismatches") or []
+    ]
     observed_seed_axes = [
         {
             "job_id": job.get("id"),
@@ -663,6 +677,29 @@ def _evidence_for_jobs(
         },
     }
     evidence["ladder"] = study_evidence_ladder(evidence)
+    duplicate_seeds = sorted({
+        seed
+        for analysis in analyses
+        for seed in analysis.get("duplicate_seeds") or []
+    })
+    evidence["interpretation_warnings"] = interpretation_warnings(
+        available=any(row.get("available") for row in comparisons),
+        independent_pairs=evidence.get("independent_pairs"),
+        baseline_linked=any(row.get("available") for row in comparisons),
+        candidate_uses_quantum=any(job.get("uses_quantum") for job in candidate_jobs),
+        analogue_ladder=evidence.get("analogue_ladder"),
+        claim=claim,
+        metric_type=evidence.get("metric_type"),
+        fairness={
+            "valid": not bool(aggregate_disallowed_mismatches),
+            "mismatches": aggregate_mismatches,
+            "disallowed_mismatches": aggregate_disallowed_mismatches,
+        },
+        duplicate_seeds=duplicate_seeds,
+        assessment_status=evidence.get("assessment_status"),
+        mixed_metric_types=mixed_metrics,
+        mixed_claim_ids=mixed_claims,
+    )
     return evidence
 
 
@@ -765,6 +802,7 @@ def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
             "baseline_val_ppl": brun.get("val_ppl"),
             "comparison_link": f"/comparisons/{job['id']}" if payload.get("available") else None,
             "reason": payload.get("reason") or (payload.get("verdict") or {}).get("reason"),
+            "interpretation_warnings": payload.get("interpretation_warnings") or [],
         })
     return rows
 
@@ -840,6 +878,11 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         job["study_role"] = row.get("role")
         job["study_sweep"] = row.get("study_sweep") or {}
         final = _final_run_for_job(db, row)
+        durability = job_durability_payload(job)
+        job["manifest"] = durability["manifest"]
+        job["durability"] = durability
+        job.update(run_resource_payload(final))
+        job["interpretation_warnings"] = durability["interpretation_warnings"]
         job["final_run"] = final
         jobs.append(job)
     counts = Counter(job["status"] for job in jobs)
@@ -852,6 +895,12 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         "label": "pending",
         "reason": "open the study to inspect evidence",
     }
+    analogue_ladder = evidence.get("analogue_ladder") or {}
+    analogue_limitations = [
+        row.get("limitation")
+        for row in analogue_ladder.get("rungs") or []
+        if row.get("limitation")
+    ]
     return {
         "id": study["id"],
         "name": study["name"],
@@ -889,6 +938,9 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         "power": evidence.get("power"),
         "analyses": evidence.get("analyses") or [],
         "assessment_status": evidence.get("assessment_status"),
+        "interpretation_warnings": evidence.get("interpretation_warnings") or [],
+        "analogue_ladder": analogue_ladder or None,
+        "analogue_limitations": analogue_limitations,
     }
 
 
@@ -989,6 +1041,8 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "fairness_mismatches": evidence.get("fairness_mismatches") or [],
         "fairness_mismatch_count": evidence.get("fairness_mismatch_count", 0),
         "assessment_status": evidence.get("assessment_status"),
+        "interpretation_warnings": evidence.get("interpretation_warnings") or [],
+        "analogue_limitations": payload.get("analogue_limitations") or [],
     }
     report["markdown"] = _report_markdown(report)
     return report

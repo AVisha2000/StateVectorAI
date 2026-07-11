@@ -3,6 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import { Line, LineChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../api'
 import ModelDiagram from '../components/ModelDiagram'
+import EvidenceSummary from '../components/EvidenceSummary'
+import EvidenceWarnings from '../components/EvidenceWarnings'
+import RunLedger from '../components/RunLedger'
 
 function fmt(value, digits = 4) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -109,6 +112,8 @@ export default function Comparison() {
       <h2>Quantum/classical protocol, architecture, metric deltas, and run-level verdict.</h2>
       {error && <div className="alert error">{error}</div>}
       {notice && <div className="alert good">{notice}</div>}
+      <EvidenceWarnings warnings={payload?.interpretation_warnings} />
+      {payload && <EvidenceSummary evidence={payload} title="Comparison evidence contract" />}
       {payload?.metric_contract?.rerun_required && <div className="alert error">{payload.metric_contract.limitation}</div>}
       {!payload?.available && (
         <div className="alert error">
@@ -165,6 +170,11 @@ export default function Comparison() {
           </section>
 
           <EvidenceLadder ladder={payload.evidence_ladder} />
+
+          <div className="workspace-grid">
+            <RunLedger title="Candidate run ledger" manifest={c?.manifest} durability={c?.durability} resourceLedger={c?.resource_ledger} backendCapabilities={c?.backend_capabilities} />
+            <RunLedger title="Baseline run ledger" manifest={b?.manifest} durability={b?.durability} resourceLedger={b?.resource_ledger} backendCapabilities={b?.backend_capabilities} />
+          </div>
 
           <div className="workspace-grid">
             <section className="panel"><ModelDiagram graph={graphs.candidate} title="Candidate architecture" /></section>

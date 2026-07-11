@@ -15,7 +15,12 @@ from ..research_protocol import (
 )
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
-from .evidence import comparison_evidence_ladder
+from .evidence import (
+    comparison_evidence_ladder,
+    interpretation_warnings,
+    job_durability_payload,
+    run_resource_payload,
+)
 from .gpu_reservation import gpu_reservation_status, job_reservation
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
@@ -155,6 +160,10 @@ def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
     else:
         out["comparison_state"] = "none"
     out["elapsed_or_wall_seconds"] = None
+    durability = job_durability_payload(out)
+    out["manifest"] = durability["manifest"]
+    out["durability"] = durability
+    out["interpretation_warnings"] = durability["interpretation_warnings"]
     return out
 
 
@@ -288,6 +297,28 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
         "assessment_status"
     ) or ("smoke" if claim_id is None else "descriptive")
     payload["evidence_ladder"] = comparison_evidence_ladder(payload)
+    payload["paired_stats"] = None
+    payload["equivalence"] = None
+    payload["power"] = None
+    payload["interpretation_warnings"] = interpretation_warnings(
+        available=bool(payload.get("available")),
+        independent_pairs=(
+            1
+            if payload.get("available")
+            and (payload.get("candidate") or {}).get("final_run")
+            and (payload.get("baseline") or {}).get("final_run")
+            else None
+        ),
+        baseline_linked=bool(payload.get("baseline")),
+        candidate_uses_quantum=uses_quantum_config(candidate_config),
+        analogue_ladder=payload.get("analogue_ladder"),
+        resource_normalized=payload.get("resource_normalized"),
+        claim=claim,
+        metric_contract=metric_contract,
+        metric_type=effective_metric_type,
+        fairness=payload.get("fairness"),
+        assessment_status=payload.get("assessment_status"),
+    )
     return payload
 
 
@@ -295,7 +326,7 @@ def _leaderboard_highlights(db: ResultsDB) -> list[dict]:
     """Return current-contract highlights without promoting invalid history."""
     with db._conn() as con:
         rows = con.execute(
-            "SELECT suite, variant, dataset, val_ppl, ts, config_json "
+            "SELECT suite, variant, dataset, seed, val_ppl, ts, config_json "
             "FROM runs WHERE val_ppl IS NOT NULL"
         ).fetchall()
     grouped: dict[tuple[str, str], dict] = {}
@@ -319,11 +350,21 @@ def _leaderboard_highlights(db: ResultsDB) -> list[dict]:
                 "dataset": row["dataset"],
                 "best_ppl": row["val_ppl"],
                 "last_ts": row["ts"],
+                "seeds": {row["seed"]},
             }
             continue
         current["best_ppl"] = min(current["best_ppl"], row["val_ppl"])
         current["last_ts"] = max(current["last_ts"], row["ts"])
-    return sorted(grouped.values(), key=lambda item: item["best_ppl"])[:5]
+        current["seeds"].add(row["seed"])
+    highlights = []
+    for item in sorted(grouped.values(), key=lambda value: value["best_ppl"])[:5]:
+        seeds = sorted(item.pop("seeds"))
+        item["independent_seeds"] = seeds
+        item["interpretation_warnings"] = interpretation_warnings(
+            independent_pairs=len(seeds)
+        )
+        highlights.append(item)
+    return highlights
 
 
 def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
@@ -342,8 +383,12 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
             "deltas": payload.get("deltas"),
             "verdict": payload.get("verdict"),
             "fairness": payload.get("fairness"),
+            "paired_stats": payload.get("paired_stats"),
+            "equivalence": payload.get("equivalence"),
+            "power": payload.get("power"),
+            "interpretation_warnings": payload.get("interpretation_warnings") or [],
         })
-    return {
+    overview = {
         "counts": dict(counts),
         "active_jobs": active,
         "recent_failed_jobs": failed,
@@ -352,6 +397,12 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
         "gpu_reservation": gpu_reservation_status(db),
         "leaderboard_highlights": _leaderboard_highlights(db),
     }
+    overview["interpretation_warnings"] = [
+        warning
+        for row in overview["recent_comparisons"]
+        for warning in row.get("interpretation_warnings") or []
+    ]
+    return overview
 
 
 def scaling_tests_overview(db: ResultsDB) -> list[dict]:
@@ -414,6 +465,19 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
             "rerun_required": bool(
                 metric_contract and metric_contract["rerun_required"]
             ),
+            **run_resource_payload(final_run),
+            "durability": job.get("durability"),
+            "manifest": job.get("manifest"),
+            "interpretation_warnings": interpretation_warnings(
+                independent_pairs=1 if final_run else None,
+                metric_contract=metric_contract,
+                metric_type=(metric_contract or {}).get("metric_type") or job.get("metric_type"),
+                assessment_status=(
+                    "rerun_required"
+                    if metric_contract and metric_contract.get("rerun_required")
+                    else None
+                ),
+            ),
         })
     points.sort(key=lambda p: (p["n_qubits"], p["n_circuit_layers"]))
     complete = [
@@ -426,7 +490,7 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
         for point in points
         if point["rerun_required"] and point["metric_contract"]
     })
-    return {
+    payload = {
         "available": True,
         "group_id": group_id,
         "preset_id": jobs[0]["preset_id"],
@@ -440,3 +504,9 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
         "complete_count": len(complete),
         "total_count": len(points),
     }
+    payload["interpretation_warnings"] = [
+        warning
+        for point in points
+        for warning in point.get("interpretation_warnings") or []
+    ]
+    return payload

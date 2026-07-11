@@ -2,12 +2,25 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { api } from '../api'
+import EvidenceSummary from '../components/EvidenceSummary'
+import EvidenceWarnings from '../components/EvidenceWarnings'
+import RunLedger from '../components/RunLedger'
 
 export default function Run() {
   const { id } = useParams()
   const [run, setRun] = useState(null)
-  useEffect(() => { api.run(id).then(setRun).catch(console.error) }, [id])
-  if (!run) return <div className="loading">Loading run...</div>
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setRun(null)
+    setError('')
+    api.run(id)
+      .then((payload) => { if (active) { setRun(payload); setError('') } })
+      .catch((e) => { if (active) setError(e.message) })
+    return () => { active = false }
+  }, [id])
+  if (!run && !error) return <div className="loading">Loading run...</div>
+  if (!run) return <div><h1>Run {id}</h1><div className="alert error">{error}</div></div>
 
   const curve = run.steps_curve || {}
   const loss = curve.train_loss || []
@@ -17,7 +30,27 @@ export default function Run() {
     <div>
       <h1>{run.run_name || `run ${run.id}`}</h1>
       <h2>{run.suite} - {run.variant} - {run.dataset} - seed {run.seed}</h2>
+      <EvidenceWarnings warnings={run.interpretation_warnings} />
       {run.metric_contract?.rerun_required && <div className="alert error">{run.metric_contract.limitation}</div>}
+      <EvidenceSummary evidence={run} title="Run evidence contract" />
+      <RunLedger
+        manifest={run.manifest}
+        durability={{
+          status: 'completed',
+          immutable_identity: {
+            experiment_uuid: run.experiment_uuid,
+            run_uuid: run.run_uuid,
+            manifest_hash: run.manifest_hash,
+            config_hash: run.config_hash,
+            code_hash: run.code_hash,
+            data_hash: run.data_hash,
+            environment_hash: run.environment_hash,
+            seed_axes_hash: run.seed_axes_hash,
+          },
+        }}
+        resourceLedger={run.resource_ledger}
+        backendCapabilities={run.backend_capabilities}
+      />
 
       <div className="panel">
         <p className="pill" style={{ marginTop: 0 }}>

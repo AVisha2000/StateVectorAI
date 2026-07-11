@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import importlib
+import json
 import sqlite3
 import sys
 import threading
@@ -27,6 +28,11 @@ from qllm.dashboard.explore import (
     infer_research_context,
     result_dashboard_payload,
 )
+from qllm.dashboard.evidence import (
+    interpretation_warnings,
+    job_durability_payload,
+    run_resource_payload,
+)
 from qllm.dashboard.gpu_reservation import gpu_reservation_status
 from qllm.dashboard.lab import (
     comparison_research_payload,
@@ -49,6 +55,153 @@ from qllm.dashboard.studies import (
 )
 from qllm.dashboard.workspace import comparison_payload, workspace_payload
 from qllm.resultsdb import ResultsDB
+
+
+def test_interpretation_warning_contract_and_required_codes():
+    claim = {"analysis_settings": {"practical_equivalence_margin": 0.1}}
+    cases = [
+        (
+            {"independent_pairs": 1},
+            {"single_seed": "warning"},
+        ),
+        (
+            {"available": False, "baseline_linked": False},
+            {"unmatched_comparison": "error"},
+        ),
+        (
+            {
+                "baseline_linked": False,
+                "candidate_uses_quantum": True,
+                "analogue_ladder": {"missing_required": ["linked_component_analogue"]},
+            },
+            {"missing_control": "error"},
+        ),
+        (
+            {
+                "resource_normalized": {
+                    "improvement": 0.05,
+                    "candidate_wall_seconds": 5.0,
+                    "baseline_wall_seconds": 2.0,
+                },
+                "claim": claim,
+                "metric_type": "validation_perplexity",
+            },
+            {"negligible_gain_high_cost": "warning"},
+        ),
+        (
+            {
+                "assessment_status": "invalid",
+                "duplicate_seeds": [3],
+                "mixed_metric_types": True,
+            },
+            {"invalid_protocol": "error"},
+        ),
+    ]
+    for kwargs, expected in cases:
+        warnings = interpretation_warnings(**kwargs)
+        by_code = {warning["code"]: warning for warning in warnings}
+        for code, severity in expected.items():
+            assert by_code[code]["severity"] == severity
+            assert set(by_code[code]) == {
+                "code", "severity", "title", "message", "evidence",
+            }
+            assert by_code[code]["evidence"] is not None
+
+
+def test_cost_warning_requires_predeclared_margin_and_negligible_gain():
+    resource = {
+        "improvement": 0.05,
+        "candidate_wall_seconds": 5.0,
+        "baseline_wall_seconds": 2.0,
+    }
+    without_margin = interpretation_warnings(
+        resource_normalized=resource, metric_type="validation_perplexity"
+    )
+    meaningful = interpretation_warnings(
+        resource_normalized={**resource, "improvement": 0.2},
+        claim={"analysis_settings": {"practical_equivalence_margin": 0.1}},
+        metric_type="validation_perplexity",
+    )
+    candidate_worse = interpretation_warnings(
+        resource_normalized={**resource, "improvement": -0.2},
+        claim={"analysis_settings": {"practical_equivalence_margin": 0.1}},
+        metric_type="validation_perplexity",
+    )
+    zero_pairs = interpretation_warnings(independent_pairs=0)
+    assert "negligible_gain_high_cost" not in {row["code"] for row in without_margin}
+    assert "negligible_gain_high_cost" not in {row["code"] for row in meaningful}
+    assert "negligible_gain_high_cost" not in {
+        row["code"] for row in candidate_worse
+    }
+    assert "single_seed" not in {row["code"] for row in zero_pairs}
+
+
+def test_standalone_single_seed_warning_is_not_mislabeled_as_a_pair():
+    warning = interpretation_warnings(single_seed=True)[0]
+    assert warning["code"] == "single_seed"
+    assert warning["title"] == "Single-seed evidence"
+    assert warning["evidence"] == {
+        "independent_seeds": 1,
+        "comparison_linked": False,
+    }
+    assert "pair" not in warning["message"].lower()
+
+
+def test_durability_and_resource_view_models_preserve_recorded_evidence():
+    manifest = {
+        "experiment_uuid": "experiment",
+        "run_uuid": "run",
+        "manifest_hash": "manifest-hash",
+        "config_hash": "config-hash",
+        "code_hash": "code-hash",
+        "data_hash": "data-hash",
+        "environment_hash": "environment-hash",
+    }
+    durability = job_durability_payload({
+        "status": "running",
+        "manifest_json": json.dumps(manifest),
+        "checkpoint_path": "latest.ckpt",
+        "best_checkpoint_path": "best.ckpt",
+        "resume_from": "prior.ckpt",
+        "completed_step": 7,
+        "worker_id": "worker-1",
+        "heartbeat_ts": "heartbeat",
+        "lease_expires_ts": "lease",
+        "attempt_count": 2,
+        "recovery_count": 1,
+    })
+    assert durability["manifest"] == manifest
+    assert durability["immutable_identity"]["config_hash"] == "config-hash"
+    assert durability["checkpoint"] == {
+        "latest": "latest.ckpt", "best": "best.ckpt",
+        "resume_from": "prior.ckpt", "completed_step": 7,
+    }
+    assert durability["worker"]["id"] == "worker-1"
+    assert durability["recovery"]["attempt_count"] == 2
+    assert durability["recovery"]["recovery_count"] == 1
+
+    capability = {"schema_version": 1, "exactness": "exact"}
+    resources = {
+        "timing": {"fit_wall_seconds": 3.5},
+        "quantum_backend": {"components": {
+            "embedding": {"capabilities": capability},
+        }},
+    }
+    view = run_resource_payload({"resources": resources})
+    assert view["resource_ledger"] == resources
+    assert view["backend_capabilities"] == {"embedding": capability}
+
+
+def test_malformed_legacy_manifest_is_readable_with_protocol_warning():
+    payload = job_durability_payload({
+        "status": "done",
+        "manifest_json": "{not-json",
+        "completed_step": 4,
+    })
+    assert payload["manifest"] is None
+    assert payload["status"] == "done"
+    assert payload["checkpoint"]["completed_step"] == 4
+    assert payload["interpretation_warnings"][0]["code"] == "invalid_protocol"
 
 
 def test_presets_build_configs():
@@ -1039,6 +1192,13 @@ def test_study_payload_summarizes_multiseed_evidence(tmp_path):
     assert payload["evidence"]["wins"] == 3
     assert payload["evidence"]["mean_delta_val_ppl"] == pytest.approx(-0.5)
     assert payload["evidence"]["std_delta_val_ppl"] == pytest.approx(0.0)
+    assert "interpretation_warnings" in payload
+    assert "analogue_limitations" in payload
+    assert all(
+        {"manifest", "durability", "resource_ledger", "backend_capabilities"}
+        <= set(job)
+        for job in payload["jobs"]
+    )
     ladder = {item["key"]: item for item in payload["evidence"]["ladder"]}
     assert ladder["multi_seed"]["ok"] is False
     assert ladder["candidate_better"]["ok"] is False
@@ -1161,6 +1321,10 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     assert queued["dataset"]["name"] == "default-text"
     assert queued["comparison"]["available"] is True
     assert queued["comparison"]["deltas"] is None
+    assert queued["manifest"] is None
+    assert queued["durability"]["immutable_identity"]["run_uuid"] == job["run_uuid"]
+    assert "resource_ledger" in queued
+    assert "backend_capabilities" in queued
 
     db.update_lab_job(job["id"], status="done")
     db.update_lab_job(twin["id"], status="done")
@@ -1193,6 +1357,10 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     assert comparison["verdict"]["claim_level"] == "anecdote"
     assert comparison["resource_normalized"]["improvement"] == pytest.approx(0.5)
     assert comparison["resource_normalized"]["improvement_per_extra_second"] == pytest.approx(1 / 3)
+    assert comparison["paired_stats"] is None
+    assert comparison["equivalence"] is None
+    assert comparison["power"] is None
+    assert "single_seed" in {row["code"] for row in comparison["interpretation_warnings"]}
     ladder = comparison["evidence_ladder"]
     assert ladder["label"] in {"promising run", "cost-aware promising run"}
     by_key = {step["key"]: step for step in ladder["steps"]}
@@ -1223,6 +1391,9 @@ def test_comparison_payload_handles_missing_baseline(tmp_path):
     payload = comparison_payload(ResultsDB(tmp_path / "results.db"), job["id"])
     assert payload["available"] is False
     assert payload["reason"] == "no linked classical comparison"
+    assert "unmatched_comparison" in {
+        row["code"] for row in payload["interpretation_warnings"]
+    }
 
 
 def test_explore_payload_maps_runs_and_jobs_to_research_context(tmp_path):

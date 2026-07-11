@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
+import EvidenceSummary from '../components/EvidenceSummary'
+import EvidenceWarnings from '../components/EvidenceWarnings'
 
 function fmt(value, digits = 3) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -46,7 +48,9 @@ export default function StudyReport() {
               <Link className="small" to={`/studies/${payload.id}`}>Back to study</Link>
             </div>
           </div>
+          <EvidenceWarnings warnings={payload.interpretation_warnings} />
           {(payload.statistics?.rerun_required_pairs || 0) > 0 && <div className="alert error">{payload.verdict.reason}</div>}
+          <EvidenceSummary evidence={payload} title="Report evidence contract" />
 
           <section className="panel">
             <div className="workspace-header">

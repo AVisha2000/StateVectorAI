@@ -5,6 +5,8 @@ import {
   Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { api } from '../api'
+import EvidenceWarnings from '../components/EvidenceWarnings'
+import RunLedger from '../components/RunLedger'
 
 function fmt(value, digits = 3) {
   if (value == null || Number.isNaN(Number(value))) return '-'
@@ -66,10 +68,22 @@ export default function ResearchResults({ mode }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    let active = true
+    setPayload(null)
+    setError('')
     const request = mode === 'task'
       ? api.exploreTask(task, params.get('domain'))
       : api.exploreDataset(dataset)
-    request.then(setPayload).catch((e) => setError(e.message))
+    request
+      .then((result) => {
+        if (!active) return
+        setPayload(result)
+        setError('')
+      })
+      .catch((e) => {
+        if (active) setError(e.message)
+      })
+    return () => { active = false }
   }, [mode, dataset, task, params])
 
   const rows = payload?.rows || []
@@ -86,7 +100,9 @@ export default function ResearchResults({ mode }) {
         Performance is shown with resource cost and cautious verdict labels.
       </h2>
       {error && <div className="alert error">{error}</div>}
+      <EvidenceWarnings warnings={payload?.interpretation_warnings} />
       {(payload?.protocol_warnings || []).map((warning) => <div className="alert error" key={warning}>{warning}</div>)}
+      {payload && !payload.available && <div className="panel muted">No research results are available for this slice.</div>}
 
       {payload?.available && (
         <>
@@ -186,6 +202,18 @@ export default function ResearchResults({ mode }) {
                 {rows.length === 0 && <tr><td colSpan="17">No runs found for this slice.</td></tr>}
               </tbody>
             </table>
+          </section>
+
+          <section className="resource-ledger-list" aria-label="Run resource ledgers">
+            <h3>Recorded run ledgers</h3>
+            {rows.map((row) => (
+              <details className="ledger-details" key={`${row.source}-${row.id}-ledger`}>
+                <summary>{row.source === 'job' ? `Job #${row.id}` : `Run ${row.id}`} — {row.model}</summary>
+                <EvidenceWarnings warnings={row.interpretation_warnings} />
+                <RunLedger manifest={row.manifest} durability={row.durability} resourceLedger={row.resource_ledger} backendCapabilities={row.backend_capabilities} />
+              </details>
+            ))}
+            {rows.length === 0 && <p className="muted">No run ledgers are available for this slice.</p>}
           </section>
         </>
       )}

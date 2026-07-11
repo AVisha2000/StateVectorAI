@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { api } from '../api'
+import EvidenceWarnings from '../components/EvidenceWarnings'
 
 export default function Suite() {
   const { name } = useParams()
@@ -9,8 +10,17 @@ export default function Suite() {
   const [dataset, setDataset] = useState(null)
   const [sortKey, setSortKey] = useState('val_ppl_mean')
   const [asc, setAsc] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => { api.suite(name, dataset).then(setData).catch(console.error) }, [name, dataset])
+  useEffect(() => {
+    let active = true
+    setData(null)
+    setError('')
+    api.suite(name, dataset)
+      .then((payload) => { if (active) { setData(payload); setError('') } })
+      .catch((e) => { if (active) setError(e.message) })
+    return () => { active = false }
+  }, [name, dataset])
   const lb = data?.leaderboard || []
   const sorted = useMemo(() => [...lb].sort((a, b) => {
     const x = a[sortKey], y = b[sortKey]
@@ -19,7 +29,8 @@ export default function Suite() {
     return asc ? x - y : y - x
   }), [lb, sortKey, asc])
 
-  if (!data) return <div className="loading">Loading {name}...</div>
+  if (!data && !error) return <div className="loading">Loading {name}...</div>
+  if (!data) return <div><h1>{name}</h1><div className="alert error">{error}</div></div>
 
   const rerunRequired = Boolean(data.metric_contract?.rerun_required)
   const metricCols = data.metric_names.map((m) => `metric_${m}`).filter((c) => lb.some((r) => r[c] != null))
@@ -31,6 +42,7 @@ export default function Suite() {
     <div>
       <h1>{name}</h1>
       <h2>{lb.length} variants - {data.datasets.length} dataset(s)</h2>
+      <EvidenceWarnings warnings={data.interpretation_warnings} />
       {rerunRequired && <div className="alert error">{data.metric_contract.limitation}</div>}
 
       {data.datasets.length > 1 && (
@@ -70,7 +82,7 @@ export default function Suite() {
           <tbody>
             {sorted.map((r) => (
               <tr key={r.variant}>
-                <td>{r.variant === best ? <span className="badge best">{r.variant}</span> : r.variant}</td>
+                <td>{r.variant === best ? <span className="badge best">{r.variant}</span> : r.variant}<EvidenceWarnings warnings={r.interpretation_warnings} compact /></td>
                 <td className="num">{r.n_params?.toLocaleString()}</td>
                 <td className="num">{r.val_ppl_mean != null ? r.val_ppl_mean.toFixed(3) : '-'}</td>
                 <td className="num" style={{ color: '#8b949e' }}>{r.val_ppl_std ? r.val_ppl_std.toFixed(3) : ''}</td>
@@ -78,6 +90,11 @@ export default function Suite() {
                 <td className="num">{r.n_runs}</td>
               </tr>
             ))}
+            {sorted.length === 0 && (
+              <tr><td colSpan={6 + metricCols.length}>
+                {dataset ? 'No variants match the selected dataset.' : 'No completed variants are available in this suite.'}
+              </td></tr>
+            )}
           </tbody>
         </table>
       </div>

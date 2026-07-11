@@ -4,10 +4,14 @@ import { api } from '../api'
 
 export default function ScalingTests() {
   const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.scalingTests().then(setItems).catch((e) => setError(e.message))
+    api.scalingTests()
+      .then((payload) => { setItems(payload); setError('') })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
   }, [])
 
   return (
@@ -15,6 +19,7 @@ export default function ScalingTests() {
       <h1>Scaling Tests</h1>
       <h2>Qubit/depth sweeps for the same model, dataset, seed, and training budget.</h2>
       {error && <div className="alert error">{error}</div>}
+      {loading && <div className="loading">Loading scaling tests...</div>}
 
       <div className="action-grid">
         <Link className="action-card" to="/launch">
@@ -58,8 +63,8 @@ export default function ScalingTests() {
                 <td>{item.device_target}</td>
               </tr>
             ))}
-            {items.length === 0 && (
-              <tr><td colSpan="8">No scaling tests yet. Queue one from New Experiment.</td></tr>
+            {!loading && items.length === 0 && (
+              <tr><td colSpan="8">{error ? 'Scaling tests could not be loaded.' : 'No scaling tests yet. Queue one from New Experiment.'}</td></tr>
             )}
           </tbody>
         </table>
