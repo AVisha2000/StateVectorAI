@@ -68,6 +68,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/lab/overview` | queue counts, GPU readiness, evidence warnings |
 | GET | `/jobs` | array of jobs: `{id, run_name, status(queued\|running\|done\|error\|cancelled), comparison_role, preset_id, dataset_name, seed, steps, eval_every, model_family, group_id, analogue_state, analogue_job_id, compare_to_job_id, device_target, gpu_reservation, interpretation_warnings, config}` |
 | GET | `/jobs/{id}` · `/jobs/{id}/workspace` · `/jobs/{id}/comparison` · `/jobs/{id}/model-graph` · `/jobs/{id}/model-tests` | run detail, twin comparison, model graph, tests |
+| GET | `/jobs/{id}/diagnostics` | retrieval-only saved dimensions: `gradient_variance`, `parameter_shift_gradient_snr`, `expressibility_kl`, `meyer_wallach_q`, `scaling_fit`; every dimension is measured or explicitly unavailable, with provenance and non-advantage warnings |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
 | GET | `/status` | exact typed shape: `{worker: string, gpu_available: boolean, queued: integer, running: integer, runs: integer}`; `runs` is the recorded `runs` row count |
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
@@ -77,7 +78,6 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 ### Proposed / needed by the frontend (backend to design & confirm shapes)
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
-| P2 | GET | `/jobs/{id}/diagnostics` | per-run quantum diagnostics from `qllm/quantum/metrics.py`: `{grad_variance, grad_snr, expressibility_kl, meyer_wallach, scaling_fit?}` | Phase 2 run detail |
 | P2 | GET | `/verdicts` · `/verdicts/{id}` | persistent verdict/adjudication store (does not exist yet — verdicts are derived on the fly). Each: claim_level, replication_status, per-dimension scorecard (diagnostics labeled as diagnostics), fairness/controls, caveats | Phase 2 Verdicts |
 | P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
 | P3 | GET | `/library/*`, `/discover/*` | greenfield research service (human-gated provider/cost) | Phase 4 |
@@ -99,6 +99,11 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   bounded durable projections, and the route rejects non-loopback clients even
   when other dashboard routes are explicitly remote-enabled. Focused evidence:
   stream `6 passed`; security `14 passed, 1 skipped`; dashboard API `74 passed`.
+- 2026-07-11 · backend: P2 job diagnostics shipped as a retrieval-only API.
+  The endpoint never runs circuits or devices; same-group scaling requires at
+  least two distinct persisted qubit counts, and diagnostics cannot produce or
+  raise an advantage claim. Evidence: diagnostics `10 passed`; metrics/backend
+  capability regressions `58 passed`; typed OpenAPI contract `1 passed`.
 
 ## Log — from UI (Claude appends here)
 
