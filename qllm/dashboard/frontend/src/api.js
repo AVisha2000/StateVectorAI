@@ -6,7 +6,11 @@ export async function responseError(response, path) {
     const payload = await response.json()
     detail = payload.detail || detail
   } catch (_) {}
-  return new Error(detail)
+  const err = new Error(detail)
+  // Surface the HTTP status so callers can distinguish a not-yet-built endpoint
+  // (404 on a `proposed` route) from a real failure and degrade gracefully.
+  err.status = response.status
+  return err
 }
 
 export async function get(path) {
@@ -83,4 +87,9 @@ export const api = {
   live: () => get('/live'),
   liveCurve: (key) => get(`/live/${key}/curve`),
   plots: () => get('/plots'),
+  // Proposed (backend-owned) — see docs/BUILD_COORDINATION.md API contract.
+  // These 404 until the backend ships them; callers degrade gracefully.
+  diagnostics: (id) => get(`/jobs/${id}/diagnostics`),
+  verdicts: () => get('/verdicts'),
+  verdict: (id) => get(`/verdicts/${encodeURIComponent(id)}`),
 }
