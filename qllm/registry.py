@@ -38,7 +38,7 @@ CIRCUIT_ANSATZ_TYPES = ("hardware_efficient", "reuploading")
 QRNN_ONLY_ANSATZ_TYPES = ("ising",)
 ANSATZ_TYPES = CIRCUIT_ANSATZ_TYPES + QRNN_ONLY_ANSATZ_TYPES
 
-BACKEND_TYPES = ("pennylane", "tensorcircuit")
+BACKEND_TYPES = ("pennylane", "tensorcircuit", "tensorcircuit_mps")
 READOUT_TYPES = ("z", "zz")
 DRESSING_TYPES = ("tanh", "linear")
 ENCODER_TYPES = ("none", "quantum", "classical")

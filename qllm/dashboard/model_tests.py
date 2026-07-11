@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import serialization
 
-from ..data.datasets import load_dataset
+from ..data.datasets import load_dataset_bundle
 from ..data.text import sample_batch
 from ..models.model import build_model
 from ..resultsdb import ResultsDB
@@ -150,11 +150,17 @@ def run_model_test(
             cfg.data, corpus_path=str(info["data"]["corpus_path"])
         ),
     )
-    ids, tokenizer = load_dataset(cfg.data)
+    bundle = load_dataset_bundle(cfg.data)
+    tokenizer = bundle.tokenizer
     model, model_cfg = build_model(cfg.model, vocab_size=tokenizer.vocab_size)
     rng = np.random.default_rng(cfg.train.seed)
     sample = jnp.asarray(
-        sample_batch(rng, ids, max(1, min(cfg.train.batch_size, 4)), cfg.train.seq_len)
+        sample_batch(
+            rng,
+            bundle.ids,
+            max(1, min(cfg.train.batch_size, 4)),
+            cfg.train.seq_len,
+        )
     )
     init_params = model.init(jax.random.PRNGKey(cfg.train.seed), sample[:, :-1])["params"]
     params_path = Path(info["artifacts"]["params_path"])

@@ -11,6 +11,8 @@ the training loop and tests never depend on it.
 """
 from __future__ import annotations
 
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -75,45 +77,71 @@ def log_quantum_diagnostics(
     n_pairs: int = 200,
     n_mw_samples: int = 32,
     seed: int = 0,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Compute and log circuit diagnostics for the configured quantum layer.
 
     Logged once per run (they characterize the circuit at init, not the
     trained model): grad variance (barren-plateau probe), Meyer-Wallach Q,
-    expressibility KL. Returns the diagnostics dict either way, so callers
-    can print them even with tracking disabled.
+    expressibility KL. Unsupported diagnostics remain explicit ``None`` values
+    with an ``availability`` reason. Returns the diagnostics dict either way,
+    so callers can inspect it even with tracking disabled.
     """
     from .quantum import metrics as qmetrics
 
-    diag: dict[str, float] = {}
-    diag.update(
-        qmetrics.gradient_variance(
-            qcfg.n_qubits,
-            qcfg.n_circuit_layers,
-            ansatz=qcfg.ansatz,
-            backend=qcfg.backend,
-            device=qcfg.device,
-            n_samples=n_grad_samples,
-            seed=seed,
-        )
-    )
-    diag["meyer_wallach_q"] = qmetrics.average_meyer_wallach(
+    diag = qmetrics.quantum_diagnostics(
         qcfg.n_qubits,
         qcfg.n_circuit_layers,
         ansatz=qcfg.ansatz,
         backend=qcfg.backend,
         device=qcfg.device,
-        n_samples=n_mw_samples,
-        seed=seed,
-    )
-    diag["expressibility_kl"] = qmetrics.expressibility_kl(
-        qcfg.n_qubits,
-        qcfg.n_circuit_layers,
-        ansatz=qcfg.ansatz,
-        backend=qcfg.backend,
-        device=qcfg.device,
+        n_grad_samples=n_grad_samples,
         n_pairs=n_pairs,
+        n_mw_samples=n_mw_samples,
         seed=seed,
+        diff_method=qcfg.diff_method,
+        shots=qcfg.shots,
+        mps_max_bond_dimension=qcfg.mps_max_bond_dimension,
+        mps_max_truncation_error=qcfg.mps_max_truncation_error,
+        mps_relative_truncation=qcfg.mps_relative_truncation,
     )
-    tracker.log_metrics({f"q_{k}": v for k, v in diag.items()})
+
+    availability = diag.get("availability")
+    if not isinstance(availability, dict):
+        raise ValueError("quantum diagnostics must include availability metadata")
+    mlflow_metrics: dict[str, float] = {}
+    for key, value in diag.items():
+        if key == "availability":
+            continue
+        availability_key = (
+            "gradient_variance"
+            if key in qmetrics.GRADIENT_METRIC_KEYS
+            else key
+        )
+        status = availability.get(availability_key)
+        if not isinstance(status, dict):
+            raise ValueError(
+                f"quantum diagnostic {key!r} lacks availability metadata"
+            )
+        if value is None:
+            if status.get("status") == "measured":
+                raise ValueError(
+                    f"quantum diagnostic {key!r} is marked measured but has no value"
+                )
+            continue
+        if status.get("status") != "measured":
+            raise ValueError(
+                f"quantum diagnostic {key!r} has a value but is not marked measured"
+            )
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError(
+                f"measured quantum diagnostic {key!r} must be numeric; "
+                f"got {type(value).__name__}"
+            )
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError(
+                f"measured quantum diagnostic {key!r} must be finite; got {value!r}"
+            )
+        mlflow_metrics[f"q_{key}"] = numeric
+    tracker.log_metrics(mlflow_metrics)
     return diag

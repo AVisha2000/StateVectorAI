@@ -229,12 +229,23 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
         and path.casefold().endswith(".py")
         for path in normalized
     )
+    dependency_changed = any(
+        path.casefold() == "pyproject.toml"
+        or Path(path).name.casefold().startswith("requirements")
+        and Path(path).suffix.casefold() == ".txt"
+        or path.casefold() in {
+            "scripts/check_dependency_profiles.py",
+            "tests/test_dependency_profiles.py",
+            ".github/workflows/dependency-matrix.yml",
+        }
+        for path in normalized
+    )
     core_changed = any(
         path.casefold().startswith("qllm/")
         and path.casefold().endswith(".py")
         and not path.casefold().startswith("qllm/dashboard/")
         for path in normalized
-    ) or any(path.casefold() in {"pyproject.toml", "requirements.txt"} for path in normalized)
+    ) or dependency_changed
     benchmark_changed = any(
         path.casefold().startswith("benchmarks/") and path.casefold().endswith(".py")
         for path in normalized
@@ -285,6 +296,28 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
                 "dashboard-tests",
                 (python, "-m", "pytest", "-q", "tests/test_dashboard_lab.py"),
                 "Dashboard API or queue code changed.",
+            )
+        )
+    if dependency_changed:
+        checks.append(
+            Check(
+                "dependency-profile-static",
+                (python, "scripts/check_dependency_profiles.py", "--repo", "."),
+                "Dependency metadata or a pinned profile changed; reject profile drift before installation.",
+            )
+        )
+        checks.append(
+            Check(
+                "dependency-profile-tests",
+                (
+                    python,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "tests/test_dependency_profiles.py",
+                    "tests/test_verify_changes.py",
+                ),
+                "Dependency profile validation and change-aware routing changed.",
             )
         )
     if config_changed:

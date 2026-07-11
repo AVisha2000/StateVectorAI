@@ -39,12 +39,12 @@ def device_identity(device: Any) -> dict[str, Any]:
 def _quantum_component_multiplier(model: ModelConfig) -> tuple[int, dict[str, int]]:
     breakdown = {
         name: logical_instances
-        for name, _qcfg, logical_instances, _implementation in _active_quantum_configs(model)
+        for name, _qcfg, logical_instances, _implementation in active_quantum_configs(model)
     }
     return sum(breakdown.values()), breakdown
 
 
-def _active_quantum_configs(
+def active_quantum_configs(
     model: ModelConfig,
 ) -> list[tuple[str, QuantumConfig, int, str]]:
     """Return active components and logical circuit instances per token.
@@ -129,11 +129,129 @@ def _component_capabilities(
     """Resolve the actual adapter semantics stored with a run resource plan."""
     if implementation == "configured_circuit_backend":
         return backend_capabilities_payload(
-            qcfg.backend, qcfg.device, qcfg.diff_method, qcfg.shots
+            qcfg.backend,
+            qcfg.device,
+            qcfg.diff_method,
+            qcfg.shots,
+            mps_max_bond_dimension=qcfg.mps_max_bond_dimension,
+            mps_max_truncation_error=qcfg.mps_max_truncation_error,
+            mps_relative_truncation=qcfg.mps_relative_truncation,
         )
     return backend_capabilities_payload(
         "jax_native_statevector", "jax_runtime", "backprop", None
     )
+
+
+def quantum_component_resource_evidence(
+    qcfg: QuantumConfig,
+    implementation: str,
+    *,
+    logical_instances: int,
+) -> dict[str, Any]:
+    """Describe logical dimension, configured storage, and unknown runtime cost.
+
+    The returned element counts describe one stored simulated state after a
+    circuit operation.  They are never allocator, differentiation-tape, or
+    device peak-memory measurements.
+    """
+    capabilities = _component_capabilities(qcfg, implementation)
+    logical_dimension = 2 ** int(qcfg.n_qubits)
+    representation = str(capabilities.get("representation") or "unverified")
+    is_configured_mps = (
+        implementation == "configured_circuit_backend"
+        and qcfg.backend == "tensorcircuit_mps"
+    )
+    if is_configured_mps:
+        max_bond_dimension = int(qcfg.mps_max_bond_dimension)
+        stored_elements = (
+            2 * int(qcfg.n_qubits) * max_bond_dimension * max_bond_dimension
+        )
+        storage_status = "configured_conservative_upper_bound"
+        storage_basis = (
+            "2 * n_qubits * mps_max_bond_dimension**2; conservative configured "
+            "upper bound on stored post-truncation MPS state-tensor elements"
+        )
+    elif representation == "dense_statevector":
+        max_bond_dimension = None
+        stored_elements = logical_dimension
+        storage_status = "representation_derived_not_measured"
+        storage_basis = (
+            "one complex statevector element per logical basis state; this is a "
+            "representation-derived state size, not measured allocated memory"
+        )
+    else:
+        max_bond_dimension = None
+        stored_elements = None
+        storage_status = "unavailable_for_backend_defined_representation"
+        storage_basis = (
+            "the backend capability profile does not expose a supported storage "
+            "representation from which an element count can be derived"
+        )
+
+    excluded = [
+        "automatic-differentiation intermediates",
+        "gate-application intermediates",
+        "nonlocal-gate and SWAP intermediates",
+        "allocator overhead and peak memory",
+        "total process or device memory",
+        "runtime",
+    ]
+    approximation = capabilities.get("approximation")
+    approximation_evidence: dict[str, Any] = {
+        "capability_profile": approximation,
+        "status": "configured_not_observed" if approximation else "not_applicable",
+    }
+    if is_configured_mps:
+        approximation_evidence.update(
+            {
+                "truncation_mode": "fixed_bond_dimension_only",
+                "threshold_support": "unsupported_for_jit_vmap_training",
+                "configured_svd_split_threshold": None,
+                "configured_svd_split_threshold_status": (
+                    "unsupported_for_jit_vmap_training"
+                ),
+                "relative_truncation": False,
+                "relative_truncation_status": (
+                    "unsupported_for_jit_vmap_training"
+                ),
+                "realized_truncation_error": None,
+                "realized_truncation_error_status": "unmeasured",
+                "discarded_weight": None,
+                "discarded_weight_status": "unmeasured",
+                "convergence": None,
+                "convergence_status": "unmeasured",
+            }
+        )
+
+    return {
+        "capabilities": capabilities,
+        "representation": representation,
+        "logical_hilbert_dimension": logical_dimension,
+        "logical_hilbert_dimension_status": "exact_mathematical_dimension",
+        "logical_dimension_is_dense_allocation_evidence": False,
+        "storage": {
+            "stored_state_tensor_elements_per_instance": stored_elements,
+            "stored_state_tensor_elements_per_instance_status": storage_status,
+            "stored_state_tensor_elements_per_instance_basis": storage_basis,
+            "stored_state_tensor_elements_across_logical_instances_per_token": (
+                stored_elements * int(logical_instances)
+                if stored_elements is not None
+                else None
+            ),
+            "logical_instances_per_token": int(logical_instances),
+            "configured_max_bond_dimension": max_bond_dimension,
+            "observed_bond_dimension": None,
+            "observed_bond_dimension_status": (
+                "unmeasured" if is_configured_mps else "not_applicable"
+            ),
+            "peak_memory_bytes": None,
+            "peak_memory_status": "unmeasured",
+            "total_memory_bytes": None,
+            "total_memory_status": "unmeasured",
+            "excludes": excluded,
+        },
+        "approximation_evidence": approximation_evidence,
+    }
 
 
 def static_resource_plan(
@@ -146,7 +264,7 @@ def static_resource_plan(
     """Build immutable configured/exact resource facts known before training."""
     model = cfg.model
     multiplier, component_breakdown = _quantum_component_multiplier(model)
-    active_configs = _active_quantum_configs(model)
+    active_configs = active_quantum_configs(model)
     is_quantum = bool(active_configs)
     state_dimensions = {
         name: 2 ** int(qcfg.n_qubits)
@@ -173,6 +291,12 @@ def static_resource_plan(
             for _, qcfg, _, implementation in active_configs
         }
     )
+    component_evidence = {
+        name: quantum_component_resource_evidence(
+            qcfg, implementation, logical_instances=logical_instances
+        )
+        for name, qcfg, logical_instances, implementation in active_configs
+    }
     return {
         "schema_version": 1,
         "n_params": int(n_params),
@@ -183,8 +307,22 @@ def static_resource_plan(
         "state_dimension": {
             "value": int(state_dimension),
             "status": "exact",
-            "basis": "maximum 2**n_qubits across active state-vector components; 0 for classical",
+            "meaning": "maximum logical Hilbert-space dimension",
+            "basis": (
+                "maximum logical 2**n_qubits across active quantum components; "
+                "0 for classical. This mathematical dimension is not evidence "
+                "that dense state storage was allocated"
+            ),
+            "allocation_status": "not_an_allocation_measurement",
             "component_dimensions": state_dimensions,
+            "component_representations": {
+                name: evidence["representation"]
+                for name, evidence in component_evidence.items()
+            },
+            "component_storage": {
+                name: evidence["storage"]
+                for name, evidence in component_evidence.items()
+            },
         },
         "logical_circuit_forward_instances_per_train_step": {
             "value": int(per_step),
@@ -243,7 +381,16 @@ def static_resource_plan(
                         if implementation == "configured_circuit_backend"
                         else "not_applicable_to_native_jax_component"
                     ),
-                    "capabilities": _component_capabilities(qcfg, implementation),
+                    "capabilities": component_evidence[name]["capabilities"],
+                    "representation": component_evidence[name]["representation"],
+                    "logical_hilbert_dimension": component_evidence[name][
+                        "logical_hilbert_dimension"
+                    ],
+                    "logical_dimension_is_dense_allocation_evidence": False,
+                    "storage": component_evidence[name]["storage"],
+                    "approximation_evidence": component_evidence[name][
+                        "approximation_evidence"
+                    ],
                     "logical_instances_per_token": int(logical_instances),
                 }
                 for name, qcfg, logical_instances, implementation in active_configs

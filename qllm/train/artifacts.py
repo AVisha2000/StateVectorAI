@@ -258,7 +258,22 @@ def code_identity(repo_root: str | Path | None = None) -> dict[str, Any]:
 
 def environment_identity() -> dict[str, Any]:
     packages: dict[str, str | None] = {}
-    for name in ("qllm", "jax", "jaxlib", "flax", "optax", "numpy", "pennylane"):
+    # Record distribution names rather than import-module guesses.  Optional
+    # backends stay explicit as ``None`` so manifests distinguish an absent
+    # dependency from an environment whose identity simply omitted it.
+    for name in (
+        "qllm",
+        "jax",
+        "jaxlib",
+        "flax",
+        "optax",
+        "numpy",
+        "pennylane",
+        "pennylane-lightning",
+        "PyYAML",
+        "tensorcircuit-ng",
+        "tensornetwork-ng",
+    ):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

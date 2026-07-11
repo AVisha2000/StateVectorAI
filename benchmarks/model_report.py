@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qllm.config import (DataConfig, ExperimentConfig, ModelConfig,  # noqa: E402
                          QuantumConfig, TrackingConfig, TrainConfig)
-from qllm.data.datasets import load_dataset  # noqa: E402
+from qllm.data.datasets import load_dataset_bundle  # noqa: E402
 from qllm.data.text import train_val_split  # noqa: E402
 from qllm.evaluation import (calibration, generative_report,  # noqa: E402
                              markov_baseline_ppl)
@@ -66,8 +66,8 @@ def main() -> None:
     res = fit(cfg, verbose=False)
     s = res["summary"]
     model, params, tok = res["model"], res["state"].params, res["tokenizer"]
-    ids, _ = load_dataset(cfg.data)
-    train_ids, val_ids = train_val_split(ids, cfg.data.val_fraction)
+    bundle = load_dataset_bundle(cfg.data)
+    train_ids, val_ids = train_val_split(bundle.ids, cfg.data.val_fraction)
     vocab = tok.vocab_size
 
     m = {"val_ppl": s["val_ppl"], "n_params": s["n_params"],

@@ -46,6 +46,9 @@ class QuantumCore(nn.Module):
     dressing: str = "tanh"
     init_scale: float = 2.0 * math.pi
     n_circuits: int = 1
+    mps_max_bond_dimension: int | None = None
+    mps_max_truncation_error: float | None = None
+    mps_relative_truncation: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -71,6 +74,9 @@ class QuantumCore(nn.Module):
             self.n_circuit_layers,
             self.ansatz,
             self.readout,
+            self.mps_max_bond_dimension,
+            self.mps_max_truncation_error,
+            self.mps_relative_truncation,
         )
 
         flat = z.reshape(-1, c, n)
@@ -98,6 +104,9 @@ class QuantumCore(nn.Module):
             dressing=qcfg.dressing,
             init_scale=qcfg.init_scale,
             n_circuits=qcfg.n_circuits,
+            mps_max_bond_dimension=qcfg.mps_max_bond_dimension,
+            mps_max_truncation_error=qcfg.mps_max_truncation_error,
+            mps_relative_truncation=qcfg.mps_relative_truncation,
             **kwargs,
         )
 
@@ -171,6 +180,9 @@ class QuantumEmbedding(nn.Module):
         circuit = get_expval_circuit(
             q.backend, q.device, q.diff_method, q.shots,
             n, q.n_circuit_layers, q.ansatz, q.readout,
+            q.mps_max_bond_dimension,
+            q.mps_max_truncation_error,
+            q.mps_relative_truncation,
         )
         angles = token_angles[tokens]                # (B, T, n)
         flat = angles.reshape(-1, n)

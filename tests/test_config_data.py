@@ -1,6 +1,7 @@
 """Config system and data pipeline tests."""
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,16 @@ from qllm.registry import (
     FFN_TYPES,
     READOUT_TYPES,
     supported_choices_payload,
+)
+
+
+BOUNDARY_SAFE_DATASET_CALLERS = (
+    "benchmarks/memory_sweep.py",
+    "benchmarks/planted_qrnn.py",
+    "benchmarks/resonance_search.py",
+    "benchmarks/seq_interference_probe.py",
+    "benchmarks/model_report.py",
+    "qllm/dashboard/model_tests.py",
 )
 
 # ---------------------------------------------------------------------------
@@ -97,6 +108,24 @@ def test_configs_are_hashable():
     hash(cfg)  # frozen dataclasses must be hashable (Flax static fields)
 
 
+def test_quantum_diagnostic_display_preserves_unavailable_evidence():
+    from qllm.train.loop import _format_quantum_diagnostics_for_display
+
+    formatted = _format_quantum_diagnostics_for_display({
+        "grad_var_mean": 0.0125,
+        "meyer_wallach_q": None,
+        "availability": {
+            "meyer_wallach_q": {
+                "status": "unsupported",
+                "reason": "state access is unavailable",
+            },
+        },
+    })
+    assert formatted["grad_var_mean"] == "1.250e-02"
+    assert formatted["meyer_wallach_q"] is None
+    assert formatted["availability"]["meyer_wallach_q"]["status"] == "unsupported"
+
+
 def test_shared_validation_uses_canonical_registries():
     assert validate_config(from_dict({})) == []
     assert "two_stream" in ARCH_TYPES
@@ -107,7 +136,7 @@ def test_shared_validation_uses_canonical_registries():
         "interference", "seq_cancellation",
     }
     assert "ising" in ANSATZ_TYPES
-    assert {"pennylane", "tensorcircuit"} == set(BACKEND_TYPES)
+    assert {"pennylane", "tensorcircuit", "tensorcircuit_mps"} == set(BACKEND_TYPES)
     assert {"z", "zz"} == set(READOUT_TYPES)
     assert {"film", "token", "bias"} == set(CONDITION_TYPES)
     payload = supported_choices_payload()
@@ -353,3 +382,48 @@ def test_trajectory_split_and_batches_never_cross_boundaries():
     assert batch.shape == (32, 9)
     assert np.all(np.diff(batch, axis=1) == 1)
     assert np.all(batch[:, -1] // 100 == batch[:, 0] // 100)
+
+
+@pytest.mark.parametrize("relative_path", BOUNDARY_SAFE_DATASET_CALLERS)
+def test_synthetic_capable_callers_use_boundary_safe_dataset_api(relative_path):
+    root = Path(__file__).resolve().parents[1]
+    tree = ast.parse((root / relative_path).read_text(encoding="utf-8"))
+    dataset_imports = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module is not None
+        and node.module.endswith("data.datasets")
+        for alias in node.names
+    }
+    called_names = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "load_dataset_bundle" in dataset_imports, relative_path
+    assert "load_dataset" not in dataset_imports, relative_path
+    assert "load_dataset_bundle" in called_names, relative_path
+
+
+def test_caller_style_seeded_train_and_val_batches_preserve_trajectory_identity():
+    trajectories = np.stack([
+        np.arange(24, dtype=np.int32) + 100 * row for row in range(6)
+    ])
+    train, val = train_val_split(trajectories, 0.34)
+
+    train_batch = sample_batch(
+        np.random.default_rng(17), train, batch_size=32, seq_len=8
+    )
+    val_batch = sample_batch(
+        np.random.default_rng(23), val, batch_size=32, seq_len=8
+    )
+
+    assert train.shape == (4, 24)
+    assert val.shape == (2, 24)
+    assert np.all(train_batch[:, -1] // 100 == train_batch[:, 0] // 100)
+    assert np.all(val_batch[:, -1] // 100 == val_batch[:, 0] // 100)
+    assert set(train_batch[:, 0] // 100).isdisjoint(
+        set(val_batch[:, 0] // 100)
+    )

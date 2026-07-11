@@ -57,6 +57,15 @@ class QuantumConfig:
                                    # ~0.1-0.5 = near-identity (plateau mitigation)
     n_circuits: int = 1            # parallel quantum heads per layer ("scale by
                                    # blocks, not qubits")
+    # TensorCircuit-NG MPS execution is deliberately a distinct backend mode.
+    # A finite bond dimension is mandatory there so selecting the scalable
+    # representation cannot silently become an unbounded exact simulation.
+    mps_max_bond_dimension: int | None = None
+    # TensorCircuit-NG 1.7 computes threshold-selected ranks from traced
+    # singular values, so QLLM fails closed on threshold/relative modes until
+    # the upstream JAX path can preserve static shapes.
+    mps_max_truncation_error: float | None = None
+    mps_relative_truncation: bool = False
 
 
 @dataclass(frozen=True)
@@ -304,6 +313,83 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
             errors.append(f"{path}.trainable must be true or false.")
         finite_number(f"{path}.init_scale", qcfg.init_scale, positive=True)
         positive_int(f"{path}.n_circuits", qcfg.n_circuits)
+        if qcfg.mps_max_bond_dimension is not None:
+            positive_int(
+                f"{path}.mps_max_bond_dimension",
+                qcfg.mps_max_bond_dimension,
+            )
+        if qcfg.mps_max_truncation_error is not None:
+            finite_number(
+                f"{path}.mps_max_truncation_error",
+                qcfg.mps_max_truncation_error,
+                nonnegative=True,
+            )
+        if not isinstance(qcfg.mps_relative_truncation, bool):
+            errors.append(
+                f"{path}.mps_relative_truncation must be true or false."
+            )
+
+        if qcfg.backend == "tensorcircuit_mps":
+            if qcfg.device != "mps":
+                errors.append(
+                    f"{path}.device must be 'mps' when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.diff_method != "backprop":
+                errors.append(
+                    f"{path}.diff_method must be 'backprop' when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.shots is not None:
+                errors.append(
+                    f"{path}.shots must be null when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.mps_max_bond_dimension is None:
+                errors.append(
+                    f"{path}.mps_max_bond_dimension must be provided when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.mps_max_truncation_error is not None:
+                errors.append(
+                    f"{path}.mps_max_truncation_error must be null for "
+                    "tensorcircuit_mps because TensorCircuit-NG 1.7 "
+                    "threshold-selected ranks are not JAX-transform safe."
+                )
+            if qcfg.mps_relative_truncation is not False:
+                errors.append(
+                    f"{path}.mps_relative_truncation must be false for "
+                    "tensorcircuit_mps because threshold truncation is "
+                    "unsupported in the JAX-compatible mode."
+                )
+        else:
+            if qcfg.mps_max_bond_dimension is not None:
+                errors.append(
+                    f"{path}.mps_max_bond_dimension is supported only when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.mps_max_truncation_error is not None:
+                errors.append(
+                    f"{path}.mps_max_truncation_error is supported only when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.mps_relative_truncation is not False:
+                errors.append(
+                    f"{path}.mps_relative_truncation is supported only when "
+                    f"{path}.backend='tensorcircuit_mps'."
+                )
+            if qcfg.backend in BACKEND_TYPES:
+                from .quantum.capabilities import resolve_backend_capabilities
+
+                try:
+                    resolve_backend_capabilities(
+                        qcfg.backend,
+                        qcfg.device,
+                        qcfg.diff_method,
+                        qcfg.shots,
+                    )
+                except ValueError as exc:
+                    errors.append(f"{path}: {exc}")
 
     # Registry-backed model choices.
     arch_ok = choice("model.arch", model.arch, ARCH_TYPES)

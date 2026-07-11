@@ -53,6 +53,18 @@ from .artifacts import (
 )
 
 
+def _format_quantum_diagnostics_for_display(value):
+    """Format measured scalars without assuming unavailable evidence is numeric."""
+    if isinstance(value, dict):
+        return {
+            key: _format_quantum_diagnostics_for_display(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (int, float, np.number)) and not isinstance(value, bool):
+        return f"{float(value):.3e}"
+    return value
+
+
 def make_train_step():
     @jax.jit
     def train_step(state: TrainState, batch: jnp.ndarray):
@@ -626,7 +638,7 @@ def _fit_on_device(
     if uses_quantum(model_cfg) and cfg.tracking.log_quantum_diagnostics:
         diagnostics = log_quantum_diagnostics(tracker, model_cfg.quantum)
         if verbose:
-            pretty = {k: f"{v:.3e}" for k, v in diagnostics.items()}
+            pretty = _format_quantum_diagnostics_for_display(diagnostics)
             print(f"[{run_name}] quantum diagnostics: {pretty}")
 
     train_step = make_train_step()

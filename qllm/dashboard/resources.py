@@ -2,47 +2,71 @@
 from __future__ import annotations
 
 from ..config import ExperimentConfig
-from ..registry import (
-    QUANTUM_ARCH_TYPES,
-    QUANTUM_ATTN_TYPES,
-    QUANTUM_FFN_TYPES,
+from ..resources import (
+    active_quantum_configs,
+    quantum_component_resource_evidence,
 )
 
 
 def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
-    model = cfg.model
-    q = model.quantum
-    block_attn = [model.attn_type] * max(int(model.n_blocks or 1), 1)
-    block_ffn = [model.ffn_type] * max(int(model.n_blocks or 1), 1)
-    if model.blocks is not None:
-        block_attn = [block.attn_type for block in model.blocks]
-        block_ffn = [block.ffn_type for block in model.blocks]
-    uses_quantum_attn = any(t in QUANTUM_ATTN_TYPES for t in block_attn)
-    uses_quantum_ffn = any(t in QUANTUM_FFN_TYPES for t in block_ffn)
-    uses_quantum_recurrent = model.arch in QUANTUM_ARCH_TYPES
-    uses_two_stream_quantum = model.arch == "two_stream" and model.encoder_kind == "quantum"
-    token_calls = cfg.train.batch_size * cfg.train.seq_len
-    attn_blocks = sum(1 for t in block_attn if t in QUANTUM_ATTN_TYPES)
-    ffn_blocks = sum(1 for t in block_ffn if t in QUANTUM_FFN_TYPES)
-    component_multiplier = 0
-    if uses_quantum_attn:
-        component_multiplier += 2 * attn_blocks
-    if uses_quantum_ffn:
-        component_multiplier += ffn_blocks
-    if uses_quantum_recurrent:
-        component_multiplier += 2
-    if uses_two_stream_quantum:
-        component_multiplier += 1
-    n_qubits = int(q.n_qubits) if q is not None else 0
-    n_layers = int(q.n_circuit_layers) if q is not None else 0
-    state_dim = 2 ** n_qubits if q is not None else 0
-    score = (
-        state_dim
-        * max(n_layers, 1)
-        * max(token_calls, 1)
-        * max(component_multiplier, 1)
-    )
-    if not any((uses_quantum_attn, uses_quantum_ffn, uses_quantum_recurrent, uses_two_stream_quantum)):
+    """Return a conservative configured-work review, not a memory prediction.
+
+    The legacy ``score`` and ``band`` fields remain for queue compatibility,
+    but are labelled as a coarse proxy.  In particular, the MPS state-tensor
+    bound cannot predict differentiation or nonlocal-gate intermediates.
+    """
+    active = active_quantum_configs(cfg.model)
+    token_calls = int(cfg.train.batch_size) * int(cfg.train.seq_len)
+    components: dict[str, dict] = {}
+    work_proxy = 0
+
+    for name, qcfg, logical_instances, implementation in active:
+        evidence = quantum_component_resource_evidence(
+            qcfg, implementation, logical_instances=logical_instances
+        )
+        storage = evidence["storage"]
+        stored_per_instance = storage[
+            "stored_state_tensor_elements_per_instance"
+        ]
+        if stored_per_instance is None:
+            # Keep the queue guard conservative for backend-defined
+            # representations without mislabelling this fallback as storage.
+            proxy_per_instance = evidence["logical_hilbert_dimension"]
+            proxy_status = "logical_dimension_fallback_not_storage_evidence"
+        else:
+            proxy_per_instance = int(stored_per_instance)
+            proxy_status = storage[
+                "stored_state_tensor_elements_per_instance_status"
+            ]
+        layers = max(int(qcfg.n_circuit_layers), 1)
+        component_proxy = (
+            int(proxy_per_instance) * int(logical_instances) * layers
+        )
+        work_proxy += component_proxy
+        components[name] = {
+            "implementation": implementation,
+            "configured_backend": qcfg.backend,
+            "actual_backend": (
+                qcfg.backend
+                if implementation == "configured_circuit_backend"
+                else "jax_native_statevector"
+            ),
+            "n_qubits": int(qcfg.n_qubits),
+            "n_circuit_layers": int(qcfg.n_circuit_layers),
+            "logical_instances_per_token": int(logical_instances),
+            "logical_hilbert_dimension": evidence[
+                "logical_hilbert_dimension"
+            ],
+            "logical_dimension_is_dense_allocation_evidence": False,
+            "representation": evidence["representation"],
+            "storage": storage,
+            "approximation_evidence": evidence["approximation_evidence"],
+            "configured_work_proxy_per_token": component_proxy,
+            "configured_work_proxy_status": proxy_status,
+        }
+
+    score = int(token_calls * work_proxy) if active else 0
+    if not active:
         band = "classical"
     elif score >= 16_000_000:
         band = "extreme"
@@ -52,20 +76,109 @@ def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
         band = "medium"
     else:
         band = "low"
-    advice = []
+
+    uses_quantum_attn = any(name.endswith(".attention") for name in components)
+    max_qubits = max((row["n_qubits"] for row in components.values()), default=0)
+    max_layers = max(
+        (row["n_circuit_layers"] for row in components.values()), default=0
+    )
+    component_multiplier = sum(
+        row["logical_instances_per_token"] for row in components.values()
+    )
+    state_dim = max(
+        (row["logical_hilbert_dimension"] for row in components.values()),
+        default=0,
+    )
+    known_storage_per_token = sum(
+        row["storage"][
+            "stored_state_tensor_elements_across_logical_instances_per_token"
+        ]
+        or 0
+        for row in components.values()
+    )
+    unknown_storage_components = [
+        name
+        for name, row in components.items()
+        if row["storage"]["stored_state_tensor_elements_per_instance"] is None
+    ]
+    mps_components = [
+        name
+        for name, row in components.items()
+        if row["representation"] == "matrix_product_state"
+    ]
+
+    peak_memory_caveat = (
+        "Peak memory is unmeasured and cannot be inferred from this configured "
+        "state-storage proxy; automatic-differentiation, gate-application, "
+        "nonlocal-gate/SWAP, allocator, and runtime intermediates are excluded."
+    )
+    advice: list[str] = []
+    if active:
+        advice.append(peak_memory_caveat)
+    if mps_components:
+        advice.append(
+            "MPS element counts are fixed-bond configured post-truncation "
+            "state-tensor bounds. Threshold and relative truncation are unsupported "
+            "for JIT/vmap training; observed bond dimensions, discarded weight, "
+            "convergence, and realized truncation error are not measured."
+        )
     if band in {"high", "extreme"}:
         advice.append("Reduce batch size before increasing qubits or depth.")
         advice.append("Use seq_len 32 or lower for quantum attention sweeps.")
-    if uses_quantum_attn and n_qubits >= 8:
+    if uses_quantum_attn and max_qubits >= 8:
         advice.append("Quantum attention is per-token; prefer q<=8 while scanning depth.")
-    if n_layers >= 10:
-        advice.append("Depth >=10 can trigger large JIT intermediates; scale depth after width is stable.")
+    if max_layers >= 10:
+        advice.append(
+            "Depth >=10 can trigger large JIT intermediates; scale depth after width is stable."
+        )
+
     return {
         "band": band,
+        "band_status": "coarse_threshold_on_configured_work_proxy",
         "score": score,
-        "state_dim": state_dim,
-        "token_calls": token_calls,
-        "component_multiplier": component_multiplier,
+        "score_status": (
+            "coarse_configured_state_work_proxy_not_memory_or_runtime_prediction"
+        ),
+        "score_methodology": {
+            "formula": (
+                "train.batch_size * train.seq_len * sum(component state-element "
+                "proxy * logical instances per token * circuit layers)"
+            ),
+            "mps_proxy": (
+                "2 * n_qubits * configured max bond dimension**2"
+            ),
+            "dense_proxy": "logical 2**n_qubits statevector elements",
+            "precision": "coarse_configured_guardrail_only",
+        },
+        "state_dim": int(state_dim),
+        "state_dim_status": "exact_logical_dimension_not_storage_allocation",
+        "token_calls": int(token_calls),
+        "component_multiplier": int(component_multiplier),
         "uses_quantum_attention": uses_quantum_attn,
+        "components": components,
+        "representations": sorted(
+            {row["representation"] for row in components.values()}
+        ),
+        "approximation_evidence": {
+            name: row["approximation_evidence"]
+            for name, row in components.items()
+        },
+        "state_storage": {
+            "known_configured_or_representation_derived_elements_per_token": (
+                int(known_storage_per_token)
+            ),
+            "unknown_components": unknown_storage_components,
+            "status": (
+                "partial" if unknown_storage_components else (
+                    "configured_or_representation_derived" if active else "not_applicable"
+                )
+            ),
+            "logical_dimension_is_dense_allocation_evidence": False,
+        },
+        "peak_memory": {
+            "bytes": None,
+            "status": "unmeasured" if active else "not_applicable",
+            "caveat": peak_memory_caveat if active else None,
+        },
         "advice": advice,
     }

@@ -4,11 +4,15 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
+import qllm.evaluation as evaluation
 from qllm.config import ModelConfig, QuantumConfig
 from qllm.evaluation import (
+    autocorr_distance,
     calibration,
     conditional_entropy,
+    generative_report,
     kgram_tv_distance,
     markov_baseline_ppl,
     sample_ids,
@@ -57,6 +61,56 @@ def test_kgram_tv_identity_and_separation():
     assert kgram_tv_distance(a, b, vocab=2, k=3) > 0.5
 
 
+def test_trajectory_metrics_exclude_boundary_sentinels():
+    ordered = np.array([
+        [0, 0, 0, 0],
+        [1, 1, 1, 1],
+        [2, 2, 2, 2],
+    ])
+    permuted = ordered[[0, 2, 1]]
+
+    assert conditional_entropy(ordered, vocab=3, k=1) == 0.0
+    assert kgram_tv_distance(ordered, permuted, vocab=3, k=2) == 0.0
+    assert autocorr_distance(ordered, permuted, max_lag=1) == 0.0
+
+
+def test_markov_baseline_pools_nontrivial_trajectory_observations():
+    ids = np.array([
+        [0, 0, 0, 0],
+        [1, 1, 1, 1],
+    ])
+    ppl = markov_baseline_ppl(ids, ids, vocab=2, order=1)
+    assert ppl == pytest.approx(8.0 / 7.0)
+    assert ppl != pytest.approx(
+        markov_baseline_ppl(ids.reshape(-1), ids.reshape(-1), vocab=2, order=1)
+    )
+
+
+def test_trajectory_metrics_preserve_one_dimensional_results():
+    ids = np.array([0, 1, 0, 1, 1], dtype=np.int64)
+    as_one_trajectory = ids[None, :]
+
+    assert conditional_entropy(ids, vocab=2, k=1) == pytest.approx(0.5)
+    assert conditional_entropy(ids, vocab=2, k=1) == conditional_entropy(
+        as_one_trajectory, vocab=2, k=1
+    )
+    assert markov_baseline_ppl(ids, ids, vocab=2, order=1) == (
+        markov_baseline_ppl(
+            as_one_trajectory, as_one_trajectory, vocab=2, order=1
+        )
+    )
+    assert kgram_tv_distance(ids, ids[::-1], vocab=2, k=2) == (
+        kgram_tv_distance(
+            as_one_trajectory, ids[::-1][None, :], vocab=2, k=2
+        )
+    )
+    assert autocorr_distance(ids, ids[::-1], max_lag=3) == (
+        autocorr_distance(
+            as_one_trajectory, ids[::-1][None, :], max_lag=3
+        )
+    )
+
+
 def test_sample_ids_shapes_and_vocab():
     model, params = _tiny_model()
     out = sample_ids(
@@ -75,6 +129,43 @@ def test_calibration_keys_and_ranges():
     assert set(rep) == {"ece", "nll", "accuracy"}
     assert 0.0 <= rep["ece"] <= 1.0
     assert rep["nll"] > 0
+
+
+def test_calibration_accepts_trajectory_matrix():
+    model, params = _tiny_model()
+    ids = RNG.integers(0, 4, (8, 24)).astype(np.int32)
+    rep = calibration(model, params, ids, vocab=4, batch_size=4,
+                      seq_len=8, n_batches=2)
+    assert set(rep) == {"ece", "nll", "accuracy"}
+    assert all(np.isfinite(value) for value in rep.values())
+
+
+def test_generative_report_keeps_prompts_and_rollouts_within_rows(monkeypatch):
+    val_ids = np.repeat(np.arange(3)[:, None], 16, axis=1)
+    prompts = []
+
+    def fake_sample_ids(
+        model, params, vocab, prompt_ids, n_tokens=1500,
+        context_len=64, temperature=1.0, seed=0,
+    ):
+        del model, params, vocab, context_len, temperature, seed
+        prompts.append(np.array(prompt_ids, copy=True))
+        return np.zeros(n_tokens, dtype=np.int32)
+
+    monkeypatch.setattr(evaluation, "sample_ids", fake_sample_ids)
+    report = generative_report(
+        None, None, val_ids, vocab=3, n_tokens=96,
+        context_len=4, k=2, seed=7, n_prompts=6,
+    )
+
+    assert len(prompts) == 6
+    assert all(len(prompt) == 4 for prompt in prompts)
+    assert all(np.unique(prompt).size == 1 for prompt in prompts)
+    assert report["gen_tv_2gram"] == pytest.approx(2.0 / 3.0)
+    assert report["gen_cond_entropy_k3"] == 0.0
+    assert report["true_cond_entropy_k3"] == 0.0
+    assert report["gen_max_runlen_frac"] == pytest.approx(1.0 / 6.0)
+    assert all(np.isfinite(value) for value in report.values())
 
 
 # ---------------------------------------------------------------------------

@@ -15,11 +15,17 @@ backlog. This audit classifies work; it does not promote a research claim.
 
 ## Engineering enhancement items
 
+The 2026-07-11 backlog re-audit found that the original item-1 implementation
+had not migrated several benchmark/report callers from the flat compatibility
+loader and that shared information-theoretic measurements still assumed a
+single stream. The current item-1 evidence includes that follow-up closure;
+historical experiment artifacts were not rewritten or rerun.
+
 | # | Item | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Boundary-safe synthetic sampling | Completed | `qllm/data/datasets.py:DatasetBundle`, boundary-aware samplers, `tests/test_config_data.py`, `tests/test_quantum_data.py`, `tests/test_contextual.py`, `tests/test_seq_cancellation.py` |
+| 1 | Boundary-safe synthetic sampling | Completed | `qllm/data/datasets.py:DatasetBundle`, boundary-aware split/sampling, trajectory-aware `qllm/evaluation.py`, bundle-preserving memory/interference/report benchmark callers and dashboard model tests, plus boundary/caller regressions in `tests/test_config_data.py`, `tests/test_v07.py`, `tests/test_quantum_data.py`, `tests/test_contextual.py`, and `tests/test_seq_cancellation.py` |
 | 2 | Comprehensive config validation | Completed | `qllm/registry.py`, `qllm/config.py:validate_config`, CLI/model-spec/queue callers, `tests/test_config_data.py` |
-| 3 | Two-stream causality and metric labeling | Completed | causal prefix summaries in `qllm/models/two_stream.py`, historical contract labeling in dashboard queries, `tests/test_two_stream.py` |
+| 3 | Two-stream causality and metric labeling | Partial; historical correction human-gated | Causal prefix summaries and leakage tests are complete in `qllm/models/two_stream.py` and `tests/test_two_stream.py`; dashboard/query contracts mark `two-stream-v1` as teacher-forced side-information and `rerun_required`, but `RESULTS.md` section 20 still needs an explicitly approved conservative correction before this item is complete. No post-repair `two-stream-causal-v2` study has completed. |
 | 4 | Kernel evaluation split hygiene | Completed | deterministic train/validation/test selection in `benchmarks/advantage_probe.py`, `tests/test_advantage.py` |
 | 5 | Study-level paired statistics | Completed | paired bootstrap, sign-flip, equivalence, and power planning in `qllm/research_protocol.py`, study payloads, `tests/test_research_protocol.py` |
 | 6 | Full fairness comparison | Completed | claim-specific schemas and complete allowed/disallowed mismatch reporting in `research/claims.yaml` and `qllm/research_protocol.py` |

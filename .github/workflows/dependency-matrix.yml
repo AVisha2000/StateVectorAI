@@ -1,0 +1,112 @@
+name: Dependency matrix
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "scripts/check_dependency_profiles.py"
+      - "tests/test_dependency_profiles.py"
+      - "tests/test_tensorcircuit_mps.py"
+      - "tests/test_backend_capabilities.py"
+      - "tests/test_resource_accounting.py"
+      - "qllm/config.py"
+      - "qllm/registry.py"
+      - "qllm/quantum/**"
+      - "qllm/resources.py"
+      - "qllm/tracking.py"
+      - "qllm/dashboard/resources.py"
+      - "qllm/train/artifacts.py"
+      - ".github/workflows/dependency-matrix.yml"
+  push:
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "scripts/check_dependency_profiles.py"
+      - "tests/test_dependency_profiles.py"
+      - "tests/test_tensorcircuit_mps.py"
+      - "tests/test_backend_capabilities.py"
+      - "tests/test_resource_accounting.py"
+      - "qllm/config.py"
+      - "qllm/registry.py"
+      - "qllm/quantum/**"
+      - "qllm/resources.py"
+      - "qllm/tracking.py"
+      - "qllm/dashboard/resources.py"
+      - "qllm/train/artifacts.py"
+      - ".github/workflows/dependency-matrix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-profile:
+    name: CPU ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-cpu.txt
+      - name: Validate pinned profiles before installation
+        run: python scripts/check_dependency_profiles.py
+      - name: Install clean CPU profile
+        run: python -m pip install -r requirements-cpu.txt
+      - name: Install QLLM without re-resolving dependencies
+        run: python -m pip install --no-deps -e .
+      - name: Verify installed dependency consistency
+        run: |
+          python -m pip check
+          python scripts/check_dependency_profiles.py --runtime-profile cpu
+      - name: Import CPU surfaces
+        run: python -c "import flax, jax, optax, pennylane, qllm; print(jax.devices())"
+      - name: Run CPU profile regressions
+        run: >-
+          python -m pytest -q
+          tests/test_dependency_profiles.py
+          tests/test_config_data.py
+          tests/test_backend_capabilities.py
+          tests/test_resource_accounting.py
+
+  mps-profile:
+    name: MPS ${{ matrix.os }} / Python 3.12
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-cpu.txt
+            requirements-mps.txt
+      - name: Validate pinned profiles before installation
+        run: python scripts/check_dependency_profiles.py
+      - name: Install clean MPS profile
+        run: python -m pip install -r requirements-mps.txt
+      - name: Install QLLM without re-resolving dependencies
+        run: python -m pip install --no-deps -e .
+      - name: Verify installed dependency consistency
+        run: |
+          python -m pip check
+          python scripts/check_dependency_profiles.py --runtime-profile mps
+      - name: Require the optional backend import
+        run: python -c "import tensorcircuit; print(tensorcircuit.__version__)"
+      - name: Run the actual MPS behavior suite without optional skips
+        env:
+          QLLM_REQUIRE_TENSORCIRCUIT_MPS: "1"
+        run: python -m pytest -q -rs tests/test_tensorcircuit_mps.py

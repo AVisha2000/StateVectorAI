@@ -42,3 +42,24 @@ export function changeArchitecture(config, arch, options = {}) {
   }
   return next
 }
+
+export function changeQuantumBackend(quantum, backend) {
+  const next = cloneConfig(quantum || {})
+  next.backend = backend
+  next.diff_method = 'backprop'
+  next.shots = null
+  if (backend === 'tensorcircuit_mps') {
+    next.device = 'mps'
+    next.mps_max_bond_dimension = Number(next.mps_max_bond_dimension) > 0
+      ? Number(next.mps_max_bond_dimension)
+      : 64
+    next.mps_max_truncation_error = null
+    next.mps_relative_truncation = false
+  } else {
+    next.device = backend === 'tensorcircuit' ? 'statevector' : 'default.qubit'
+    next.mps_max_bond_dimension = null
+    next.mps_max_truncation_error = null
+    next.mps_relative_truncation = false
+  }
+  return next
+}

@@ -1,10 +1,9 @@
 """Quantum simulation backends behind a common protocol.
 
 A backend turns an (ansatz, n_qubits, n_layers) spec into plain JAX-callable
-functions, so every layer and metric is backend-agnostic. Both currently
-implemented adapters use dense exact statevectors in analytic mode; capability
-metadata records that fact so TensorCircuit is not mistaken for an approximate
-tensor-network execution path.
+functions, so every layer and metric is backend-agnostic. Dense exact and MPS
+execution are separate adapters: capability metadata makes the approximation
+and the absence of full-state access explicit.
 
 Returned callables:
 - ``expval_circuit``: (inputs(n,), weights) -> (n,) local Pauli-Z expvals
@@ -14,6 +13,7 @@ Returned callables:
 from __future__ import annotations
 
 from functools import lru_cache
+from importlib import import_module
 from typing import Callable, Protocol
 
 import jax.numpy as jnp
@@ -207,9 +207,98 @@ class TensorCircuitBackend:
         return fn
 
 
-BACKEND_REGISTRY = dict(
-    zip(BACKEND_TYPES, (PennyLaneBackend, TensorCircuitBackend), strict=True)
-)
+class TensorCircuitMPSBackend(TensorCircuitBackend):
+    """Approximate TensorCircuit-NG matrix-product-state adapter.
+
+    The gate sequence is inherited verbatim from ``TensorCircuitBackend`` so
+    dense-vs-MPS comparisons change only the state representation and static
+    fixed-bond SVD truncation rules. TensorCircuit-NG 1.7's data-dependent
+    threshold mode is rejected because it is not JAX-transform safe. Dense
+    state materialization is intentionally absent.
+    """
+
+    name = "tensorcircuit_mps"
+
+    def __init__(
+        self,
+        device: str = "mps",
+        diff_method: str = "backprop",
+        shots: int | None = None,
+        mps_max_bond_dimension: int | None = None,
+        mps_max_truncation_error: float | None = None,
+        mps_relative_truncation: bool = False,
+    ):
+        self.capabilities = resolve_backend_capabilities(
+            self.name,
+            device,
+            diff_method,
+            shots,
+            mps_max_bond_dimension,
+            mps_max_truncation_error,
+            mps_relative_truncation,
+        )
+        try:
+            tc = import_module("tensorcircuit")
+        except ImportError as exc:  # pragma: no cover - optional dep
+            raise ImportError(
+                "TensorCircuitMPSBackend requires the optional qllm[mps] "
+                "dependency; install it with `pip install 'qllm[mps]'`."
+            ) from exc
+        tc.set_backend("jax")
+        self._tc = tc
+        self.device = device
+        self.diff_method = diff_method
+        self.shots = shots
+        self.mps_max_bond_dimension = mps_max_bond_dimension
+        self.mps_max_truncation_error = mps_max_truncation_error
+        self.mps_relative_truncation = mps_relative_truncation
+        self.split_rules = {
+            "max_singular_values": mps_max_bond_dimension,
+            "relative": False,
+        }
+
+    def expval_circuit(self, n_qubits, n_layers, ansatz, readout="z"):
+        del n_layers  # encoded in the weights array shape
+        if readout not in READOUT_TYPES:
+            raise ValueError(
+                f"Unknown readout '{readout}'. Options: {READOUT_TYPES}"
+            )
+        tc = self._tc
+        split_rules = self.split_rules
+
+        def fn(inputs, weights):
+            c = tc.MPSCircuit(n_qubits, split=split_rules)
+            self._apply(c, inputs, weights, n_qubits, ansatz)
+            values = [
+                tc.backend.real(c.expectation_ps(z=[i], normalize=True))
+                for i in range(n_qubits)
+            ]
+            if readout == "zz":
+                values += [
+                    tc.backend.real(
+                        c.expectation_ps(z=[i, j], normalize=True)
+                    )
+                    for i in range(n_qubits)
+                    for j in range(i + 1, n_qubits)
+                ]
+            return jnp.stack(values, axis=-1)
+
+        return fn
+
+    def state_circuit(self, n_qubits, n_layers, ansatz):
+        del n_qubits, n_layers, ansatz
+        raise ValueError(
+            "State access is unavailable for tensorcircuit_mps execution: "
+            f"{self.capabilities.state_access.limitation}."
+        )
+
+
+BACKEND_REGISTRY = {
+    "pennylane": PennyLaneBackend,
+    "tensorcircuit": TensorCircuitBackend,
+    "tensorcircuit_mps": TensorCircuitMPSBackend,
+}
+assert tuple(BACKEND_REGISTRY) == BACKEND_TYPES
 
 
 def make_backend(
@@ -217,18 +306,38 @@ def make_backend(
     device: str = "default.qubit",
     diff_method: str = "backprop",
     shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> CircuitBackend:
     if backend not in BACKEND_REGISTRY:
         raise ValueError(
             f"Unknown backend '{backend}'. Available: {list(BACKEND_REGISTRY)}"
         )
     # Validate the selected execution mode before loading an optional backend.
-    resolve_backend_capabilities(backend, device, diff_method, shots)
+    resolve_backend_capabilities(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
     if backend == BACKEND_TYPES[0]:
         return PennyLaneBackend(device=device, diff_method=diff_method, shots=shots)
-    return BACKEND_REGISTRY[backend](
-        device=device, diff_method=diff_method, shots=shots
-    )
+    options = {
+        "device": device,
+        "diff_method": diff_method,
+        "shots": shots,
+    }
+    if backend == "tensorcircuit_mps":
+        options.update(
+            mps_max_bond_dimension=mps_max_bond_dimension,
+            mps_max_truncation_error=mps_max_truncation_error,
+            mps_relative_truncation=mps_relative_truncation,
+        )
+    return BACKEND_REGISTRY[backend](**options)
 
 
 @lru_cache(maxsize=None)
@@ -241,11 +350,22 @@ def get_expval_circuit(
     n_layers: int,
     ansatz: str,
     readout: str = "z",
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> Callable:
     """Cached circuit factory (all args hashable -> safe under retracing)."""
     if readout not in READOUT_TYPES:
         raise ValueError(f"Unknown readout '{readout}'. Options: {READOUT_TYPES}")
-    be = make_backend(backend, device, diff_method, shots)
+    be = make_backend(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
     return be.expval_circuit(n_qubits, n_layers, ansatz, readout=readout)
 
 
@@ -267,6 +387,31 @@ def get_state_circuit(
     ansatz: str,
     diff_method: str = "backprop",
     shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> Callable:
-    be = make_backend(backend, device, diff_method, shots)
+    capabilities = resolve_backend_capabilities(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
+    if not capabilities.state_access.supported:
+        raise ValueError(
+            f"State access is unavailable for {backend} execution mode: "
+            f"{capabilities.state_access.limitation}."
+        )
+    be = make_backend(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
     return be.state_circuit(n_qubits, n_layers, ansatz)

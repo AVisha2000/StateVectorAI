@@ -21,7 +21,7 @@ from flax.training.train_state import TrainState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qllm.config import DataConfig, TrainConfig  # noqa: E402
-from qllm.data.datasets import load_dataset  # noqa: E402
+from qllm.data.datasets import load_dataset_bundle  # noqa: E402
 from qllm.data.text import train_val_split  # noqa: E402
 from qllm.evaluation import markov_baseline_ppl  # noqa: E402
 from qllm.quantum.recurrent import QRNNLM  # noqa: E402
@@ -61,8 +61,11 @@ def main() -> None:
                                   gen_measured=1, gen_sequences=args.sequences,
                                   gen_len=args.length, gen_theta_x=tx,
                                   gen_steps_per_token=spt, gen_seed=0)
-                ids, tok = load_dataset(dcfg)
-                train_ids, val_ids = train_val_split(ids, dcfg.val_fraction)
+                bundle = load_dataset_bundle(dcfg)
+                tok = bundle.tokenizer
+                train_ids, val_ids = train_val_split(
+                    bundle.ids, dcfg.val_fraction
+                )
                 m3 = markov_baseline_ppl(train_ids, val_ids,
                                          tok.vocab_size, 3)
                 model = QRNNLM(vocab_size=tok.vocab_size, n_qubits=m + 1,

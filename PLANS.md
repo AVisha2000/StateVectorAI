@@ -142,7 +142,7 @@ can be smoke-tested outside this restricted environment.
 
 Owner: parent agent
 Started: 2026-07-11
-Status: awaiting explicit implementation approval
+Status: active; local implementation approved by the user on 2026-07-11
 Objective: close the remaining acceptance gaps in the requested engineering
 backlog, in priority order, without reimplementing behavior that is already
 present and freshly verified.
@@ -153,8 +153,69 @@ statistics, dashboard safety, durable queue recovery, checkpoint/resume,
 idempotent logging, runtime/resource telemetry, the claim ledger and warnings,
 and dependency/backend scaling. Existing research artifacts and the active
 claim-guided continuation plan remain untouched. No experiment execution,
-dependency installation, remote dashboard exposure, claim promotion, artifact
-or database rewrite, or Git delivery is authorized by this proposal.
+remote dashboard exposure, claim promotion, artifact or database rewrite, or
+Git delivery is authorized. A CPU-only optional backend dependency may be
+installed only after the requested Sol technical gate confirms the exact
+package and verifies that it cannot replace JAX/JAXLIB or alter CUDA.
+
+Current phase: phase 12 dependency/backend scaling analysis while the phase-3
+claim-text correction awaits explicit semantic approval.
+
+Phase 1 progress:
+
+- [x] Re-inspect the five synthetic-capable benchmark callers, dashboard model
+  helper, shared evaluation functions, and focused tests.
+- [x] Reproduce the hidden shared gap: 2-D `conditional_entropy` crashes and
+  2-D `markov_baseline_ppl` can silently return a meaningless value.
+- [x] Obtain the requested Sol technical gate. Verdict: PASS with raw
+  within-trajectory observation weighting and strict 1-D compatibility.
+- [x] Make evaluation metrics and generative reference sampling
+  trajectory-aware with boundary sentinels.
+- [x] Migrate callers to `load_dataset_bundle`/`sample_batch` without running
+  research workloads.
+- [x] Run focused, change-aware, full CPU, diff, and fresh-verifier checks.
+- [x] Correct the completion audit only after deterministic evidence proves the
+  expanded acceptance criteria.
+
+Phase 12 implementation packet (awaiting Sol technical gate):
+
+- **Objective:** close the dependency/backend acceptance gap with one real,
+  CPU-testable approximate execution path and clean-install evidence, while
+  keeping approximate rows distinguishable from dense exact simulation.
+- **Backend scope:** add a distinct optional `tensorcircuit_mps` backend with
+  an explicit positive bond limit, optional truncation threshold, analytic
+  expectation readout, and no dense state access. Thread its settings through
+  validation, cached circuit factories, quantum layers, manifests, resource
+  estimates, and the local model builder.
+- **Dependency scope:** validate the existing CPU/WSL top-level pinned profiles,
+  add a pinned optional MPS profile, make change-aware verification notice all
+  profile files, and add clean Windows/Linux CPU installation CI. Describe
+  these honestly as top-level pinned profiles rather than transitive locks.
+- **Acceptance evidence:** deterministic four-qubit overlap and gradient parity
+  at a sufficient bond dimension; a low-bond fixture that demonstrates the
+  approximation; explicit nonlocal ring-edge coverage; JIT/nested-vmap
+  coverage; state-access rejection before an optional import; capability-aware
+  default diagnostics with statevector-only metrics explicitly unsupported;
+  exact approximation fields in capability/run metadata; no dense-storage or
+  observed-convergence claim; profile drift regressions; clean isolated
+  CPU/MPS installs whose MPS job runs (rather than skips) the optional behavior
+  suite; focused, change-aware, full CPU, frontend, and fresh-verifier checks.
+- **Risks:** ring-CNOT routing introduces additional MPS truncation points;
+  TensorCircuit uses process-global backend selection; SVD differentiation can
+  be numerically sensitive; the configured SVD error threshold is not a
+  guaranteed realized error when the bond cap also binds; the bound
+  `2*n_qubits*chi**2` covers stored post-truncation MPS state-tensor elements
+  only, not AD/gate/SWAP intermediates, peak memory, or runtime; CI proves
+  current clean resolution but not a hash-locked transitive environment.
+- **Observed implementation constraint:** TensorCircuit-NG 1.7 chooses retained
+  rank from traced singular values when `max_truncation_err` is active, which
+  raises under QLLM's JIT/`vmap` training path. Sol approved a fail-closed
+  fixed-bond contract: non-null error thresholds and relative truncation are
+  recognized but rejected before optional import; there is no eager-only or
+  silent fallback mode.
+- **Gates:** no GPU/WSL/CUDA execution, JAX/JAXLIB replacement, long training,
+  artifact/database mutation, claim edit, or Git delivery. The exact optional
+  install and implementation packet must receive Sol PASS before code changes.
 
 Audit baseline:
 
@@ -287,6 +348,48 @@ is partial/deferred. All other requested items have implementation and focused
 regression evidence. No experiment, service, job, dependency, database, or
 artifact was changed.
 ```
+
+Phase 1 validation:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_v07.py
+tests/test_config_data.py --basetemp .tmp/pytest-phase1-integration
+PASS: 55 passed in 14.39s.
+.venv/Scripts/python.exe -m pytest -q tests/test_config_data.py
+tests/test_quantum_data.py tests/test_contextual.py
+tests/test_seq_cancellation.py tests/test_v07.py tests/test_durable_runs.py
+tests/test_dashboard_lab.py tests/test_integration.py
+--basetemp .tmp/pytest-phase1-focused
+PASS: 196 passed with 3 existing JAX complex128-to-complex64 warnings in
+68.14s.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
+PASS in 363.3s: agent setup/tests, dashboard tests, benchmark tests, and the
+complete Python suite.
+isolated CPU micro-smoke: benchmarks/memory_sweep.py --suite
+phase1-boundary-smoke --memory-qubits 2 --models planted --smoke
+PASS in 1.8s: boundary-aware Markov and planted evaluation completed under
+`.tmp/phase1-smoke`; the live results database and existing artifacts were not
+touched.
+git diff --check
+PASS: no whitespace errors; Windows line-ending notices only.
+fresh Sol verifier
+PASS: trajectory semantics, caller migration, regression coverage, and
+completion-audit correction are acceptance-ready; no claim was strengthened.
+```
+
+Phase 3 claim-text gate:
+
+- Sol verdict: `HUMAN_GATE`. The proposed `RESULTS.md` section-20 correction is
+  scientifically conservative and technically approved, but the repository
+  requires explicit semantic approval for claim-bearing text.
+- Until that approval, the historical numbers remain untouched, the dashboard
+  and claim ledger continue to mark `two-stream-v1` as
+  `teacher_forced_side_information` and `rerun_required`, and the completion
+  audit records this item as partial rather than complete.
+- Approved wording constraints are ready: preserve numbers/provenance, remove
+  strict-perplexity/lead interpretation, state that no strict autoregressive
+  conclusion is supported, and name `two-stream-causal-v2` as the required
+  paired rerun.
 
 ## Active plan: claim-guided research continuation
 

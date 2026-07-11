@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import ModelDiagram from '../components/ModelDiagram'
-import { changeArchitecture, cloneConfig, ensureBlocks } from '../modelConfig'
+import { changeArchitecture, changeQuantumBackend, cloneConfig, ensureBlocks } from '../modelConfig'
 
 function flatToNested(flat = {}) {
   const out = { model: {}, train: {}, data: {}, tracking: {} }
@@ -176,6 +176,22 @@ export default function Models() {
           ...(next.model.quantum || {}),
           [field]: value,
         }
+      }
+      return next
+    })
+  }
+
+  function editQuantumBackend(backend) {
+    setDraft((previous) => {
+      const next = clone(previous)
+      const block = next.model.blocks?.[selectedLayer]
+      if (block) {
+        block.quantum = changeQuantumBackend(
+          block.quantum || next.model.quantum || {},
+          backend,
+        )
+      } else {
+        next.model.quantum = changeQuantumBackend(next.model.quantum || {}, backend)
       }
       return next
     })
@@ -492,8 +508,11 @@ export default function Models() {
                 <label>Depth<input type="number" min="1" value={activeQuantum.n_circuit_layers ?? ''} onChange={(e) => editQuantum('n_circuit_layers', Number(e.target.value))} /></label>
                 <label>Ansatz<select value={activeQuantum.ansatz || ansatzTypes[0]} onChange={(e) => editQuantum('ansatz', e.target.value)}>{ansatzTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
                 <label>Readout<select value={activeQuantum.readout || readoutTypes[0]} onChange={(e) => editQuantum('readout', e.target.value)}>{readoutTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-                <label>Backend<select value={activeQuantum.backend || backendTypes[0]} onChange={(e) => editQuantum('backend', e.target.value)}>{backendTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Backend<select value={activeQuantum.backend || backendTypes[0]} onChange={(e) => editQuantumBackend(e.target.value)}>{backendTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
                 <label>Shots<input value={activeQuantum.shots ?? ''} placeholder="analytic" onChange={(e) => editQuantum('shots', e.target.value ? Number(e.target.value) : null)} /></label>
+                {activeQuantum.backend === 'tensorcircuit_mps' && (
+                  <label>Maximum bond dimension<input type="number" min="1" value={activeQuantum.mps_max_bond_dimension ?? ''} onChange={(e) => editQuantum('mps_max_bond_dimension', Number(e.target.value))} /></label>
+                )}
                 <label>Trainable
                   <select value={String(activeQuantum.trainable ?? true)} onChange={(e) => editQuantum('trainable', e.target.value === 'true')}>
                     <option value="true">trainable</option>
@@ -501,6 +520,11 @@ export default function Models() {
                   </select>
                 </label>
               </div>
+              {activeQuantum.backend === 'tensorcircuit_mps' && (
+                <div className="alert">
+                  MPS is approximate and supports a fixed bond limit only. Error-threshold rank selection is incompatible with QLLM's JIT/vmap path; realized error, convergence, and peak memory remain unmeasured.
+                </div>
+              )}
             </section>
           )}
 

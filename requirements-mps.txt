@@ -1,0 +1,5 @@
+# Optional CPU matrix-product-state profile. This extends the authoritative
+# CPU profile with the exact TensorCircuit-NG version exercised by MPS CI.
+# It is a top-level pinned profile, not a hash-locked transitive environment.
+-r requirements-cpu.txt
+tensorcircuit-ng==1.7.0

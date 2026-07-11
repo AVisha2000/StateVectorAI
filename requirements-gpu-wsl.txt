@@ -12,6 +12,7 @@ mlflow-tracing==3.13.0
 mlflow==3.13.0
 numpy==2.4.4
 optax==0.2.8
+orbax-checkpoint==0.10.3
 pennylane==0.45.0
 pennylane_lightning==0.45.0
 pytest==9.0.3

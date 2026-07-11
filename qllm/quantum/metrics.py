@@ -14,13 +14,22 @@ expval circuit protocol:
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from .backends import get_expval_circuit, get_state_circuit
+from .capabilities import Capability, resolve_backend_capabilities
 from .circuits import weight_shape
+
+
+GRADIENT_METRIC_KEYS = (
+    "grad_var_first_param",
+    "grad_var_mean",
+    "grad_var_max",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -54,9 +63,26 @@ def average_meyer_wallach(
     device: str = "default.qubit",
     n_samples: int = 64,
     seed: int = 0,
+    *,
+    diff_method: str = "backprop",
+    shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> float:
     """Mean Q over circuits with uniform-random parameters (zero data input)."""
-    state_fn = get_state_circuit(backend, device, n_qubits, n_layers, ansatz)
+    state_fn = get_state_circuit(
+        backend,
+        device,
+        n_qubits,
+        n_layers,
+        ansatz,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
     key = jax.random.PRNGKey(seed)
     shape = weight_shape(n_layers, n_qubits)
     weights = jax.random.uniform(
@@ -81,13 +107,30 @@ def expressibility_kl(
     n_pairs: int = 300,
     n_bins: int = 75,
     seed: int = 0,
+    *,
+    diff_method: str = "backprop",
+    shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> float:
     """KL( empirical fidelity histogram || Haar ). Lower = more expressive.
 
     Haar bin mass uses the analytic CDF P(F <= f) = 1 - (1 - f)^(N - 1),
     N = 2**n_qubits.
     """
-    state_fn = get_state_circuit(backend, device, n_qubits, n_layers, ansatz)
+    state_fn = get_state_circuit(
+        backend,
+        device,
+        n_qubits,
+        n_layers,
+        ansatz,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
     key = jax.random.PRNGKey(seed)
     shape = weight_shape(n_layers, n_qubits)
     w1, w2 = jax.random.uniform(
@@ -127,6 +170,12 @@ def gradient_variance(
     device: str = "default.qubit",
     n_samples: int = 100,
     seed: int = 0,
+    *,
+    diff_method: str = "backprop",
+    shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> dict[str, float]:
     """Variance of the cost gradient over random parameter initializations.
 
@@ -136,7 +185,17 @@ def gradient_variance(
     variance over all parameters.
     """
     circuit = get_expval_circuit(
-        backend, device, "backprop", None, n_qubits, n_layers, ansatz
+        backend,
+        device,
+        diff_method,
+        shots,
+        n_qubits,
+        n_layers,
+        ansatz,
+        "z",
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
     )
     inputs = jnp.zeros(n_qubits)
 
@@ -157,6 +216,125 @@ def gradient_variance(
         "grad_var_mean": float(jnp.mean(var_per_param)),
         "grad_var_max": float(jnp.max(var_per_param)),
     }
+
+
+def _diagnostic_status(
+    capability: Capability,
+    *,
+    measured: bool,
+) -> dict[str, Any]:
+    """Describe whether one diagnostic was measured and why."""
+    return {
+        "status": "measured" if measured else capability.status,
+        "available": measured,
+        "semantics": capability.semantics,
+        "reason": None if measured else capability.limitation,
+    }
+
+
+def quantum_diagnostics(
+    n_qubits: int,
+    n_layers: int,
+    ansatz: str = "reuploading",
+    backend: str = "pennylane",
+    device: str = "default.qubit",
+    n_grad_samples: int = 64,
+    n_pairs: int = 200,
+    n_mw_samples: int = 32,
+    seed: int = 0,
+    *,
+    diff_method: str = "backprop",
+    shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
+) -> dict[str, Any]:
+    """Collect only diagnostics supported by the configured backend mode.
+
+    Flat metric keys are retained for existing consumers. Unsupported metrics
+    are explicit ``None`` values, while ``availability`` records the backend
+    contract and reason instead of silently falling back to a dense simulator.
+    """
+    capabilities = resolve_backend_capabilities(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    )
+    diagnostics: dict[str, Any] = {
+        key: None for key in GRADIENT_METRIC_KEYS
+    }
+    gradient_measured = capabilities.gradients.supported
+    if gradient_measured:
+        diagnostics.update(
+            gradient_variance(
+                n_qubits,
+                n_layers,
+                ansatz=ansatz,
+                backend=backend,
+                device=device,
+                n_samples=n_grad_samples,
+                seed=seed,
+                diff_method=diff_method,
+                shots=shots,
+                mps_max_bond_dimension=mps_max_bond_dimension,
+                mps_max_truncation_error=mps_max_truncation_error,
+                mps_relative_truncation=mps_relative_truncation,
+            )
+        )
+
+    state_measured = capabilities.state_access.supported
+    if state_measured:
+        diagnostics["meyer_wallach_q"] = average_meyer_wallach(
+            n_qubits,
+            n_layers,
+            ansatz=ansatz,
+            backend=backend,
+            device=device,
+            n_samples=n_mw_samples,
+            seed=seed,
+            diff_method=diff_method,
+            shots=shots,
+            mps_max_bond_dimension=mps_max_bond_dimension,
+            mps_max_truncation_error=mps_max_truncation_error,
+            mps_relative_truncation=mps_relative_truncation,
+        )
+        diagnostics["expressibility_kl"] = expressibility_kl(
+            n_qubits,
+            n_layers,
+            ansatz=ansatz,
+            backend=backend,
+            device=device,
+            n_pairs=n_pairs,
+            seed=seed,
+            diff_method=diff_method,
+            shots=shots,
+            mps_max_bond_dimension=mps_max_bond_dimension,
+            mps_max_truncation_error=mps_max_truncation_error,
+            mps_relative_truncation=mps_relative_truncation,
+        )
+    else:
+        diagnostics["meyer_wallach_q"] = None
+        diagnostics["expressibility_kl"] = None
+
+    diagnostics["availability"] = {
+        "gradient_variance": _diagnostic_status(
+            capabilities.gradients,
+            measured=gradient_measured,
+        ),
+        "meyer_wallach_q": _diagnostic_status(
+            capabilities.state_access,
+            measured=state_measured,
+        ),
+        "expressibility_kl": _diagnostic_status(
+            capabilities.state_access,
+            measured=state_measured,
+        ),
+    }
+    return diagnostics
 
 
 def parameter_shift_gradient_snr(
@@ -243,21 +421,34 @@ def scaling_sweep(
     n_pairs: int = 200,
     n_mw_samples: int = 32,
     seed: int = 0,
-) -> list[dict[str, float]]:
+    *,
+    diff_method: str = "backprop",
+    shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
+) -> list[dict[str, Any]]:
     """The Phase-3 harness: all diagnostics across a qubit-count sweep."""
     rows = []
     for n in qubit_counts:
-        row: dict[str, float] = {"n_qubits": n, "n_layers": n_layers}
+        row: dict[str, Any] = {"n_qubits": n, "n_layers": n_layers}
         row.update(
-            gradient_variance(
-                n, n_layers, ansatz, backend, device, n_grad_samples, seed
+            quantum_diagnostics(
+                n,
+                n_layers,
+                ansatz=ansatz,
+                backend=backend,
+                device=device,
+                n_grad_samples=n_grad_samples,
+                n_pairs=n_pairs,
+                n_mw_samples=n_mw_samples,
+                seed=seed,
+                diff_method=diff_method,
+                shots=shots,
+                mps_max_bond_dimension=mps_max_bond_dimension,
+                mps_max_truncation_error=mps_max_truncation_error,
+                mps_relative_truncation=mps_relative_truncation,
             )
-        )
-        row["meyer_wallach_q"] = average_meyer_wallach(
-            n, n_layers, ansatz, backend, device, n_mw_samples, seed
-        )
-        row["expressibility_kl"] = expressibility_kl(
-            n, n_layers, ansatz, backend, device, n_pairs, seed=seed
         )
         rows.append(row)
     return rows

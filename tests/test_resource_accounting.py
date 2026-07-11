@@ -6,6 +6,14 @@ import sqlite3
 import jax
 import pytest
 
+from qllm.config import (
+    BlockConfig,
+    ExperimentConfig,
+    ModelConfig,
+    QuantumConfig,
+    TrainConfig,
+)
+from qllm.dashboard.resources import quantum_resource_estimate
 from qllm.resources import (
     device_memory_evidence,
     resolve_execution_device,
@@ -273,3 +281,239 @@ def test_resultsdb_resource_migration_decode_and_first_result_preservation(tmp_p
     assert api_row["resources"]["timing"]["attempt_wall_seconds"] == 0.2
     detail = run_detail(db, api_row["id"])
     assert detail["resources"]["timing"]["attempt_wall_seconds"] == 0.2
+
+
+def test_manifest_environment_records_optional_backend_distributions(
+    monkeypatch, tmp_path
+):
+    absent = {"tensorcircuit-ng", "tensornetwork-ng"}
+
+    def fake_version(name):
+        if name in absent:
+            from importlib.metadata import PackageNotFoundError
+
+            raise PackageNotFoundError(name)
+        return f"test-{name}"
+
+    monkeypatch.setattr(
+        "qllm.train.artifacts.importlib.metadata.version", fake_version
+    )
+    manifest = build_record_manifest(
+        suite="environment-test",
+        variant="classical",
+        dataset="tiny",
+        seed=1,
+        steps=2,
+        repo_root=tmp_path,
+    )
+    packages = manifest["environment"]["packages"]
+    assert packages["pennylane-lightning"] == "test-pennylane-lightning"
+    assert packages["PyYAML"] == "test-PyYAML"
+    assert packages["tensorcircuit-ng"] is None
+    assert packages["tensornetwork-ng"] is None
+    assert manifest["environment_hash"] == manifest["environment"]["hash"]
+
+
+def test_static_plan_passes_global_and_per_block_mps_capability_options(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_capabilities(
+        backend,
+        device,
+        diff_method,
+        shots,
+        *,
+        mps_max_bond_dimension=None,
+        mps_max_truncation_error=None,
+        mps_relative_truncation=False,
+    ):
+        calls.append(
+            {
+                "backend": backend,
+                "device": device,
+                "diff_method": diff_method,
+                "shots": shots,
+                "bond": mps_max_bond_dimension,
+                "threshold": mps_max_truncation_error,
+                "relative": mps_relative_truncation,
+            }
+        )
+        return {
+            "backend": backend,
+            "exactness": "approximate",
+            "representation": "matrix_product_state",
+            "approximation": {"method": "svd_truncation"},
+            "capabilities": {},
+        }
+
+    monkeypatch.setattr(
+        "qllm.resources.backend_capabilities_payload", fake_capabilities
+    )
+    global_q = QuantumConfig(
+        n_qubits=3,
+        n_circuit_layers=1,
+        backend="tensorcircuit_mps",
+        device="mps",
+        mps_max_bond_dimension=4,
+        mps_max_truncation_error=None,
+        mps_relative_truncation=False,
+    )
+    block_q = dataclasses.replace(
+        global_q,
+        n_qubits=5,
+        n_circuits=2,
+        mps_max_bond_dimension=7,
+        mps_max_truncation_error=None,
+        mps_relative_truncation=False,
+    )
+    cfg = ExperimentConfig(
+        model=ModelConfig(
+            embed_type="quantum",
+            quantum=global_q,
+            blocks=(
+                BlockConfig(
+                    attn_type="classical", ffn_type="quantum", quantum=block_q
+                ),
+            ),
+        ),
+        train=TrainConfig(batch_size=1, seq_len=2),
+    )
+    plan = static_resource_plan(
+        cfg,
+        n_params=12,
+        requested_device="cpu",
+        resolved_device=jax.devices("cpu")[0],
+    )
+
+    assert {(call["bond"], call["threshold"], call["relative"]) for call in calls} == {
+        (4, None, False),
+        (7, None, False),
+    }
+    assert set(plan["quantum_backend"]["components"]) == {
+        "embedding",
+        "block_0.feed_forward",
+    }
+
+
+def test_mps_resource_evidence_separates_logical_dimension_from_storage_bound():
+    qcfg = QuantumConfig(
+        n_qubits=5,
+        n_circuit_layers=3,
+        n_circuits=2,
+        backend="tensorcircuit_mps",
+        device="mps",
+        mps_max_bond_dimension=3,
+        mps_max_truncation_error=None,
+        mps_relative_truncation=False,
+    )
+    cfg = ExperimentConfig(
+        model=ModelConfig(ffn_type="quantum", quantum=qcfg, n_blocks=1),
+        train=TrainConfig(batch_size=2, seq_len=4),
+    )
+    plan = static_resource_plan(
+        cfg,
+        n_params=12,
+        requested_device="cpu",
+        resolved_device=jax.devices("cpu")[0],
+    )
+    component = plan["quantum_backend"]["components"]["block_0.feed_forward"]
+    storage = component["storage"]
+
+    assert plan["state_dimension"]["value"] == 2**5
+    assert plan["state_dimension"]["allocation_status"] == (
+        "not_an_allocation_measurement"
+    )
+    assert "not evidence" in plan["state_dimension"]["basis"]
+    assert component["representation"] == "matrix_product_state"
+    assert storage["stored_state_tensor_elements_per_instance"] == 2 * 5 * 3**2
+    assert storage["stored_state_tensor_elements_per_instance_status"] == (
+        "configured_conservative_upper_bound"
+    )
+    assert storage["observed_bond_dimension"] is None
+    assert storage["observed_bond_dimension_status"] == "unmeasured"
+    assert storage["peak_memory_bytes"] is None
+    assert storage["peak_memory_status"] == "unmeasured"
+    assert "automatic-differentiation intermediates" in storage["excludes"]
+    approximation = component["approximation_evidence"]
+    assert approximation["truncation_mode"] == "fixed_bond_dimension_only"
+    assert approximation["threshold_support"] == (
+        "unsupported_for_jit_vmap_training"
+    )
+    assert approximation["configured_svd_split_threshold"] is None
+    assert approximation["configured_svd_split_threshold_status"] == (
+        "unsupported_for_jit_vmap_training"
+    )
+    assert approximation["relative_truncation"] is False
+    assert approximation["relative_truncation_status"] == (
+        "unsupported_for_jit_vmap_training"
+    )
+    assert approximation["realized_truncation_error"] is None
+    assert approximation["realized_truncation_error_status"] == "unmeasured"
+    assert approximation["discarded_weight_status"] == "unmeasured"
+    assert approximation["convergence_status"] == "unmeasured"
+
+
+def test_dashboard_estimate_covers_global_per_block_mps_and_native_components():
+    global_q = QuantumConfig(n_qubits=2, n_circuit_layers=2)
+    mps_q = QuantumConfig(
+        n_qubits=5,
+        n_circuit_layers=3,
+        n_circuits=2,
+        backend="tensorcircuit_mps",
+        device="mps",
+        mps_max_bond_dimension=3,
+        mps_max_truncation_error=None,
+        mps_relative_truncation=False,
+    )
+    native_q = QuantumConfig(n_qubits=3, n_circuit_layers=4)
+    cfg = ExperimentConfig(
+        model=ModelConfig(
+            embed_type="quantum",
+            quantum=global_q,
+            blocks=(
+                BlockConfig(
+                    attn_type="classical", ffn_type="quantum", quantum=mps_q
+                ),
+                BlockConfig(
+                    attn_type="classical",
+                    ffn_type="quantum_linear",
+                    quantum=native_q,
+                ),
+            ),
+        ),
+        train=TrainConfig(batch_size=2, seq_len=4),
+    )
+
+    estimate = quantum_resource_estimate(cfg)
+    components = estimate["components"]
+    assert set(components) == {
+        "embedding",
+        "block_0.feed_forward",
+        "block_1.feed_forward",
+    }
+    assert components["embedding"]["representation"] == "dense_statevector"
+    assert components["embedding"]["storage"][
+        "stored_state_tensor_elements_per_instance"
+    ] == 2**2
+    mps = components["block_0.feed_forward"]
+    assert mps["actual_backend"] == "tensorcircuit_mps"
+    assert mps["storage"]["stored_state_tensor_elements_per_instance"] == (
+        2 * 5 * 3**2
+    )
+    native = components["block_1.feed_forward"]
+    assert native["actual_backend"] == "jax_native_statevector"
+    assert native["representation"] == "dense_statevector"
+    assert native["storage"]["stored_state_tensor_elements_per_instance"] == 2**3
+    assert estimate["state_dim"] == 2**5
+    assert estimate["component_multiplier"] == 4
+    assert estimate["score_status"].startswith("coarse_configured")
+    assert estimate["band_status"].startswith("coarse_threshold")
+    assert estimate["peak_memory"]["bytes"] is None
+    assert estimate["peak_memory"]["status"] == "unmeasured"
+    assert "intermediates are excluded" in estimate["peak_memory"]["caveat"]
+    assert any(
+        "Threshold and relative truncation are unsupported" in item
+        for item in estimate["advice"]
+    )

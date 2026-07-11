@@ -739,7 +739,9 @@ def test_dataset_import_api_forwards_provenance_controls(monkeypatch, tmp_path):
     assert choices["attention"] == [
         "classical", "quantum_proj", "quantum_qkv",
     ]
-    assert choices["backend"] == ["pennylane", "tensorcircuit"]
+    assert choices["backend"] == [
+        "pennylane", "tensorcircuit", "tensorcircuit_mps",
+    ]
     assert choices["quantum_architecture"] == [
         "qrnn", "contextual_qrnn", "routed_contextual",
     ]

@@ -4,6 +4,16 @@ The portal can queue GPU-targeted runs, but it will only enable them once
 JAX actually reports a GPU-backed device. The UI does not install CUDA for
 you; it reports readiness and blocks unsafe GPU submissions.
 
+The checked-in dependency files are exact top-level pinned profiles, not
+hash-locked transitive environments. Clean CI proves the current native CPU and
+optional CPU MPS resolutions on Windows/Linux; it does not claim CUDA/driver
+compatibility. The WSL profile relationship can be checked without installing
+anything:
+
+```bash
+python scripts/check_dependency_profiles.py
+```
+
 JAX dispatches most project code to whatever device it finds. The
 hand-rolled quantum ops are plain `jnp`, so they follow JAX placement.
 PennyLane's `default.qubit` path also uses the JAX interface in this repo,
@@ -85,6 +95,9 @@ pip install --no-deps -e .
 intentional: the profile supplies the project dependencies without asking pip
 to resolve the base JAX declaration again. The checked-in
 `scripts/setup_wsl_gpu.sh` performs this sequence and verifies GPU visibility.
+The static dependency-profile checker also requires this file to equal the CPU
+profile minus exactly `jax` and `jaxlib`; only an actual WSL run can prove CUDA
+visibility.
 
 ## 4. Sanity-check the GPU path
 

@@ -23,8 +23,8 @@ from flax import linen as nn
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qllm.config import DataConfig  # noqa: E402
-from qllm.data.datasets import load_dataset  # noqa: E402
-from qllm.data.text import train_val_split  # noqa: E402
+from qllm.data.datasets import load_dataset_bundle  # noqa: E402
+from qllm.data.text import sample_batch, train_val_split  # noqa: E402
 from qllm.evaluation import conditional_entropy  # noqa: E402
 from qllm.quantum.interference_head import (  # noqa: E402
     InterferenceHead, LinearHead, MixtureHead)
@@ -69,8 +69,9 @@ def main() -> None:
         dcfg = DataConfig(kind="seq_cancellation", ctx_observables=args.vocab,
                           ctx_context_size=args.window, seq_cancel_density=dens,
                           gen_sequences=64, gen_len=2048, gen_seed=0)
-        ids, tok = load_dataset(dcfg)
-        train_ids, val_ids = train_val_split(ids, 0.1)
+        bundle = load_dataset_bundle(dcfg)
+        tok = bundle.tokenizer
+        train_ids, val_ids = train_val_split(bundle.ids, 0.1)
         floor_bits = conditional_entropy(val_ids, tok.vocab_size, args.window)
         floor_ppl = float(2 ** floor_bits)
         dataset = f"seqcancel-d{dens:.2f}"
@@ -111,17 +112,15 @@ def main() -> None:
 
                 bs = 16
                 for _ in range(args.steps):
-                    starts = rng.integers(0, len(train_ids) - args.seq_len - 1,
-                                          size=bs)
-                    batch = np.stack([train_ids[s:s + args.seq_len + 1]
-                                      for s in starts])
+                    batch = sample_batch(
+                        rng, train_ids, batch_size=bs, seq_len=args.seq_len
+                    )
                     hp, st, _ = step(hp, st, jnp.asarray(batch))
 
                 # eval CE on val
-                vstarts = rng.integers(0, len(val_ids) - args.seq_len - 1,
-                                       size=64)
-                vbatch = jnp.asarray(np.stack(
-                    [val_ids[s:s + args.seq_len + 1] for s in vstarts]))
+                vbatch = jnp.asarray(sample_batch(
+                    rng, val_ids, batch_size=64, seq_len=args.seq_len
+                ))
                 feats = featurize(vbatch[:, :-1])
                 lg = head.apply({"params": hp}, feats)
                 ce = float(optax.softmax_cross_entropy_with_integer_labels(

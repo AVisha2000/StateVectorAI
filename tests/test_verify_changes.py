@@ -100,6 +100,29 @@ def test_frontend_changes_run_behavior_tests_before_build() -> None:
     assert ids.index("dashboard-frontend-tests") < ids.index("dashboard-build")
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "pyproject.toml",
+        "requirements.txt",
+        "requirements-cpu.txt",
+        "requirements-gpu-wsl.txt",
+        "requirements-mps.txt",
+        "scripts/check_dependency_profiles.py",
+        "tests/test_dependency_profiles.py",
+        ".github/workflows/dependency-matrix.yml",
+    ],
+)
+def test_dependency_paths_run_profile_validation_and_core_tests(path: str) -> None:
+    checks = verifier.select_checks([path], Path(__file__).resolve().parents[1])
+    ids = {check.id for check in checks}
+    assert {
+        "dependency-profile-static",
+        "dependency-profile-tests",
+        "python-tests",
+    } <= ids
+
+
 def test_fingerprint_changes_when_worktree_content_changes(tmp_path: Path) -> None:
     path = tmp_path / "module.py"
     path.write_text("value = 1\n", encoding="utf-8")

@@ -27,26 +27,47 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+
+def _trajectory_rows(ids: np.ndarray, *, dtype) -> np.ndarray:
+    """Return a 2-D view where every row is an independent trajectory."""
+    array = np.asarray(ids, dtype=dtype)
+    if array.ndim == 1:
+        return array[None, :]
+    if array.ndim == 2:
+        return array
+    raise ValueError("token ids must be a 1-D stream or 2-D trajectory matrix")
+
+
 # ---------------------------------------------------------------------------
 # Information-theoretic floors
 # ---------------------------------------------------------------------------
 
 
 def conditional_entropy(ids: np.ndarray, vocab: int, k: int) -> float:
-    """Empirical H(next | previous k) in bits/token."""
-    ids = np.asarray(ids, dtype=np.int64)
-    ctx = np.zeros(len(ids) - k, dtype=np.int64)
-    for j in range(k):
-        ctx = ctx * vocab + ids[j : len(ids) - k + j]
-    nxt = ids[k:]
+    """Empirical H(next | previous k) in bits/token.
+
+    A 2-D input represents independent trajectories. Contexts never cross
+    rows, and the pooled estimate weights rows by their number of valid
+    next-token observations.
+    """
     joint: dict[tuple[int, int], int] = {}
-    for c, x in zip(ctx, nxt):
-        key = (int(c), int(x))
-        joint[key] = joint.get(key, 0) + 1
+    total = 0
+    for row in _trajectory_rows(ids, dtype=np.int64):
+        n = len(row) - k
+        if n <= 0:
+            continue
+        ctx = np.zeros(n, dtype=np.int64)
+        for j in range(k):
+            ctx = ctx * vocab + row[j : n + j]
+        for c, x in zip(ctx, row[k:], strict=True):
+            key = (int(c), int(x))
+            joint[key] = joint.get(key, 0) + 1
+        total += n
     ctx_tot: dict[int, int] = {}
     for (c, _), n in joint.items():
         ctx_tot[c] = ctx_tot.get(c, 0) + n
-    total = len(nxt)
+    if total == 0:
+        return 0.0
     return -sum(
         n / total * math.log2(n / ctx_tot[c]) for (c, _), n in joint.items()
     )
@@ -59,58 +80,76 @@ def markov_baseline_ppl(
     order: int,
     smoothing: float = 0.5,
 ) -> float:
-    """Perplexity of an order-k smoothed Markov model (train -> val)."""
-    train_ids = np.asarray(train_ids, dtype=np.int64)
-    val_ids = np.asarray(val_ids, dtype=np.int64)
+    """Perplexity of an order-k smoothed Markov model (train -> val).
+
+    For trajectory matrices, fitting and scoring use only within-row
+    transitions. Validation observations are pooled by count.
+    """
 
     counts: dict[tuple, np.ndarray] = {}
-    for i in range(len(train_ids) - order):
-        ctx = tuple(train_ids[i : i + order])
-        if ctx not in counts:
-            counts[ctx] = np.full(vocab, smoothing)
-        counts[ctx][train_ids[i + order]] += 1
+    for row in _trajectory_rows(train_ids, dtype=np.int64):
+        for i in range(max(len(row) - order, 0)):
+            ctx = tuple(row[i : i + order])
+            if ctx not in counts:
+                counts[ctx] = np.full(vocab, smoothing)
+            counts[ctx][row[i + order]] += 1
 
     uniform_logp = -math.log(vocab)
     nll = 0.0
-    n = len(val_ids) - order
-    for i in range(n):
-        ctx = tuple(val_ids[i : i + order])
-        c = counts.get(ctx)
-        if c is None:
-            nll -= uniform_logp
-        else:
-            nll -= math.log(c[val_ids[i + order]] / c.sum())
+    n = 0
+    for row in _trajectory_rows(val_ids, dtype=np.int64):
+        row_observations = max(len(row) - order, 0)
+        for i in range(row_observations):
+            ctx = tuple(row[i : i + order])
+            c = counts.get(ctx)
+            if c is None:
+                nll -= uniform_logp
+            else:
+                nll -= math.log(c[row[i + order]] / c.sum())
+        n += row_observations
     return math.exp(nll / max(n, 1))
 
 
 def kgram_tv_distance(
     a: np.ndarray, b: np.ndarray, vocab: int, k: int
 ) -> float:
-    """Total-variation distance between k-gram distributions of two corpora."""
+    """Total-variation distance between within-trajectory k-gram distributions."""
 
     def dist(ids):
-        ids = np.asarray(ids, dtype=np.int64)
-        idx = np.zeros(len(ids) - k + 1, dtype=np.int64)
-        for j in range(k):
-            idx = idx * vocab + ids[j : len(ids) - k + 1 + j]
-        d = np.bincount(idx, minlength=vocab**k).astype(float)
+        d = np.zeros(vocab**k, dtype=float)
+        for row in _trajectory_rows(ids, dtype=np.int64):
+            n = len(row) - k + 1
+            if n <= 0:
+                continue
+            idx = np.zeros(n, dtype=np.int64)
+            for j in range(k):
+                idx = idx * vocab + row[j : n + j]
+            d += np.bincount(idx, minlength=vocab**k)
         return d / d.sum()
 
     return float(0.5 * np.abs(dist(a) - dist(b)).sum())
 
 
 def autocorr_distance(a: np.ndarray, b: np.ndarray, max_lag: int = 10) -> float:
-    """L2 distance between autocorrelation profiles of two token sequences
-    (tokens centered; lags 1..max_lag). Captures temporal structure that
-    k-gram histograms miss."""
+    """L2 distance between within-trajectory autocorrelation profiles.
+
+    Tokens are centered over the whole corpus, then every lag is pooled over
+    its valid within-row pairs. No lagged product crosses a row boundary.
+    """
 
     def prof(ids):
-        x = np.asarray(ids, dtype=np.float64)
+        x = _trajectory_rows(ids, dtype=np.float64)
         x = x - x.mean()
         v = (x * x).mean() + 1e-12
-        return np.array(
-            [(x[: -lag] * x[lag:]).mean() / v for lag in range(1, max_lag + 1)]
-        )
+        values = []
+        for lag in range(1, max_lag + 1):
+            valid = x.shape[1] - lag
+            values.append(
+                (x[:, :valid] * x[:, lag:]).mean() / v
+                if valid > 0
+                else np.nan
+            )
+        return np.asarray(values)
 
     return float(np.linalg.norm(prof(a) - prof(b)))
 
@@ -168,22 +207,38 @@ def generative_report(
     basin (exposure bias) and then measures the basin, not the model.
     The absorption tendency itself is reported as ``gen_max_runlen_frac``.
     """
+    val_ids = np.asarray(val_ids, dtype=np.int64)
+    rows = _trajectory_rows(val_ids, dtype=np.int64)
     rng = np.random.default_rng(seed)
     per = max(n_tokens // n_prompts, 8)
     chunks = []
     for j in range(n_prompts):
-        start = int(rng.integers(0, len(val_ids) - context_len - 1))
-        prompt = val_ids[start : start + context_len]
+        if val_ids.ndim == 1:
+            row = rows[0]
+        else:
+            row = rows[int(rng.integers(0, len(rows)))]
+        start = int(rng.integers(0, len(row) - context_len - 1))
+        prompt = row[start : start + context_len]
         chunks.append(
             sample_ids(model, params, vocab, prompt, n_tokens=per,
                        context_len=context_len, seed=seed + 7919 * j)
         )
-    gen = np.concatenate(chunks)
-    runs = np.diff(np.flatnonzero(
-        np.concatenate(([True], np.diff(gen) != 0, [True]))
-    ))
-    max_runlen_frac = float(runs.max() / len(gen)) if len(runs) else 1.0
-    ref = val_ids[: min(len(val_ids), 20_000)]
+    gen = np.stack(chunks)
+    max_run = 0
+    for row in gen:
+        runs = np.diff(np.flatnonzero(
+            np.concatenate(([True], np.diff(row) != 0, [True]))
+        ))
+        if len(runs):
+            max_run = max(max_run, int(runs.max()))
+    max_runlen_frac = float(max_run / gen.size) if gen.size else 1.0
+    if val_ids.ndim == 1:
+        ref = val_ids[: min(len(val_ids), 20_000)]
+    elif val_ids.shape[1] > 20_000:
+        ref = val_ids[:1, :20_000]
+    else:
+        n_rows = max(1, 20_000 // val_ids.shape[1])
+        ref = val_ids[: min(len(val_ids), n_rows)]
     out = {
         f"gen_tv_{k}gram": kgram_tv_distance(gen, ref, vocab, k),
         "gen_cond_entropy_k3": conditional_entropy(gen, vocab, 3),

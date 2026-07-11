@@ -50,14 +50,41 @@ python -m venv .venv
 pip install -U pip
 pip install -r requirements-cpu.txt
 pip install --no-deps -e .
+python scripts/check_dependency_profiles.py --runtime-profile cpu
 ```
 
 `requirements-cpu.txt` is the pinned, authoritative native CPU development,
 dashboard, and Hugging Face profile. `requirements.txt` remains a compatibility
-alias for that profile. Every immutable run manifest records Python, package,
-JAX backend/device, and precision identity; completed summaries also report
-provenance-labelled timing, state dimension, logical circuit-forward estimates,
-parameter count, and device-memory support.
+alias for that profile. These are exact top-level pins, not a hash-locked
+transitive environment. Clean Windows/Linux CI installs the profile on Python
+3.11 and 3.12, runs `pip check`, verifies the installed direct versions, and
+executes focused CPU regressions. Every immutable run manifest records Python,
+package, JAX backend/device, and precision identity; completed summaries also
+report provenance-labelled timing, logical Hilbert dimension, representation
+caveats, logical circuit-forward estimates, parameter count, and device-memory
+support.
+
+The profile also constrains `orbax-checkpoint==0.10.3`: newer unbounded Flax
+resolutions currently package paths that fail to install on native Windows
+systems without long-path support. The static checker requires this
+compatibility pin and keeps the WSL profile aligned with it.
+
+The optional CPU matrix-product-state path has its own tested profile:
+
+```bash
+pip install -r requirements-mps.txt
+pip install --no-deps -e .
+python scripts/check_dependency_profiles.py --runtime-profile mps
+```
+
+Select backend `tensorcircuit_mps`, device `mps`, and an explicit positive
+`mps_max_bond_dimension`. This path is approximate: manifests record the
+configured fixed-bond policy, never mix it silently with dense exact
+TensorCircuit rows, and leave realized error, observed convergence, and peak
+memory unmeasured. TensorCircuit-NG 1.7 error-threshold rank selection is not
+compatible with QLLM's JIT/`vmap` training contract, so non-null
+`mps_max_truncation_error` and relative truncation fail validation rather than
+falling back to eager execution.
 
 For NVIDIA GPU use under WSL, skip the CPU requirements command above and
 follow `GPU_SETUP.md` so the pinned CUDA-enabled JAX wheel is installed first.

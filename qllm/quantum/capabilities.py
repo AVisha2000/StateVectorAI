@@ -7,6 +7,7 @@ being mistaken for a platform guarantee.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -47,7 +48,7 @@ class BackendCapabilities:
 
     backend: str
     execution_regime: str
-    exactness: Literal["exact", "sampled", "unverified"]
+    exactness: Literal["exact", "sampled", "approximate", "unverified"]
     representation: str
     approximation: dict[str, Any] | None
     state_access: Capability
@@ -81,11 +82,99 @@ def _validate_shots(shots: int | None) -> None:
         raise ValueError(f"shots must be a positive integer or None; got {shots!r}.")
 
 
+def _validate_mps_options(
+    *,
+    device: str,
+    diff_method: str,
+    shots: int | None,
+    max_bond_dimension: int | None,
+    max_truncation_error: float | None,
+    relative_truncation: bool,
+) -> None:
+    """Validate TensorCircuit MPS settings without importing its runtime."""
+    if device != "mps":
+        raise ValueError(
+            "TensorCircuitMPSBackend requires device='mps'; "
+            f"got {device!r}."
+        )
+    if diff_method != "backprop":
+        raise ValueError(
+            "TensorCircuitMPSBackend currently supports only "
+            "diff_method='backprop'."
+        )
+    if shots is not None:
+        raise ValueError(
+            "TensorCircuitMPSBackend exposes analytic expectations only; "
+            "shots must be None."
+        )
+    if (
+        isinstance(max_bond_dimension, bool)
+        or not isinstance(max_bond_dimension, int)
+        or max_bond_dimension <= 0
+    ):
+        raise ValueError(
+            "mps_max_bond_dimension must be a positive integer for "
+            f"TensorCircuitMPSBackend; got {max_bond_dimension!r}."
+        )
+    if max_truncation_error is not None:
+        if (
+            isinstance(max_truncation_error, bool)
+            or not isinstance(max_truncation_error, (int, float))
+        ):
+            raise ValueError(
+                "mps_max_truncation_error must be a finite non-negative "
+                f"number or None; got {max_truncation_error!r}."
+            )
+        numeric = float(max_truncation_error)
+        if numeric < 0.0 or not math.isfinite(numeric):
+            raise ValueError(
+                "mps_max_truncation_error must be a finite non-negative "
+                f"number or None; got {max_truncation_error!r}."
+            )
+    if not isinstance(relative_truncation, bool):
+        raise ValueError(
+            "mps_relative_truncation must be true or false; "
+            f"got {relative_truncation!r}."
+        )
+    if max_truncation_error is not None:
+        raise ValueError(
+            "mps_max_truncation_error must be None: TensorCircuit-NG 1.7 "
+            "selects a data-dependent retained rank that is not compatible "
+            "with QLLM's required JAX jit/vmap/grad execution."
+        )
+    if relative_truncation:
+        raise ValueError(
+            "mps_relative_truncation must be false because threshold-based "
+            "truncation is unsupported in the JAX-compatible MPS mode."
+        )
+
+
+def _reject_inert_mps_options(
+    *,
+    backend: str,
+    max_bond_dimension: int | None,
+    max_truncation_error: float | None,
+    relative_truncation: bool,
+) -> None:
+    if (
+        max_bond_dimension is not None
+        or max_truncation_error is not None
+        or relative_truncation is not False
+    ):
+        raise ValueError(
+            "MPS truncation settings are supported only by "
+            f"backend='tensorcircuit_mps', not {backend!r}."
+        )
+
+
 def resolve_backend_capabilities(
     backend: str,
     device: str = "default.qubit",
     diff_method: str = "backprop",
     shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> BackendCapabilities:
     """Resolve and validate an actual QLLM backend execution mode.
 
@@ -116,6 +205,14 @@ def resolve_backend_capabilities(
     unavailable_dynamic = _unsupported(
         "dynamic circuits are not exposed by the QLLM backend adapter"
     )
+
+    if backend != "tensorcircuit_mps":
+        _reject_inert_mps_options(
+            backend=backend,
+            max_bond_dimension=mps_max_bond_dimension,
+            max_truncation_error=mps_max_truncation_error,
+            relative_truncation=mps_relative_truncation,
+        )
 
     if backend == "pennylane":
         if diff_method not in PENNYLANE_DIFF_METHODS:
@@ -210,6 +307,11 @@ def resolve_backend_capabilities(
                 "TensorCircuitBackend currently supports only "
                 "diff_method='backprop'."
             )
+        if device != "statevector":
+            raise ValueError(
+                "TensorCircuitBackend requires device='statevector'; "
+                f"got {device!r}."
+            )
         return BackendCapabilities(
             backend=backend,
             execution_regime="exact_analytic",
@@ -225,6 +327,60 @@ def resolve_backend_capabilities(
                 "jax_autodiff",
                 "TensorCircuit is optional and gradient parity is not verified "
                 "in this environment",
+            ),
+            noise=unavailable_noise,
+            reset=unavailable_reset,
+            dynamic_circuits=unavailable_dynamic,
+        )
+
+    if backend == "tensorcircuit_mps":
+        _validate_mps_options(
+            device=device,
+            diff_method=diff_method,
+            shots=shots,
+            max_bond_dimension=mps_max_bond_dimension,
+            max_truncation_error=mps_max_truncation_error,
+            relative_truncation=mps_relative_truncation,
+        )
+        return BackendCapabilities(
+            backend=backend,
+            execution_regime="approximate_analytic",
+            exactness="approximate",
+            representation="matrix_product_state",
+            approximation={
+                "method": "mps_svd_truncation",
+                "configured_truncation_mode": "fixed_bond_dimension_only",
+                "configured_max_bond_dimension": mps_max_bond_dimension,
+                "configured_max_truncation_error": mps_max_truncation_error,
+                "configured_relative_truncation": mps_relative_truncation,
+                "threshold_support": "unsupported_for_jit_vmap_training",
+                "threshold_support_reason": (
+                    "TensorCircuit-NG 1.7 threshold-selected ranks are not "
+                    "JAX-transform safe"
+                ),
+                "realized_max_bond_dimension": None,
+                "realized_max_bond_dimension_status": "unmeasured",
+                "discarded_weight": None,
+                "discarded_weight_status": "unmeasured",
+                "convergence": None,
+                "convergence_status": "unmeasured",
+            },
+            state_access=_unsupported(
+                "dense state materialization is intentionally disabled for "
+                "the scalable MPS adapter"
+            ),
+            expectations=Capability(
+                "supported",
+                "normalized_mps_expectation",
+                "values depend on the configured fixed bond dimension",
+            ),
+            probabilities=unavailable_probabilities,
+            sampling=unavailable_sampling,
+            gradients=Capability(
+                "supported",
+                "jax_autodiff_through_mps_svd",
+                "validated for QLLM's static split rules and analytic Z/ZZ "
+                "expectations; convergence remains unmeasured",
             ),
             noise=unavailable_noise,
             reset=unavailable_reset,
@@ -256,7 +412,8 @@ def resolve_backend_capabilities(
 
     raise ValueError(
         "Unknown backend capability profile "
-        f"{backend!r}. Available: pennylane, tensorcircuit, jax_native_statevector"
+        f"{backend!r}. Available: pennylane, tensorcircuit, "
+        "tensorcircuit_mps, jax_native_statevector"
     )
 
 
@@ -265,6 +422,17 @@ def backend_capabilities_payload(
     device: str = "default.qubit",
     diff_method: str = "backprop",
     shots: int | None = None,
+    mps_max_bond_dimension: int | None = None,
+    mps_max_truncation_error: float | None = None,
+    mps_relative_truncation: bool = False,
 ) -> dict[str, Any]:
     """Resolve a backend mode and return its JSON-safe public payload."""
-    return resolve_backend_capabilities(backend, device, diff_method, shots).to_payload()
+    return resolve_backend_capabilities(
+        backend,
+        device,
+        diff_method,
+        shots,
+        mps_max_bond_dimension,
+        mps_max_truncation_error,
+        mps_relative_truncation,
+    ).to_payload()

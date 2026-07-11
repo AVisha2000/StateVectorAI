@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { changeArchitecture, ensureBlocks } from './modelConfig.js'
+import { changeArchitecture, changeQuantumBackend, ensureBlocks } from './modelConfig.js'
 
 function transformerConfig() {
   return {
@@ -57,4 +57,32 @@ test('switching a quantum-free classical spec seeds server-provided quantum defa
   })
   assert.deepEqual(changed.model.quantum, quantumDefault)
   assert.notEqual(changed.model.quantum, quantumDefault)
+})
+
+test('MPS selection applies an explicit fixed-bond approximate mode', () => {
+  const changed = changeQuantumBackend({
+    backend: 'pennylane',
+    mps_max_truncation_error: 1e-6,
+    mps_relative_truncation: true,
+  }, 'tensorcircuit_mps')
+  assert.equal(changed.backend, 'tensorcircuit_mps')
+  assert.equal(changed.device, 'mps')
+  assert.equal(changed.diff_method, 'backprop')
+  assert.equal(changed.shots, null)
+  assert.equal(changed.mps_max_bond_dimension, 64)
+  assert.equal(changed.mps_max_truncation_error, null)
+  assert.equal(changed.mps_relative_truncation, false)
+})
+
+test('leaving MPS clears approximation controls instead of ignoring them', () => {
+  const changed = changeQuantumBackend({
+    backend: 'tensorcircuit_mps',
+    mps_max_bond_dimension: 8,
+    mps_max_truncation_error: 1e-6,
+    mps_relative_truncation: true,
+  }, 'pennylane')
+  assert.equal(changed.device, 'default.qubit')
+  assert.equal(changed.mps_max_bond_dimension, null)
+  assert.equal(changed.mps_max_truncation_error, null)
+  assert.equal(changed.mps_relative_truncation, false)
 })
