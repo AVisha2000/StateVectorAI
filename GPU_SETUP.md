@@ -44,17 +44,18 @@ mount, because `/mnt/c` can trip over venv activation-file permissions.
 
 ## 2. Install JAX with CUDA support first
 
-The pinned `requirements.txt` can reinstall CPU-only `jax` / `jaxlib` wheels
-on a plain install. Install the CUDA variant first, using the current
+`requirements.txt` intentionally selects the native CPU profile and must not be
+used in the WSL GPU environment. Install the CUDA variant first, using the current
 official JAX guidance for your driver/CUDA setup:
 
 ```bash
 pip install -U pip
-pip install -U "jax[cuda13]"
+pip install -U "jax[cuda13]==0.10.1"
 ```
 
 If your driver is not ready for CUDA 13, follow the official JAX install
-page for the CUDA 12 option that matches your machine.
+page for the CUDA 12 option that matches your machine while retaining the
+project-compatible JAX `0.10.1` version.
 
 Verify GPU visibility before queueing GPU work:
 
@@ -72,28 +73,18 @@ The WSL setup script does this once automatically after the dependency
 install, but it is still worth remembering if you later install packages by
 hand.
 
-## 3. Install the rest of the project
+## 3. Install the optional WSL GPU profile
 
 ```bash
-pip install \
-  flax==0.12.7 \
-  optax==0.2.8 \
-  pennylane==0.45.0 \
-  pennylane-lightning==0.45.0 \
-  PyYAML==6.0.3 \
-  fastapi>=0.110 \
-  uvicorn>=0.29 \
-  httpx>=0.27 \
-  datasets>=2.20 \
-  pytest>=8 \
-  hypothesis>=6 \
-  matplotlib>=3.8 \
-  mlflow>=3
+pip install -r requirements-gpu-wsl.txt
+pip install --no-deps -e .
 ```
 
-Avoid running `pip install -r requirements.txt` after the CUDA JAX install
-unless you know it will not replace `jaxlib`. If you do use the pinned
-requirements file, rerun the JAX device check immediately afterward.
+`requirements-gpu-wsl.txt` is pinned but deliberately excludes `jax` and
+`jaxlib`, so it cannot replace the CUDA-enabled wheel. `--no-deps` is
+intentional: the profile supplies the project dependencies without asking pip
+to resolve the base JAX declaration again. The checked-in
+`scripts/setup_wsl_gpu.sh` performs this sequence and verifies GPU visibility.
 
 ## 4. Sanity-check the GPU path
 
@@ -127,6 +118,12 @@ python -m qllm.dashboard.run --port 8000
 Open `http://localhost:8000`, then use the GPU tab. If JAX reports a GPU,
 the Run form can use device target `gpu`; otherwise GPU jobs are rejected
 before training starts.
+
+Binding to `0.0.0.0` is trusted-network remote mode and requires the explicit
+`--allow-remote` flag. It exposes the portal beyond loopback; keep the default
+loopback command above unless remote access is genuinely required. Remote mode
+also requires one or more explicit `--cors-origin` values; the checked-in WSL
+launcher supplies the local Windows browser origins.
 
 ## 7. The GPU queue
 

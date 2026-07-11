@@ -556,6 +556,7 @@ def test_lab_dataset_migration_is_additive_and_repeatable(tmp_path):
 
 def test_dataset_import_api_forwards_provenance_controls(monkeypatch, tmp_path):
     monkeypatch.setenv("QLLM_DB", str(tmp_path / "api.db"))
+    monkeypatch.setenv("QLLM_DATA", str(tmp_path / "data"))
     monkeypatch.delitem(sys.modules, "qllm.dashboard.server", raising=False)
     server = importlib.import_module("qllm.dashboard.server")
     captured = {}
@@ -580,6 +581,7 @@ def test_dataset_import_api_forwards_provenance_controls(monkeypatch, tmp_path):
     assert captured["row_limit"] == "12"
     assert captured["char_limit"] == "3456"
     assert captured["byte_limit"] == "7890"
+    assert captured["cache_dir"] == tmp_path / "data" / "imported"
     choices = server.api_config_choices()
     assert choices["attention"] == [
         "classical", "quantum_proj", "quantum_qkv",
@@ -697,7 +699,7 @@ def test_model_test_payload_reports_artifact_capabilities(tmp_path):
         '{"val_ppl": 2.5, "steps": 2, "n_params": 128, "wall_seconds": 1.2}'
     )
 
-    payload = model_test_payload(db, job["id"], tmp_path / "results")
+    payload = model_test_payload(db, job["id"], tmp_path / "artifacts")
     assert payload["supported_tests"]["summary_review"] is True
     assert payload["supported_tests"]["prompt_generation"] is False
     assert payload["artifacts"]["summary_exists"] is True

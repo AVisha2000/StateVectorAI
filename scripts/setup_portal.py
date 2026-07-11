@@ -30,7 +30,24 @@ def npm_cmd() -> list[str] | None:
 def main() -> int:
     print("QLLM Lab setup")
     print(f"Python: {sys.executable}")
-    code = run([sys.executable, "-m", "pip", "install", "-e", ".[dashboard,hf]"])
+    code = run([
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        str(ROOT / "requirements-cpu.txt"),
+    ])
+    if code == 0:
+        code = run([
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "-e",
+            str(ROOT),
+        ])
     if code != 0:
         print()
         print("Python dependency install failed.")

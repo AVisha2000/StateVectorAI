@@ -88,6 +88,7 @@ def main() -> None:
               seed=args.seed, steps=args.steps, n_params=s["n_params"],
               val_loss=s["val_loss"], val_ppl=s["val_ppl"],
               val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
+              resources=s.get("resources"),
               manifest=res["manifest"])
     db.record_metrics("battery-v1", args.variant, args.dataset, args.seed,
                       {k_: v for k_, v in m.items() if isinstance(v, float)})

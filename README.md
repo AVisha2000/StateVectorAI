@@ -40,11 +40,19 @@ python -m venv .venv
 # source .venv/bin/activate     # macOS/Linux
 
 pip install -U pip
-pip install -e ".[dev,dashboard,hf]"
+pip install -r requirements-cpu.txt
+pip install --no-deps -e .
 ```
 
-For NVIDIA GPU machines, follow `GPU_SETUP.md` before installing the rest of
-the project so the CUDA-enabled JAX wheel is installed first.
+`requirements-cpu.txt` is the pinned, authoritative native CPU development,
+dashboard, and Hugging Face profile. `requirements.txt` remains a compatibility
+alias for that profile. Every immutable run manifest records Python, package,
+JAX backend/device, and precision identity; completed summaries also report
+provenance-labelled timing, state dimension, logical circuit-forward estimates,
+parameter count, and device-memory support.
+
+For NVIDIA GPU use under WSL, skip the CPU requirements command above and
+follow `GPU_SETUP.md` so the pinned CUDA-enabled JAX wheel is installed first.
 
 ## Common commands
 
@@ -99,6 +107,12 @@ python -m qllm.dashboard.run --port 8000
 
 Then open `http://localhost:8000`.
 
+The dashboard is loopback-only by default. Dashboard-managed datasets and run
+artifacts are confined to the configured `--data` and `--results` roots. A
+non-loopback bind requires `--allow-remote` plus explicit `--cors-origin`
+values and prints a trusted-network warning; remote dataset imports accept Hub
+repository IDs only, never URLs or server-local paths.
+
 The dashboard is now a local experiment console:
 
 - `Run` queues local training jobs from curated presets.
@@ -120,7 +134,7 @@ python scripts/queue_smoke.py --preset quantum-ffn-4q --steps 1 --eval-every 1 -
 For NVIDIA GPU setup, verify the environment before requesting GPU runs:
 
 ```bash
-python -m pip install -U "jax[cuda13]"
+python -m pip install -U "jax[cuda13]==0.10.1"
 python -c "import jax; print(jax.devices())"
 python scripts/check_gpu.py
 ```

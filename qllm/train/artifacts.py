@@ -145,11 +145,15 @@ class RunOptions:
     parent_run_uuid: str | None = None
     seed_axes: Mapping[str, Any] | None = None
     defer_dashboard_terminal: bool = False
+    device_target: str = "auto"
 
     def normalized(self) -> "RunOptions":
         cadence = int(self.checkpoint_every)
         if cadence < 0:
             raise ValueError("checkpoint_every must be non-negative.")
+        device_target = str(self.device_target or "auto").strip().lower()
+        if device_target not in {"auto", "cpu", "gpu"}:
+            raise ValueError("device_target must be one of: auto, cpu, gpu.")
         return dataclasses.replace(
             self,
             experiment_uuid=_valid_uuid(self.experiment_uuid, "experiment_uuid"),
@@ -166,6 +170,7 @@ class RunOptions:
                 else None
             ),
             checkpoint_every=cadence,
+            device_target=device_target,
             caller_metadata=_jsonable(dict(self.caller_metadata)),
             seed_axes=(
                 _jsonable(dict(self.seed_axes))
@@ -258,12 +263,38 @@ def environment_identity() -> dict[str, Any]:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
+    jax_runtime: dict[str, Any]
+    try:
+        import jax
+
+        jax_runtime = {
+            "default_backend": jax.default_backend(),
+            "devices": [
+                {
+                    "platform": str(getattr(device, "platform", "unknown")),
+                    "device_kind": str(getattr(device, "device_kind", "unknown")),
+                    "id": int(getattr(device, "id", 0)),
+                }
+                for device in jax.devices()
+            ],
+            "jax_enable_x64": bool(jax.config.jax_enable_x64),
+        }
+    except (ImportError, RuntimeError) as exc:
+        jax_runtime = {
+            "default_backend": None,
+            "devices": [],
+            "jax_enable_x64": None,
+            "status": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
     payload = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "platform": platform.platform(),
+        "machine": platform.machine(),
         "byteorder": sys.byteorder,
         "packages": packages,
+        "jax_runtime": jax_runtime,
     }
     return {**payload, "hash": sha256_json(payload)}
 
@@ -327,6 +358,7 @@ def build_run_manifest(
     repo_root: str | Path | None = None,
     resume_lineage: Mapping[str, Any] | None = None,
     initialization: Mapping[str, Any] | None = None,
+    resource_plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a canonical identity document for one logical run."""
     options = resolve_run_options(options)
@@ -372,6 +404,7 @@ def build_run_manifest(
         "initialization": initialization_payload,
         "caller_metadata": _jsonable(options.caller_metadata),
         "resume_lineage": _jsonable(resume_lineage or {}),
+        "resource_plan": _jsonable(resource_plan or {}),
     }
     manifest["manifest_hash"] = sha256_json(manifest)
     return manifest
@@ -446,6 +479,11 @@ def build_record_manifest(
         "initialization": initialization,
         "caller_metadata": {"source": "ResultsDB.record"},
         "resume_lineage": {},
+        "resource_plan": {
+            "schema_version": 1,
+            "status": "unavailable",
+            "reason": "direct result recorder did not receive a built model or execution device",
+        },
     }
     manifest["manifest_hash"] = sha256_json(manifest)
     return manifest

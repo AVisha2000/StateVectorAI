@@ -41,6 +41,7 @@ from .model_graph import uses_quantum_config
 from .model_specs import config_payload, create_spec
 from .presets import apply_quantum_overrides, build_preset
 from .resources import quantum_resource_estimate
+from .security import resolve_data_path, resolve_within
 
 
 def _compatible_seed_request(snapshot: dict | None, cfg) -> dict | None:
@@ -64,13 +65,19 @@ class ExperimentQueue:
         poll_seconds: float = 0.5,
         worker_id: str | None = None,
         results_dir: str | Path | None = None,
+        data_dir: str | Path | None = None,
     ):
         self.db_path = db_path
         self.results_dir = Path(
             results_dir
             if results_dir is not None
             else os.environ.get("QLLM_RESULTS", "results")
-        )
+        ).resolve()
+        self.data_dir = Path(
+            data_dir
+            if data_dir is not None
+            else os.environ.get("QLLM_DATA", "data")
+        ).resolve()
         self.lease_seconds = float(lease_seconds)
         self.poll_seconds = float(poll_seconds)
         if (
@@ -97,6 +104,30 @@ class ExperimentQueue:
 
     def db(self) -> ResultsDB:
         return ResultsDB(self.db_path)
+
+    def _confined_path(self, value: str | Path, *, label: str) -> Path:
+        return resolve_within(self.results_dir, value, label=label)
+
+    def _confined_data_path(self, value: str | Path, *, label: str) -> Path:
+        return resolve_data_path(self.data_dir, value, label=label)
+
+    def _authorized_artifact_layout(self, value: str | Path) -> Path:
+        """Authorize the run root and every dashboard-managed write target."""
+        artifact_dir = self._confined_path(value, label="artifact directory")
+        for relative, label in (
+            ("manifest.json", "run manifest"),
+            ("summary.json", "run summary"),
+            ("params.msgpack", "run parameters"),
+            ("checkpoints", "checkpoint directory"),
+            ("checkpoints/latest.msgpack", "latest checkpoint"),
+            ("checkpoints/best.msgpack", "best checkpoint"),
+        ):
+            resolve_within(
+                artifact_dir,
+                artifact_dir / relative,
+                label=label,
+            )
+        return artifact_dir
 
     def close(self, timeout: float = 5.0) -> None:
         self._stop.set()
@@ -126,6 +157,11 @@ class ExperimentQueue:
         dataset = get_dataset(db, dataset_name)
         if dataset is None:
             raise ValueError(f"Unknown dataset '{dataset_name}'")
+        corpus_path = str(
+            self._confined_data_path(
+                dataset["corpus_path"], label="dataset corpus path"
+            )
+        )
         device_target = (device_target or "auto").strip().lower()
         if device_target not in ("auto", "cpu", "gpu"):
             raise ValueError("Device target must be one of: auto, cpu, gpu.")
@@ -164,6 +200,14 @@ class ExperimentQueue:
             )
         parent_run_uuid = None
         if resume_from:
+            resume_from = str(
+                self._confined_path(resume_from, label="resume checkpoint")
+            )
+        if artifact_dir:
+            artifact_dir = str(
+                self._confined_path(artifact_dir, label="artifact directory")
+            )
+        if resume_from:
             resume_payload = read_checkpoint(resume_from)
             source_manifest = resume_payload["manifest"]
             source_run_uuid = source_manifest.get("run_uuid")
@@ -196,7 +240,7 @@ class ExperimentQueue:
                     "Recovery must retain the checkpoint run_name/artifact identity."
                 )
         cfg = self._config_for_job(
-            cfg, dataset["corpus_path"], run_name,
+            cfg, corpus_path, run_name,
             seed, steps, eval_every, batch_size, seq_len,
         )
         self._require_valid_config(cfg, "candidate")
@@ -232,7 +276,7 @@ class ExperimentQueue:
             twin_name = f"{run_name}-classical"
             prepared_twin_cfg = self._config_for_job(
                 self._config_from_analogue(analogue),
-                dataset["corpus_path"],
+                corpus_path,
                 twin_name,
                 seed,
                 steps,
@@ -292,6 +336,8 @@ class ExperimentQueue:
         if artifact_dir is None:
             artifact_dir = str((self.results_dir / "runs" / run_uuid).resolve())
             job_config["lab.artifact_dir"] = artifact_dir
+        artifact_dir = str(self._authorized_artifact_layout(artifact_dir))
+        job_config["lab.artifact_dir"] = artifact_dir
         primary_job = {
             "status": "queued",
             "preset_id": preset_id,
@@ -355,7 +401,9 @@ class ExperimentQueue:
             )
             twin_run_uuid = str(uuid.uuid4())
             twin_artifact_dir = str(
-                (self.results_dir / "runs" / twin_run_uuid).resolve()
+                self._authorized_artifact_layout(
+                    self.results_dir / "runs" / twin_run_uuid
+                )
             )
             twin_config["lab.artifact_dir"] = twin_artifact_dir
             twin_job = {
@@ -540,6 +588,11 @@ class ExperimentQueue:
         dataset = get_dataset(db, job["dataset_name"])
         if dataset is None:
             raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
+        corpus_path = str(
+            self._confined_data_path(
+                dataset["corpus_path"], label="dataset corpus path"
+            )
+        )
         cfg = self._config_from_job_snapshot(job)
         analogue = self._analogue_for_source(
             job["preset_id"], cfg, source_job_id=int(job["id"])
@@ -551,7 +604,7 @@ class ExperimentQueue:
         twin_name = f"{job['run_name']}-classical"
         batch_size, seq_len = self._train_overrides_from_decoded_job(job)
         twin_cfg = self._config_for_job(
-            self._config_from_analogue(analogue), dataset["corpus_path"], twin_name,
+            self._config_from_analogue(analogue), corpus_path, twin_name,
             int(job["seed"]), int(job["steps"]), int(job["eval_every"]),
             batch_size, seq_len,
         )
@@ -615,7 +668,9 @@ class ExperimentQueue:
         )
         twin_run_uuid = str(uuid.uuid4())
         twin_artifact_dir = str(
-            (self.results_dir / "runs" / twin_run_uuid).resolve()
+            self._authorized_artifact_layout(
+                self.results_dir / "runs" / twin_run_uuid
+            )
         )
         twin_config["lab.artifact_dir"] = twin_artifact_dir
         twin_job_id = db.create_linked_lab_job(int(job["id"]), {
@@ -746,8 +801,7 @@ class ExperimentQueue:
                 continue
             self._run_claimed(job)
 
-    @staticmethod
-    def _recoverable_checkpoint(job: dict) -> dict | None:
+    def _recoverable_checkpoint(self, job: dict) -> dict | None:
         """Resolve only artifacts whose immutable identity matches the job."""
         fresh_allowed = bool(
             int(job.get("completed_step") or 0) == 0
@@ -756,9 +810,14 @@ class ExperimentQueue:
             and not job.get("checkpoint_path")
             and not job.get("resume_from")
         )
-        artifact_dir = (
-            Path(str(job["artifact_dir"])) if job.get("artifact_dir") else None
-        )
+        try:
+            artifact_dir = (
+                self._authorized_artifact_layout(str(job["artifact_dir"]))
+                if job.get("artifact_dir")
+                else None
+            )
+        except ValueError:
+            return None
         candidates: list[Path] = []
         if artifact_dir is not None:
             latest = artifact_dir / "checkpoints" / "latest.msgpack"
@@ -777,6 +836,9 @@ class ExperimentQueue:
         own_checkpoints: list[tuple[int, Path]] = []
         for candidate in candidates:
             try:
+                candidate = self._confined_path(
+                    candidate, label="persisted checkpoint"
+                )
                 payload = read_checkpoint(candidate)
             except ValueError:
                 continue
@@ -799,7 +861,12 @@ class ExperimentQueue:
                 "fresh": False,
             }
         if job.get("resume_from"):
-            bootstrap = Path(str(job["resume_from"]))
+            try:
+                bootstrap = self._confined_path(
+                    str(job["resume_from"]), label="persisted resume checkpoint"
+                )
+            except ValueError:
+                return None
             try:
                 payload = read_checkpoint(bootstrap)
             except ValueError:
@@ -839,10 +906,16 @@ class ExperimentQueue:
         if not artifact_dir.is_dir():
             return None
         entries = {entry.name for entry in artifact_dir.iterdir()}
+        try:
+            checkpoints_dir = resolve_within(
+                artifact_dir,
+                artifact_dir / "checkpoints",
+                label="checkpoint directory",
+            )
+        except ValueError:
+            return None
         checkpoint_entries = (
-            list((artifact_dir / "checkpoints").iterdir())
-            if (artifact_dir / "checkpoints").is_dir()
-            else []
+            list(checkpoints_dir.iterdir()) if checkpoints_dir.is_dir() else []
         )
         partial_checkpoint_temps_only = all(
             entry.is_file()
@@ -862,8 +935,13 @@ class ExperimentQueue:
             and (not checkpoint_entries or partial_checkpoint_temps_only)
         ):
             try:
+                manifest_path = resolve_within(
+                    artifact_dir,
+                    artifact_dir / "manifest.json",
+                    label="persisted manifest",
+                )
                 manifest = validate_manifest(
-                    json.loads((artifact_dir / "manifest.json").read_text("utf-8"))
+                    json.loads(manifest_path.read_text("utf-8"))
                 )
             except (OSError, json.JSONDecodeError, ValueError):
                 return None
@@ -977,6 +1055,15 @@ class ExperimentQueue:
                     int(job["eval_every"]),
                     *self._train_overrides_from_job(job),
                 )
+            safe_corpus_path = str(
+                self._confined_data_path(
+                    cfg.data.corpus_path, label="persisted dataset corpus path"
+                )
+            )
+            cfg = dataclasses.replace(
+                cfg,
+                data=dataclasses.replace(cfg.data, corpus_path=safe_corpus_path),
+            )
             self._require_valid_config(cfg, "persisted job")
             if device_target == "gpu" and not self.gpu_ready():
                 raise ValueError(
@@ -1005,11 +1092,18 @@ class ExperimentQueue:
             running_config = {**existing_config, **runtime_config}
             if not job.get("run_uuid") or not job.get("experiment_uuid"):
                 raise ValueError("Claimed job is missing durable UUID identity.")
+            persisted_resume = job.get("resume_from")
+            if persisted_resume:
+                persisted_resume = str(
+                    self._confined_path(
+                        persisted_resume, label="persisted resume checkpoint"
+                    )
+                )
             artifact_dir = str(
-                Path(
+                self._authorized_artifact_layout(
                     job.get("artifact_dir")
                     or self.results_dir / "runs" / str(job["run_uuid"])
-                ).resolve()
+                )
             )
             running_config["lab.artifact_dir"] = artifact_dir
             running_config = update_reservation_state(
@@ -1024,13 +1118,40 @@ class ExperimentQueue:
             ):
                 ownership_lost.set()
                 return
-            job = {**job, "artifact_dir": artifact_dir}
+            job = {
+                **job,
+                "artifact_dir": artifact_dir,
+                "resume_from": persisted_resume,
+            }
             from ..train.loop import fit
 
             def on_progress(progress: dict) -> None:
                 checkpoint_path = progress.get("checkpoint_path")
+                if checkpoint_path:
+                    checkpoint_path = str(
+                        resolve_within(
+                            job["artifact_dir"],
+                            checkpoint_path,
+                            label="reported checkpoint",
+                        )
+                    )
+                best_checkpoint_path = progress.get("best_checkpoint_path")
+                if best_checkpoint_path:
+                    best_checkpoint_path = str(
+                        resolve_within(
+                            job["artifact_dir"],
+                            best_checkpoint_path,
+                            label="reported best checkpoint",
+                        )
+                    )
                 artifact_dir = (
-                    str(Path(checkpoint_path).parent.parent)
+                    str(
+                        resolve_within(
+                            job["artifact_dir"],
+                            Path(checkpoint_path).parent.parent,
+                            label="reported artifact directory",
+                        )
+                    )
                     if checkpoint_path
                     else None
                 )
@@ -1040,7 +1161,7 @@ class ExperimentQueue:
                     lease_seconds=self.lease_seconds,
                     completed_step=progress.get("completed_step"),
                     checkpoint_path=checkpoint_path,
-                    best_checkpoint_path=progress.get("best_checkpoint_path"),
+                    best_checkpoint_path=best_checkpoint_path,
                     artifact_dir=artifact_dir,
                     manifest=progress.get("manifest"),
                 ):
@@ -1065,6 +1186,7 @@ class ExperimentQueue:
                     parent_run_uuid=job.get("parent_run_uuid"),
                     seed_axes=self._seed_axes_from_job(job),
                     defer_dashboard_terminal=True,
+                    device_target=job.get("device_target") or "auto",
                 ),
                 progress_callback=on_progress,
                 publish_guard=lambda: db.heartbeat_lab_job(
@@ -1077,15 +1199,42 @@ class ExperimentQueue:
                 return
             status = "cancelled" if result["summary"].get("cancelled") else "done"
             done_config = update_reservation_state(running_config, "released")
+            summary_checkpoint = result["summary"].get("checkpoint_path")
+            summary_best_checkpoint = result["summary"].get("best_checkpoint_path")
+            summary_artifact_dir = result["summary"].get("artifact_dir")
+            if summary_checkpoint:
+                summary_checkpoint = str(
+                    resolve_within(
+                        job["artifact_dir"],
+                        summary_checkpoint,
+                        label="final checkpoint",
+                    )
+                )
+            if summary_best_checkpoint:
+                summary_best_checkpoint = str(
+                    resolve_within(
+                        job["artifact_dir"],
+                        summary_best_checkpoint,
+                        label="final best checkpoint",
+                    )
+                )
+            if summary_artifact_dir:
+                summary_artifact_dir = str(
+                    resolve_within(
+                        job["artifact_dir"],
+                        summary_artifact_dir,
+                        label="final artifact directory",
+                    )
+                )
             finished = db.finish_claimed_lab_job(
                 job_id,
                 self.worker_id,
                 status=status,
                 config=done_config,
                 completed_step=result["summary"].get("completed_step"),
-                checkpoint_path=result["summary"].get("checkpoint_path"),
-                best_checkpoint_path=result["summary"].get("best_checkpoint_path"),
-                artifact_dir=result["summary"].get("artifact_dir"),
+                checkpoint_path=summary_checkpoint,
+                best_checkpoint_path=summary_best_checkpoint,
+                artifact_dir=summary_artifact_dir,
                 manifest=result.get("manifest"),
             )
             if not finished:

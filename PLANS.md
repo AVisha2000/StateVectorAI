@@ -23,8 +23,8 @@ Acceptance evidence:
 - Each milestone is implemented on its named `codex/mNN-*` branch.
 - Focused checks and change-aware full verification pass before review.
 - A fresh read-only verifier reviews material changes.
-- The parent inspects the final diff and requests approval before commit,
-  merge, or push.
+- The parent inspects the final diff before commit, merge, and push; the
+  user's standing approval covers safe in-scope Git delivery.
 - Existing databases, caches, runs, and research artifacts remain readable and
   are never silently discarded.
 
@@ -38,13 +38,70 @@ Progress:
   delivered to `main` in commit `e5e5230`.
 - [x] M04 Trust claims (`codex/m04-claim-integrity`),
   delivered to `main` in commit `2418d7b`.
-- [ ] M05 Trust runs (`codex/m05-durable-runs`).
+- [x] M05 Trust runs (`codex/m05-durable-runs`), delivered to `main` in commit
+  `e901139`.
 - [ ] M06 Local safety and resource reproducibility (`codex/m06-safety-resources`).
 - [ ] M07 Local scaling architecture (`codex/m07-local-scaling`).
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M05 trust runs.
+Current milestone: M06 local safety and resource reproducibility.
+
+M06 acceptance evidence:
+
+- Dashboard CORS and bind defaults permit loopback origins/hosts only. Remote
+  access requires one explicit opt-in contract and emits an unavoidable
+  startup/API warning without weakening path or origin checks silently.
+- Every dashboard-controlled file read/write validates canonical containment
+  within its configured data, result, or artifact root and rejects traversal,
+  symlink escape, and untrusted absolute paths with actionable errors.
+- Run manifests and result/job payloads record additive resource evidence for
+  compile time, steady-state execution time, wall time, model parameters,
+  state dimension, circuit calls, device/backend, precision, and available
+  peak-memory information, with measured/estimated/unavailable provenance.
+- The authoritative CPU development profile and optional GPU/WSL profile are
+  explicit, non-conflicting, and documented; resolved environment versions
+  remain attached to immutable run manifests.
+- Focused loopback/CORS/path/symlink/remote-warning/resource fixtures,
+  dashboard tests/build, change-aware/full CPU verification, and a fresh
+  security/resource verifier return PASS. No GPU workload is launched.
+
+M06 progress:
+
+- [x] Deliver M05 and create `codex/m06-safety-resources` from updated `main`.
+- [x] Inventory bind/CORS/path boundaries and resource/dependency evidence.
+- [x] Implement local-access and filesystem-containment contracts with tests.
+- [x] Implement additive resource ledgers and environment profiles with tests.
+- [x] Run focused, isolated queue-smoke, frontend-build, change-aware, and full
+  CPU verification. The verifier's GPU-file human gate is satisfied only for
+  the approved profile/document edits; no GPU setup or workload was executed.
+- [x] Obtain a fresh verifier PASS; Git delivery follows under standing
+  approval.
+
+M06 design constraints:
+
+- Remote access is opt-in, visibly labeled, and never inferred from a nonlocal
+  bind address alone. Loopback remains the zero-configuration default.
+- Filesystem authorization is based on resolved containment in explicit roots,
+  not string prefixes. Existing artifacts are read-only unless the requested
+  operation already owns their exact run directory.
+- Resource fields distinguish measured, estimated, available, and unsupported
+  values. Simulator state size or memory estimates are never presented as QPU
+  cost or measured accelerator consumption.
+- Optional GPU/WSL dependencies cannot alter the authoritative CPU profile and
+  are not installed or exercised in this milestone.
+- Dashboard jobs execute on their requested CPU/GPU target instead of merely
+  labeling it; requested and resolved execution devices remain distinct from
+  the quantum simulator backend/device. M06 validation stays CPU-only.
+- Circuit-call accounting records exact zero for classical runs and a labeled
+  logical-forward derivation for quantum runs. Backend/gradient execution calls
+  remain explicitly unsupported until instrumented rather than being inferred
+  from JIT traces.
+- Legacy `wall_seconds` remains compatible. New timing scopes use synchronized
+  completed work and distinguish first-step compile-plus-execution,
+  post-warmup steady-state steps, the active training loop, and total fit time.
+- No GPU/QPU run, paid service, destructive artifact/database migration,
+  claim promotion, or `RESULTS.md` edit is part of M06.
 
 M05 acceptance evidence:
 

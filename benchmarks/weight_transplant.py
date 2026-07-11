@@ -93,6 +93,7 @@ def main() -> None:
                       seed=seed, steps=steps_key, n_params=s["n_params"],
                       val_loss=s["val_loss"], val_ppl=s["val_ppl"],
                       val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
+                      resources=s.get("resources"),
                       config=to_flat_dict(cfg), manifest=res["manifest"])
             print(f"done {name:10s} s{seed} params={s['n_params']:7,d} "
                   f"ppl={s['val_ppl']:.3f} ({s['wall_seconds']:.0f}s)")

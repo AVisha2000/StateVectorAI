@@ -1,6 +1,7 @@
 """Manual testing helpers for completed dashboard jobs."""
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from ..models.model import build_model
 from ..resultsdb import ResultsDB
 from ..train.loop import generate_outcome
 from .analogues import config_from_flat_payload
+from .security import resolve_data_path, resolve_within
 
 
 def _decode_config(job: dict) -> dict:
@@ -28,26 +30,52 @@ def _decode_config(job: dict) -> dict:
 
 
 def _artifact_dir(results_dir: str | Path, job: dict) -> Path:
+    root = Path(results_dir).resolve()
     trusted = job.get("artifact_dir")
     if trusted:
-        return Path(trusted)
+        return resolve_within(root, trusted, label="persisted artifact directory")
     checkpoint = job.get("checkpoint_path")
     if checkpoint:
-        candidate = Path(checkpoint).resolve().parent.parent
-        root = Path(results_dir).resolve()
-        if candidate == root or root in candidate.parents:
-            return candidate
-    return Path(results_dir) / job["run_name"]
+        safe_checkpoint = resolve_within(
+            root, checkpoint, label="persisted checkpoint"
+        )
+        return resolve_within(
+            root,
+            safe_checkpoint.parent.parent,
+            label="checkpoint artifact directory",
+        )
+    return resolve_within(root, str(job["run_name"]), label="legacy run artifact")
 
 
-def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "results") -> dict:
+def model_test_payload(
+    db: ResultsDB,
+    job_id: int,
+    results_dir: str | Path = "results",
+    data_dir: str | Path = "data",
+) -> dict:
     job = db.get_lab_job(job_id)
     if job is None:
         raise KeyError(f"Unknown job {job_id}")
     config = _decode_config(job)
+    authorized_corpus = None
+    data_error = None
+    if config:
+        try:
+            configured = config_from_flat_payload(config)
+            authorized_corpus = resolve_data_path(
+                data_dir,
+                configured.data.corpus_path,
+                label="persisted dataset corpus path",
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            data_error = str(exc)
     out_dir = _artifact_dir(results_dir, job)
-    summary_path = out_dir / "summary.json"
-    params_path = out_dir / "params.msgpack"
+    summary_path = resolve_within(
+        out_dir, out_dir / "summary.json", label="summary artifact"
+    )
+    params_path = resolve_within(
+        out_dir, out_dir / "params.msgpack", label="parameter artifact"
+    )
     summary = None
     if summary_path.exists():
         try:
@@ -58,6 +86,7 @@ def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "re
         job.get("status") == "done"
         and params_path.exists()
         and bool(config)
+        and data_error is None
         and (config.get("data.kind") in (None, "text"))
     )
     reasons = []
@@ -69,6 +98,8 @@ def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "re
         reasons.append("job config is missing")
     if config.get("data.kind") not in (None, "text"):
         reasons.append("manual text generation currently supports text datasets only")
+    if data_error is not None:
+        reasons.append(data_error)
     return {
         "job": {"id": job["id"], "run_name": job["run_name"], "status": job["status"]},
         "artifacts": {
@@ -79,6 +110,10 @@ def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "re
             "params_exists": params_path.exists(),
         },
         "summary": summary,
+        "data": {
+            "corpus_path": str(authorized_corpus) if authorized_corpus else None,
+            "authorized": data_error is None and authorized_corpus is not None,
+        },
         "supported_tests": {
             "summary_review": summary_path.exists(),
             "prompt_generation": can_generate,
@@ -92,8 +127,9 @@ def run_model_test(
     job_id: int,
     payload: dict,
     results_dir: str | Path = "results",
+    data_dir: str | Path = "data",
 ) -> dict:
-    info = model_test_payload(db, job_id, results_dir)
+    info = model_test_payload(db, job_id, results_dir, data_dir)
     if not info["supported_tests"]["prompt_generation"]:
         return {
             "ok": False,
@@ -108,6 +144,12 @@ def run_model_test(
     job = db.get_lab_job(job_id)
     config = _decode_config(job)
     cfg = config_from_flat_payload(config)
+    cfg = dataclasses.replace(
+        cfg,
+        data=dataclasses.replace(
+            cfg.data, corpus_path=str(info["data"]["corpus_path"])
+        ),
+    )
     ids, tokenizer = load_dataset(cfg.data)
     model, model_cfg = build_model(cfg.model, vocab_size=tokenizer.vocab_size)
     rng = np.random.default_rng(cfg.train.seed)

@@ -163,6 +163,7 @@ def _run_item(row: dict) -> dict:
         "val_ppl": row["val_ppl"],
         "val_bpc": row["val_bpc"],
         "wall_seconds": row["wall_seconds"],
+        "resources": row.get("resources"),
         "model_family": family,
         "role": _role(config, row.get("variant", "")),
         "link": f"/run/{row['id']}",
@@ -228,7 +229,7 @@ def _job_item(row: dict) -> dict:
 def _all_run_items(db: ResultsDB) -> list[dict]:
     with db._conn() as con:
         rows = con.execute("SELECT * FROM runs ORDER BY ts DESC").fetchall()
-    return [_run_item(dict(row)) for row in rows]
+    return [_run_item(db.decode_result_row(dict(row))) for row in rows]
 
 
 def _all_job_items(db: ResultsDB) -> list[dict]:
@@ -440,6 +441,7 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
         "wall_seconds": row["wall_seconds"],
         "n_params": row["n_params"],
         "resource": item["resource"],
+        "resources": row.get("resources"),
         "metric_contract": item.get("metric_contract"),
         "metric_type": item.get("metric_type"),
         "claim_id": item.get("claim_id"),
@@ -488,6 +490,7 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "wall_seconds": final.get("wall_seconds"),
         "n_params": final.get("n_params"),
         "resource": item["resource"],
+        "resources": final.get("resources"),
         "metric_contract": item.get("metric_contract"),
         "metric_type": item.get("metric_type"),
         "claim_id": item.get("claim_id"),
@@ -513,7 +516,10 @@ def result_dashboard_payload(
 ) -> dict:
     """Focused result dashboard for a dataset or inferred task."""
     with db._conn() as con:
-        run_rows = [dict(row) for row in con.execute("SELECT * FROM runs ORDER BY ts DESC").fetchall()]
+        run_rows = [
+            db.decode_result_row(dict(row))
+            for row in con.execute("SELECT * FROM runs ORDER BY ts DESC").fetchall()
+        ]
     lab_jobs = db.fetch_lab_jobs(limit=500)
     lab_run_keys = {
         ("lab", _job_variant(job), job["dataset_name"], int(job["seed"]), int(job["steps"]))

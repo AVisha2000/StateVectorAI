@@ -32,6 +32,11 @@ from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
 from ..research_protocol import normalize_seed_axes
+from ..resources import (
+    resolve_execution_device,
+    runtime_resource_ledger,
+    static_resource_plan,
+)
 from ..tracking import ExperimentTracker, log_quantum_diagnostics
 from .artifacts import (
     RunOptions,
@@ -179,11 +184,40 @@ def fit(
     progress_callback=None,
     publish_guard=None,
 ) -> dict:
+    """Train on the requested JAX device without mutating global JAX config."""
+    normalized_options = (run_options or RunOptions()).normalized()
+    resolved_device = resolve_execution_device(normalized_options.device_target)
+    with jax.default_device(resolved_device):
+        return _fit_on_device(
+            cfg,
+            verbose=verbose,
+            out_dir=out_dir,
+            init_params=init_params,
+            should_cancel=should_cancel,
+            run_options=normalized_options,
+            progress_callback=progress_callback,
+            publish_guard=publish_guard,
+            resolved_device=resolved_device,
+        )
+
+
+def _fit_on_device(
+    cfg: ExperimentConfig,
+    verbose: bool = True,
+    out_dir: str | Path = "results",
+    init_params=None,
+    should_cancel=None,
+    run_options: RunOptions | None = None,
+    progress_callback=None,
+    publish_guard=None,
+    resolved_device=None,
+) -> dict:
     """Train a model end to end from an ExperimentConfig.
 
     Returns dict with the final TrainState, model, tokenizer, and a JSON-able
     summary (written under a UUID-scoped artifact directory by default).
     """
+    fit_started = time.perf_counter()
     if init_params is not None and run_options is not None and run_options.resume_from:
         raise ValueError("init_params and resume_from are mutually exclusive.")
 
@@ -225,6 +259,14 @@ def fit(
         else model.init(init_key, sample[:, :-1])["params"]
     )
     n_params = count_params(params)
+    if resolved_device is None:  # private-call defensive fallback
+        resolved_device = resolve_execution_device(raw_options.device_target)
+    resource_plan = static_resource_plan(
+        runtime_cfg,
+        n_params=n_params,
+        requested_device=raw_options.device_target,
+        resolved_device=resolved_device,
+    )
 
     freeze_circuit = uses_quantum(model_cfg) and not model_cfg.quantum.trainable
     tx = make_optimizer(cfg.train, params, freeze_circuit=freeze_circuit)
@@ -457,9 +499,26 @@ def fit(
         seed_axes=seed_axes,
         resume_lineage=resume_lineage,
         initialization=initialization,
+        resource_plan=resource_plan,
     )
     if source_manifest is not None:
         validate_checkpoint_manifest(source_manifest, current_manifest)
+        if resume_lineage.get("mode") == "recovery":
+            source_execution = (source_manifest.get("resource_plan") or {}).get(
+                "execution_device"
+            )
+            current_execution = (current_manifest.get("resource_plan") or {}).get(
+                "execution_device"
+            )
+            if (
+                source_execution
+                and current_execution
+                and source_execution != current_execution
+            ):
+                raise ValueError(
+                    "Exact recovery must retain resource_plan.execution_device; "
+                    "use a new run_uuid and artifact_dir for a cross-device fork."
+                )
     if retry_manifest is not None:
         if _retry_manifest_identity(retry_manifest) != _retry_manifest_identity(
             current_manifest
@@ -578,9 +637,12 @@ def fit(
         else None
     )
 
-    t0 = time.time()
+    attempt_started = time.perf_counter()
     cancelled = False
     cadence = raw_options.checkpoint_every or cfg.train.eval_every
+    first_step_seconds: float | None = None
+    steady_step_seconds: list[float] = []
+    evaluation_forward_instances = 0
 
     def save_checkpoint(path: Path) -> None:
         require_publish_ownership()
@@ -616,6 +678,8 @@ def fit(
     save_checkpoint(latest_checkpoint)
     notify_progress()
 
+    loop_started = time.perf_counter()
+    attempt_start_step = completed_step
     for step in range(completed_step + 1, cfg.train.steps + 1):
         if should_cancel is not None and should_cancel():
             cancelled = True
@@ -623,11 +687,18 @@ def fit(
         batch = jnp.asarray(
             sample_batch(rng_np, train_ids, cfg.train.batch_size, cfg.train.seq_len)
         )
+        step_started = time.perf_counter()
         state, loss = train_step(state, batch)
+        jax.block_until_ready(loss)
+        step_seconds = time.perf_counter() - step_started
+        if first_step_seconds is None:
+            first_step_seconds = step_seconds
+        else:
+            steady_step_seconds.append(step_seconds)
         completed_step = step
 
-        if step == 1 and verbose:
-            print(f"[{run_name}] first step (incl. jit) {time.time() - t0:.1f}s")
+        if completed_step == attempt_start_step + 1 and verbose:
+            print(f"[{run_name}] first executed step (incl. jit) {step_seconds:.1f}s")
         if step % 10 == 0 or step == 1:
             tracker.log_metrics({"train_loss": float(loss)}, step=step)
             if dash is not None:
@@ -640,8 +711,14 @@ def fit(
         evaluated = step % cfg.train.eval_every == 0 or step == cfg.train.steps
         if evaluated:
             ev = evaluate(eval_step, state, val_ids, cfg.train)
+            per_train_step = int(
+                resource_plan["logical_circuit_forward_instances_per_train_step"]["value"]
+            )
+            evaluation_forward_instances += per_train_step * int(cfg.train.eval_batches)
             if grad_norm_step is not None:
                 g_circ, g_other = grad_norm_step(state, batch)
+                jax.block_until_ready(g_other)
+                evaluation_forward_instances += per_train_step
                 ev["grad_norm_circuit"] = float(g_circ)
                 ev["grad_norm_classical"] = float(g_other)
                 ev["grad_norm_ratio"] = float(g_circ) / (float(g_other) + 1e-12)
@@ -678,7 +755,21 @@ def fit(
     if cancelled or not latest_checkpoint.exists():
         save_checkpoint(latest_checkpoint)
 
-    wall = time.time() - t0
+    loop_wall = time.perf_counter() - loop_started
+    wall = time.perf_counter() - attempt_started
+    fit_wall = time.perf_counter() - fit_started
+    resources = runtime_resource_ledger(
+        resource_plan,
+        params=state.params,
+        completed_steps_this_attempt=completed_step - attempt_start_step,
+        evaluation_forward_instances=evaluation_forward_instances,
+        first_step_seconds=first_step_seconds,
+        steady_step_seconds=steady_step_seconds,
+        loop_wall_seconds=loop_wall,
+        attempt_wall_seconds=wall,
+        fit_wall_seconds=fit_wall,
+        device=resolved_device,
+    )
     final = history[-1] if history else {}
     if dash is not None:
         if final and not cancelled:
@@ -701,6 +792,7 @@ def fit(
                 manifest_hash=manifest["manifest_hash"],
                 manifest=manifest,
                 finalize_manifest=False,
+                resources=resources,
             )
         if not options.defer_dashboard_terminal:
             dash.finish_run(
@@ -724,6 +816,7 @@ def fit(
         "n_params": n_params,
         "vocab_size": tokenizer.vocab_size,
         "wall_seconds": round(wall, 2),
+        "resources": resources,
         "steps": cfg.train.steps,
         "completed_step": completed_step,
         "cancelled": cancelled,

@@ -23,4 +23,4 @@ for /f "usebackq delims=" %%i in (`wsl -d %WSL_DISTRO% wslpath -a "%CD%"`) do se
 
 echo Starting GPU-backed QLLM portal from WSL...
 echo Open http://127.0.0.1:8000 after the server starts.
-wsl -d %WSL_DISTRO% bash -lc "cd \"%WSL_CWD%\" && source ~/.venvs/qllm-wsl/bin/activate && python -m qllm.dashboard.run --host 0.0.0.0 --port 8000"
+wsl -d %WSL_DISTRO% bash -lc "cd \"%WSL_CWD%\" && source ~/.venvs/qllm-wsl/bin/activate && python -m qllm.dashboard.run --host 0.0.0.0 --port 8000 --allow-remote --cors-origin http://127.0.0.1:8000 --cors-origin http://localhost:8000"

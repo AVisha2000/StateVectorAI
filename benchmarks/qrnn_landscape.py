@@ -87,6 +87,7 @@ def main() -> None:
                       seed=seed, steps=args.steps, n_params=s["n_params"],
                       val_loss=s["val_loss"], val_ppl=s["val_ppl"],
                       val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
+                      resources=s.get("resources"),
                       manifest=res["manifest"])
             print(f"done {name:22s} s{seed} ppl={s['val_ppl']:.4f} "
                   f"({s['wall_seconds']:.0f}s)")

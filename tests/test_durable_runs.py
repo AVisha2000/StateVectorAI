@@ -1309,11 +1309,13 @@ def test_posthoc_analogue_link_rolls_back_as_one_transaction(
 
 def test_sqlite_authoritative_queue_runs_one_cpu_step_and_persists_checkpoint(tmp_path):
     db_path = tmp_path / "queue.db"
+    results_root = tmp_path / "queue-results"
     queue = ExperimentQueue(
         str(db_path),
         start_worker=True,
         lease_seconds=30,
         poll_seconds=0.05,
+        results_dir=results_root,
     )
     try:
         job = queue.submit(
@@ -1327,7 +1329,7 @@ def test_sqlite_authoritative_queue_runs_one_cpu_step_and_persists_checkpoint(tm
             batch_size=1,
             seq_len=8,
             checkpoint_every=1,
-            artifact_dir=str(tmp_path / "queue-artifacts"),
+            artifact_dir=str(results_root / "custom-artifacts"),
         )
         deadline = time.monotonic() + 60
         current = job
@@ -1340,14 +1342,22 @@ def test_sqlite_authoritative_queue_runs_one_cpu_step_and_persists_checkpoint(tm
         assert Path(current["checkpoint_path"]).exists()
         assert current["worker_id"] == queue.worker_id
         assert current["attempt_count"] == 1
+        summary = json.loads(
+            (Path(current["artifact_dir"]) / "summary.json").read_text("utf-8")
+        )
+        assert summary["resources"]["execution_device"]["requested"] == "cpu"
+        assert summary["resources"]["execution_device"]["resolved"]["platform"] == "cpu"
     finally:
         queue.close()
 
 
 def test_queue_restart_discovers_identity_matched_step_zero_checkpoint(tmp_path):
     db_path = tmp_path / "restart.db"
-    artifact_dir = tmp_path / "restart-artifacts"
-    first_queue = ExperimentQueue(str(db_path), start_worker=False)
+    results_root = tmp_path / "restart-results"
+    artifact_dir = results_root / "custom-artifacts"
+    first_queue = ExperimentQueue(
+        str(db_path), start_worker=False, results_dir=results_root
+    )
     job = first_queue.submit(
         "classical-small",
         "default-text",
@@ -1364,10 +1374,9 @@ def test_queue_restart_discovers_identity_matched_step_zero_checkpoint(tmp_path)
     db = ResultsDB(db_path)
     claimed = db.claim_lab_job(job["id"], "crashed-worker", lease_seconds=30)
     assert claimed is not None
-    dataset = get_dataset(db, job["dataset_name"])
     cfg = first_queue._config_for_job(
         first_queue._config_for_source(job["preset_id"]),
-        dataset["corpus_path"],
+        job["config"]["data.corpus_path"],
         job["run_name"],
         int(job["seed"]),
         int(job["steps"]),
@@ -1385,6 +1394,7 @@ def test_queue_restart_discovers_identity_matched_step_zero_checkpoint(tmp_path)
             artifact_dir=artifact_dir,
             checkpoint_every=1,
             seed_axes=job["config"]["research.seed_axes"],
+            device_target=job["device_target"],
         ),
     )
     assert partial["summary"]["completed_step"] == 0
@@ -1400,6 +1410,7 @@ def test_queue_restart_discovers_identity_matched_step_zero_checkpoint(tmp_path)
         start_worker=False,
         worker_id="restarted-worker",
         lease_seconds=30,
+        results_dir=results_root,
     )
     recovered = restarted.get(job["id"])
     assert recovered["status"] == "queued"
@@ -1415,11 +1426,12 @@ def test_queue_restart_discovers_identity_matched_step_zero_checkpoint(tmp_path)
 
 def test_fork_crash_before_first_checkpoint_preserves_bootstrap_lineage(tmp_path):
     db_path = tmp_path / "fork-bootstrap.db"
+    results_root = tmp_path / "fork-results"
     queue = ExperimentQueue(
         str(db_path),
         start_worker=False,
         worker_id="fork-bootstrap-worker",
-        results_dir=tmp_path / "fork-results",
+        results_dir=results_root,
     )
     source_cfg = queue._config_for_job(
         queue._config_for_source("classical-small"),
@@ -1434,12 +1446,12 @@ def test_fork_crash_before_first_checkpoint_preserves_bootstrap_lineage(tmp_path
     source = fit(
         source_cfg,
         verbose=False,
-        run_options=RunOptions(artifact_dir=tmp_path / "fork-source"),
+        run_options=RunOptions(artifact_dir=results_root / "fork-source"),
     )
     source_checkpoint = source["summary"]["checkpoint_path"]
     fork_run_uuid = str(uuid.uuid4())
     fork_experiment_uuid = str(uuid.uuid4())
-    fork_dir = tmp_path / "fork-child"
+    fork_dir = results_root / "fork-child"
     job = queue.submit(
         "classical-small",
         "default-text",
@@ -1474,7 +1486,7 @@ def test_fork_crash_before_first_checkpoint_preserves_bootstrap_lineage(tmp_path
     assert Path(recovered["checkpoint_path"]) == Path(source_checkpoint).resolve()
     assert recovered["completed_step"] == source["summary"]["completed_step"]
 
-    corrupt_bootstrap = tmp_path / "fork-bootstrap-copy.msgpack"
+    corrupt_bootstrap = results_root / "fork-bootstrap-copy.msgpack"
     corrupt_bootstrap.write_bytes(Path(source_checkpoint).read_bytes())
     corrupt_job = queue.submit(
         "classical-small",
@@ -1489,7 +1501,7 @@ def test_fork_crash_before_first_checkpoint_preserves_bootstrap_lineage(tmp_path
         resume_from=str(corrupt_bootstrap),
         run_uuid=str(uuid.uuid4()),
         experiment_uuid=str(uuid.uuid4()),
-        artifact_dir=str(tmp_path / "fork-corrupt-child"),
+        artifact_dir=str(results_root / "fork-corrupt-child"),
     )
     corrupt_bootstrap.write_bytes(b"corrupt after submission")
     assert queue.db().claim_lab_job(
@@ -1633,12 +1645,21 @@ def test_generation_invalid_settings_return_unsupported_without_throwing():
     assert outcome["generated_text"] is None
 
 
-def test_dashboard_generation_uses_persisted_nondefault_artifact_dir(
+def test_dashboard_generation_uses_persisted_artifact_within_results_root(
     tiny_classical_cfg, tmp_path
 ):
-    artifact_dir = tmp_path / "trusted-custom-artifacts"
-    trained = fit(
+    results_root = tmp_path / "trusted-results"
+    data_root = tmp_path / "trusted-data"
+    cfg = dataclasses.replace(
         tiny_classical_cfg,
+        data=dataclasses.replace(
+            tiny_classical_cfg.data,
+            corpus_path=str(data_root / "missing-corpus.txt"),
+        ),
+    )
+    artifact_dir = results_root / "custom-artifacts"
+    trained = fit(
+        cfg,
         verbose=False,
         run_options=RunOptions(artifact_dir=artifact_dir),
     )
@@ -1647,20 +1668,23 @@ def test_dashboard_generation_uses_persisted_nondefault_artifact_dir(
         _job(
             status="done",
             run_name=trained["summary"]["run_name"],
-            steps=tiny_classical_cfg.train.steps,
-            eval_every=tiny_classical_cfg.train.eval_every,
-            config=to_flat_dict(tiny_classical_cfg),
+            steps=cfg.train.steps,
+            eval_every=cfg.train.eval_every,
+            config=to_flat_dict(cfg),
             artifact_dir=str(artifact_dir),
             checkpoint_path=trained["summary"]["checkpoint_path"],
         )
     )
-    info = model_test_payload(db, job_id, results_dir=tmp_path / "wrong-root")
+    info = model_test_payload(
+        db, job_id, results_dir=results_root, data_dir=data_root
+    )
     assert Path(info["artifacts"]["directory"]) == artifact_dir
     outcome = run_model_test(
         db,
         job_id,
         {"prompt": "a", "max_new_tokens": 1, "temperature": 0.8},
-        results_dir=tmp_path / "wrong-root",
+        results_dir=results_root,
+        data_dir=data_root,
     )
     assert outcome["ok"] is True
     assert outcome["generated_text"]

@@ -13,9 +13,9 @@ import dataclasses
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..claims import get_claim, list_claims
@@ -46,6 +46,16 @@ from .model_tests import model_test_payload, run_model_test
 from .presets import list_presets
 from .presets import build_preset
 from .runner import ExperimentQueue
+from .security import (
+    LOOPBACK_ORIGIN_REGEX,
+    access_status,
+    client_access_allowed,
+    configured_cors_origins,
+    is_hf_hub_dataset_id,
+    remote_access_enabled,
+    resolve_data_path,
+    resolve_web_asset,
+)
 from .status import environment_status
 from .studies import (
     create_study,
@@ -58,19 +68,36 @@ from .workspace import comparison_payload, workspace_payload
 
 DB_PATH = os.environ.get("QLLM_DB", "results/qllm_results.db")
 RESULTS_DIR = Path(os.environ.get("QLLM_RESULTS", "results"))
+DATA_DIR = Path(os.environ.get("QLLM_DATA", "data"))
 FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 
 app = FastAPI(title="QLLM Dashboard", version="0.1")
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
-    allow_headers=["*"])
+    CORSMiddleware,
+    allow_origins=configured_cors_origins(),
+    allow_origin_regex=LOOPBACK_ORIGIN_REGEX,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Accept", "Authorization", "Content-Type"],
+)
+
+
+@app.middleware("http")
+async def enforce_local_request_access(request: Request, call_next):
+    """Keep direct ``uvicorn ...server:app`` launches local by default."""
+    client_host = request.client.host if request.client else None
+    if not client_access_allowed(client_host):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Dashboard access is restricted to loopback clients."},
+        )
+    return await call_next(request)
 
 
 def db() -> ResultsDB:
     return ResultsDB(DB_PATH)
 
 
-QUEUE = ExperimentQueue(DB_PATH)
+QUEUE = ExperimentQueue(DB_PATH, results_dir=RESULTS_DIR, data_dir=DATA_DIR)
 
 
 def _payload_error(exc: Exception) -> HTTPException:
@@ -79,13 +106,14 @@ def _payload_error(exc: Exception) -> HTTPException:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "db": DB_PATH}
+    return {"ok": True, "db": DB_PATH, "access": access_status()}
 
 
 @app.get("/api/status")
 def api_status() -> dict:
     payload = environment_status(FRONTEND_DIST)
     payload.setdefault("gpu", {})["reservation"] = gpu_reservation_status(db())
+    payload["access"] = access_status()
     return payload
 
 
@@ -315,9 +343,18 @@ def api_datasets() -> list[dict]:
 @app.post("/api/datasets/hf/import")
 def api_import_hf(payload: dict) -> dict:
     try:
+        source = str(payload.get("source", ""))
+        if remote_access_enabled() and (
+            not is_hf_hub_dataset_id(source) or Path(source).exists()
+        ):
+            raise ValueError(
+                "Remote dataset imports require a Hugging Face Hub dataset ID "
+                "such as 'organization/dataset'. URLs and server-local paths are "
+                "disabled; restart in loopback-only mode for trusted local imports."
+            )
         return import_hf_text_dataset(
             db(),
-            source=payload.get("source", ""),
+            source=source,
             split=payload.get("split", "train"),
             text_column=payload.get("text_column", ""),
             display_name=payload.get("display_name") or None,
@@ -329,6 +366,9 @@ def api_import_hf(payload: dict) -> dict:
             ),
             char_limit=payload.get("char_limit"),
             byte_limit=payload.get("byte_limit"),
+            cache_dir=resolve_data_path(
+                DATA_DIR, "imported", label="dataset import directory"
+            ),
         )
     except Exception as exc:
         raise _payload_error(exc) from exc
@@ -473,7 +513,7 @@ def api_job_model_graph(job_id: int) -> dict:
 @app.get("/api/jobs/{job_id}/model-tests")
 def api_job_model_tests(job_id: int) -> dict:
     try:
-        return model_test_payload(db(), job_id, RESULTS_DIR)
+        return model_test_payload(db(), job_id, RESULTS_DIR, DATA_DIR)
     except Exception as exc:
         raise _payload_error(exc) from exc
 
@@ -481,7 +521,7 @@ def api_job_model_tests(job_id: int) -> dict:
 @app.post("/api/jobs/{job_id}/model-tests")
 def api_run_job_model_test(job_id: int, payload: dict) -> dict:
     try:
-        return run_model_test(db(), job_id, payload, RESULTS_DIR)
+        return run_model_test(db(), job_id, payload, RESULTS_DIR, DATA_DIR)
     except Exception as exc:
         raise _payload_error(exc) from exc
 
@@ -525,10 +565,13 @@ def api_plots() -> list[str]:
 
 @app.get("/api/plot/{name}")
 def api_plot(name: str):
-    path = RESULTS_DIR / name
-    if path.exists() and path.suffix == ".png":
+    try:
+        path = resolve_web_asset(RESULTS_DIR, name)
+    except ValueError as exc:
+        raise _payload_error(exc) from exc
+    if path.is_file() and path.suffix.lower() == ".png":
         return FileResponse(path)
-    return {"error": "not found"}
+    raise HTTPException(status_code=404, detail="plot not found")
 
 
 # serve the built React app, with SPA fallback so client-side routes
@@ -539,7 +582,11 @@ if FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):
-        candidate = FRONTEND_DIST / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        if full_path:
+            try:
+                candidate = resolve_web_asset(FRONTEND_DIST, full_path)
+            except ValueError as exc:
+                raise _payload_error(exc) from exc
+            if candidate.is_file():
+                return FileResponse(candidate)
+        return FileResponse(resolve_web_asset(FRONTEND_DIST, "index.html"))

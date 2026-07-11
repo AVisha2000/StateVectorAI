@@ -128,7 +128,10 @@ def all_runs(db: ResultsDB, suite: str | None = None) -> list[dict]:
         q += " WHERE suite=?"; args.append(suite)
     q += " ORDER BY ts DESC"
     with db._conn() as con:
-        rows = [dict(r) for r in con.execute(q, args).fetchall()]
+        rows = [
+            db.decode_result_row(dict(r))
+            for r in con.execute(q, args).fetchall()
+        ]
     for row in rows:
         row["metric_contract"] = _contract_for_run(row)
         try:
@@ -144,7 +147,7 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
         row = con.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if row is None:
         return {}
-    run = dict(row)
+    run = db.decode_result_row(dict(row))
     run["config"] = json.loads(run.get("config_json") or "{}")
     run["metric_contract"] = two_stream_metric_contract(
         suite=run.get("suite", ""),

@@ -37,6 +37,15 @@ def main() -> None:
     parser.add_argument("--experiment-uuid", default=None)
     parser.add_argument("--run-uuid", default=None)
     parser.add_argument(
+        "--device-target",
+        choices=("auto", "cpu", "gpu"),
+        default="auto",
+        help=(
+            "Execution device for model initialization and training. "
+            "A requested GPU fails closed when JAX cannot see one."
+        ),
+    )
+    parser.add_argument(
         "--artifact-dir", default=None,
         help="Exact artifact directory (required when forking a resumed run)",
     )
@@ -71,6 +80,7 @@ def main() -> None:
             resume_from=args.resume_from,
             checkpoint_every=args.checkpoint_every,
             artifact_dir=args.artifact_dir,
+            device_target=args.device_target,
             caller_metadata={"source": "cli", "config_path": str(args.config)},
         ),
     )

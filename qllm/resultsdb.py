@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS runs (
     val_bpc REAL,
     wall_seconds REAL,
     config_json TEXT,
+    resources_json TEXT,
     UNIQUE(suite, variant, dataset, seed, steps)
 );
 CREATE TABLE IF NOT EXISTS metrics (
@@ -92,7 +93,8 @@ CREATE TABLE IF NOT EXISTS run_results (
     val_bpc REAL,
     wall_seconds REAL,
     config_json TEXT,
-    manifest_hash TEXT
+    manifest_hash TEXT,
+    resources_json TEXT
 );
 -- live registry: a row per in-flight (or finished) training run, so the
 -- dashboard can show progress while sweeps fill the DB.
@@ -297,6 +299,10 @@ class ResultsDB:
                 "experiment_uuid": "TEXT",
                 "run_uuid": "TEXT",
                 "manifest_hash": "TEXT",
+                "resources_json": "TEXT",
+            },
+            "run_results": {
+                "resources_json": "TEXT",
             },
             "live_runs": {
                 "experiment_uuid": "TEXT",
@@ -348,6 +354,7 @@ class ResultsDB:
         manifest_hash: str | None = None,
         manifest: dict | None = None,
         finalize_manifest: bool = True,
+        resources: dict | None = None,
     ) -> dict:
         if manifest is None and run_uuid is not None:
             existing_manifest = self.get_run_manifest(run_uuid)
@@ -392,6 +399,16 @@ class ResultsDB:
             sort_keys=True,
             separators=(",", ":"),
         )
+        resources_json = (
+            json.dumps(
+                resources,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            if resources is not None
+            else None
+        )
         with self._conn() as con:
             con.execute("BEGIN IMMEDIATE")
             if run_uuid is not None:
@@ -399,7 +416,8 @@ class ResultsDB:
                     raise ValueError("experiment_uuid is required with run_uuid.")
                 existing_result = con.execute(
                     "SELECT experiment_uuid, suite, variant, dataset, seed, steps, "
-                    "n_params, val_loss, val_ppl, val_bpc, config_json, manifest_hash "
+                    "n_params, val_loss, val_ppl, val_bpc, config_json, manifest_hash, "
+                    "resources_json "
                     "FROM run_results WHERE run_uuid=?", (run_uuid,)
                 ).fetchone()
                 identity = (
@@ -432,8 +450,8 @@ class ResultsDB:
                         "INSERT INTO run_results "
                         "(run_uuid, experiment_uuid, ts, suite, variant, dataset, "
                         "seed, steps, n_params, val_loss, val_ppl, val_bpc, "
-                        "wall_seconds, config_json, manifest_hash) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "wall_seconds, config_json, manifest_hash, resources_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             run_uuid,
                             experiment_uuid,
@@ -450,6 +468,7 @@ class ResultsDB:
                             wall_seconds,
                             config_json,
                             manifest_hash,
+                            resources_json,
                         ),
                     )
             legacy = con.execute(
@@ -473,14 +492,15 @@ class ResultsDB:
                 run_uuid,
                 experiment_uuid,
                 manifest_hash,
+                resources_json,
             )
             if legacy is None:
                 con.execute(
                     "INSERT INTO runs "
                     "(ts, suite, variant, dataset, seed, steps, n_params, "
                     " val_loss, val_ppl, val_bpc, wall_seconds, config_json, "
-                    " run_uuid, experiment_uuid, manifest_hash) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " run_uuid, experiment_uuid, manifest_hash, resources_json) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     legacy_values,
                 )
             # A pre-M05 NULL-UUID row or another UUID-backed projection is
@@ -508,7 +528,7 @@ class ResultsDB:
             args.append(dataset)
         with self._conn() as con:
             rows = con.execute(query + " ORDER BY variant, seed", args).fetchall()
-        return [dict(r) for r in rows]
+        return [self.decode_result_row(dict(r)) for r in rows]
 
     def get_run(
         self, suite: str, variant: str, dataset: str, seed: int, steps: int,
@@ -531,7 +551,16 @@ class ResultsDB:
                     "AND seed=? AND steps=?",
                     (suite, variant, dataset, seed, steps),
                 ).fetchone()
-        return dict(row) if row is not None else None
+        return self.decode_result_row(dict(row)) if row is not None else None
+
+    @staticmethod
+    def decode_result_row(row: dict) -> dict:
+        """Decode additive result evidence while preserving raw JSON adapters."""
+        try:
+            row["resources"] = json.loads(row.get("resources_json") or "null")
+        except (json.JSONDecodeError, TypeError):
+            row["resources"] = None
+        return row
 
     # ---- live-run registry + per-step logging (own MLflow replacement) ----
     def start_run(self, run_key: str, run_name: str, suite: str, variant: str,

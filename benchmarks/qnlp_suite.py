@@ -143,6 +143,7 @@ def main() -> None:
                 val_ppl=s["val_ppl"],
                 val_bpc=s["val_bpc"],
                 wall_seconds=s["wall_seconds"],
+                resources=s.get("resources"),
                 config=to_flat_dict(cfg),
                 manifest=res["manifest"],
             )

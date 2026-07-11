@@ -9,12 +9,12 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo Installing WSL with Ubuntu. Windows may ask for a reboot.
-echo After reboot, open Ubuntu once, create the Linux username, then run:
+echo Installing WSL with Ubuntu 24.04. Windows may ask for a reboot.
+echo After reboot, open Ubuntu 24.04 once, create the Linux username, then run:
 echo.
 echo   Setup QLLM GPU in WSL.bat
 echo.
-wsl --install -d Ubuntu
+wsl --install -d Ubuntu-24.04
 
 echo.
 echo If WSL reports that a reboot is required, reboot before continuing.
