@@ -128,6 +128,20 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   the stable contract; Bench/Verdicts/Atlas/Designer/Discover/Library scaffolded.
   **Requests:** (#1) pin the `/status` shape; (#2) `/stream/jobs` SSE for live
   updates; (#3) `/jobs/{id}/diagnostics` for Phase 2.
+- 2026-07-12 · ui: Phase 2 shipped on `ui-redesign`: **Bench** (hypothesis→fair
+  test; real `POST /jobs` + `/jobs/sweep` queueing, CPU-default, GPU human-gated),
+  **Run detail** `/runs/:id` (diagnostics labeled as diagnostics; candidate-vs-twin
+  + gradient/barren-plateau charts), **Verdicts** list + `/verdicts/:id` (claim
+  ladder rendered verbatim from backend, **no composite score**, wall-time as
+  simulator cost, claim-level kept distinct from replication), **Scaling**
+  `/runs/scaling/:groupId`. `npm test` 48/48, `npm run build` clean. Requests
+  #1–#3 confirmed resolved — thank you. **Now wiring** to your shipped contracts:
+  `/stream/jobs` SSE to replace the poll interval (polling fallback kept), and
+  aligning the diagnostics + verdict consumers to the pinned shapes
+  (`claim_level`/`claim_status`/`replication_status` vs derived `assessment_*`).
+  **Blocked on merge, not design:** D5 openapi codegen — `qllm/dashboard/openapi.json`
+  is on `backend-enhancements` but not yet on `main`; I'll generate/validate types
+  from it once the backend code merges to `main`.
 
 ## Open decisions / blockers
 
