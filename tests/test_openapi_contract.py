@@ -23,5 +23,23 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     document = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     assert document["info"]["title"] == "QLLM Dashboard"
     assert "/api/status" in document["paths"]
+    assert "/api/stream/jobs" in document["paths"]
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
+
+    status_schema = document["components"]["schemas"]["StatusResponse"]
+    assert status_schema["additionalProperties"] is False
+    assert set(status_schema["required"]) == {
+        "worker",
+        "gpu_available",
+        "queued",
+        "running",
+        "runs",
+    }
+    assert status_schema["properties"]["worker"]["type"] == "string"
+    assert status_schema["properties"]["gpu_available"]["type"] == "boolean"
+    for key in ("queued", "running", "runs"):
+        assert status_schema["properties"][key]["type"] == "integer"
+
+    stream_response = document["paths"]["/api/stream/jobs"]["get"]["responses"]["200"]
+    assert "text/event-stream" in stream_response["content"]

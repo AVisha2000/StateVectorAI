@@ -135,6 +135,14 @@ class ExperimentQueue:
         if self._worker is not None:
             self._worker.join(timeout=timeout)
 
+    def worker_status(self) -> str:
+        """Return the stable display contract for the in-process worker."""
+        if self._worker is None:
+            return "in-process / disabled"
+        if self._worker.is_alive() and not self._stop.is_set():
+            return "in-process / active"
+        return "in-process / stopped"
+
     def submit(
         self, preset_id: str, dataset_name: str, run_name: str | None,
         seed: int, steps: int, eval_every: int,

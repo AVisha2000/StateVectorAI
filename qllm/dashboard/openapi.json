@@ -14,6 +14,40 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "StatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "gpu_available": {
+            "title": "Gpu Available",
+            "type": "boolean"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "worker": {
+            "title": "Worker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker",
+          "gpu_available",
+          "queued",
+          "running",
+          "runs"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1691,9 +1725,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Api Status Api Status Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/StatusResponse"
                 }
               }
             },
@@ -1701,6 +1733,24 @@
           }
         },
         "summary": "Api Status"
+      }
+    },
+    "/api/stream/jobs": {
+      "get": {
+        "operationId": "api_stream_jobs_api_stream_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Live bounded snapshots of durable job and run state."
+          }
+        },
+        "summary": "Api Stream Jobs"
       }
     },
     "/api/studies": {

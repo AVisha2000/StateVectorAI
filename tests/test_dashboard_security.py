@@ -346,6 +346,20 @@ def test_frontend_mount_skips_missing_or_partial_build(tmp_path):
     assert complete_client.get("/assets/app.js").status_code == 200
 
 
+def test_frontend_mount_tolerates_build_race(monkeypatch, tmp_path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<main>QLLM</main>", encoding="utf-8")
+
+    def missing_assets(*_args, **_kwargs):
+        raise RuntimeError("Directory does not exist")
+
+    monkeypatch.setattr(
+        "qllm.dashboard.static_frontend.StaticFiles", missing_assets
+    )
+    assert mount_frontend(FastAPI(), dist) is False
+
+
 def test_wsl_launcher_uses_explicit_remote_gate():
     launcher = Path("Start QLLM GPU Portal.bat").read_text()
     assert "--host 0.0.0.0" in launcher

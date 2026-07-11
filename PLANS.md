@@ -882,7 +882,7 @@ Progress:
   regression.
 - [x] Ship D6: tolerate missing/incomplete frontend build in backend imports and
   security tests.
-- [ ] Pin `/api/status` and ship localhost-only SQLite-authoritative SSE updates;
+- [x] Pin `/api/status` and ship localhost-only SQLite-authoritative SSE updates;
   record D1 and D2.
 - [ ] Ship capability-aware diagnostics and focused regressions.
 - [ ] Ship the additive verdict store/API; record D3.
@@ -923,6 +923,14 @@ python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openap
 PASS: 1 passed.
 python -m pytest -q tests/test_dashboard_security.py --basetemp .tmp/pytest-security-d6b
 PASS: 13 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
+python -m pytest -q tests/test_dashboard_stream.py --basetemp .tmp/pytest-stream-integration
+PASS: 6 passed.
+python -m pytest -q tests/test_dashboard_security.py --basetemp .tmp/pytest-security-stream
+PASS: 14 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
+python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-contract-d1d2
+PASS: 1 passed; the status schema has five typed fields and SSE advertises text/event-stream.
+python -m pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-dashboard-d1d2
+PASS: 74 passed.
 git diff --check
 PASS: no whitespace errors; Windows line-ending notices only.
 ```

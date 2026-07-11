@@ -16,11 +16,11 @@ def mount_frontend(application: FastAPI, frontend_dist: Path) -> bool:
     if not frontend_build_available(frontend_dist):
         return False
 
-    application.mount(
-        "/assets",
-        StaticFiles(directory=frontend_dist / "assets"),
-        name="assets",
-    )
+    try:
+        static_files = StaticFiles(directory=frontend_dist / "assets")
+    except (OSError, RuntimeError):
+        return False
+    application.mount("/assets", static_files, name="assets")
 
     @application.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):

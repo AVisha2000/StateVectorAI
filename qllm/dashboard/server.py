@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
@@ -24,13 +24,18 @@ from ..registry import supported_choices_payload
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
 from .explore import domain_payload, explore_payload, result_dashboard_payload
-from .gpu_reservation import gpu_reservation_status
 from .lab import (
     comparison_research_payload,
     enrich_job,
     lab_overview,
     scaling_test_payload,
     scaling_tests_overview,
+)
+from .live_stream import (
+    StatusResponse,
+    build_status_payload,
+    jobs_event_stream,
+    stream_client_allowed,
 )
 from .model_graph import model_graph_from_config
 from .model_specs import (
@@ -109,12 +114,43 @@ def health() -> dict:
     return {"ok": True, "db": DB_PATH, "access": access_status()}
 
 
-@app.get("/api/status")
-def api_status() -> dict:
-    payload = environment_status(FRONTEND_DIST)
-    payload.setdefault("gpu", {})["reservation"] = gpu_reservation_status(db())
-    payload["access"] = access_status()
-    return payload
+@app.get("/api/status", response_model=StatusResponse)
+def api_status() -> StatusResponse:
+    environment = environment_status(FRONTEND_DIST)
+    return StatusResponse(
+        **build_status_payload(
+            db,
+            worker=QUEUE.worker_status(),
+            gpu_available=bool(environment.get("gpu", {}).get("ready")),
+        )
+    )
+
+
+@app.get(
+    "/api/stream/jobs",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Live bounded snapshots of durable job and run state.",
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        }
+    },
+)
+async def api_stream_jobs(request: Request) -> StreamingResponse:
+    client_host = request.client.host if request.client else None
+    if not stream_client_allowed(client_host):
+        raise HTTPException(
+            status_code=403,
+            detail="Job streaming is restricted to loopback clients.",
+        )
+    return StreamingResponse(
+        jobs_event_stream(request, db_factory=db),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/presets")
