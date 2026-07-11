@@ -36,6 +36,11 @@ export default function System() {
               <div className="s">JAX + CUDA readiness</div>
             </div>
             <div className="kpi">
+              <span className="microlabel">Running</span>
+              <div className="v num">{Number.isFinite(status?.running) ? status.running : '—'}</div>
+              <div className="s">jobs in flight</div>
+            </div>
+            <div className="kpi">
               <span className="microlabel">Queue depth</span>
               <div className="v num">{Number.isFinite(status?.queued) ? status.queued : '—'}</div>
               <div className="s">jobs waiting</div>

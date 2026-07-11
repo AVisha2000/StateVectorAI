@@ -66,7 +66,18 @@ export default function RunDetail() {
   const c = comparison?.baseline?.final_run?.val_ppl
   const vsTwin = typeof q === 'number' && typeof c === 'number' && c !== 0 ? (q - c) / Math.abs(c) : null
 
-  const warnings = data?.interpretation_warnings || []
+  // Merge run warnings with the diagnostics endpoint's own non-advantage notes,
+  // de-duplicated by code.
+  const warnings = useMemo(() => {
+    const all = [...(data?.interpretation_warnings || []), ...(diag?.interpretation_warnings || [])]
+    const seen = new Set()
+    return all.filter((w) => {
+      const key = w?.code || w?.title
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [data, diag])
 
   return (
     <>
