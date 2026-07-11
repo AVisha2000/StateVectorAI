@@ -1,6 +1,165 @@
 {
   "components": {
     "schemas": {
+      "DiagnosticDimension": {
+        "additionalProperties": false,
+        "description": "One persisted mechanism or trainability observation.",
+        "properties": {
+          "provenance": {
+            "additionalProperties": true,
+            "title": "Provenance",
+            "type": "object"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "measured",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "status",
+          "value",
+          "source",
+          "provenance"
+        ],
+        "title": "DiagnosticDimension",
+        "type": "object"
+      },
+      "DiagnosticsDimensions": {
+        "additionalProperties": false,
+        "properties": {
+          "expressibility_kl": {
+            "$ref": "#/components/schemas/DiagnosticDimension"
+          },
+          "gradient_variance": {
+            "$ref": "#/components/schemas/DiagnosticDimension"
+          },
+          "meyer_wallach_q": {
+            "$ref": "#/components/schemas/DiagnosticDimension"
+          },
+          "parameter_shift_gradient_snr": {
+            "$ref": "#/components/schemas/DiagnosticDimension"
+          },
+          "scaling_fit": {
+            "$ref": "#/components/schemas/DiagnosticDimension"
+          }
+        },
+        "required": [
+          "gradient_variance",
+          "parameter_shift_gradient_snr",
+          "expressibility_kl",
+          "meyer_wallach_q",
+          "scaling_fit"
+        ],
+        "title": "DiagnosticsDimensions",
+        "type": "object"
+      },
+      "DiagnosticsJob": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "run_name": {
+            "title": "Run Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_name",
+          "status"
+        ],
+        "title": "DiagnosticsJob",
+        "type": "object"
+      },
+      "DiagnosticsPayload": {
+        "additionalProperties": false,
+        "description": "Response model for a future diagnostics route.",
+        "properties": {
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsDimensions"
+          },
+          "interpretation_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/InterpretationWarning"
+            },
+            "title": "Interpretation Warnings",
+            "type": "array"
+          },
+          "job": {
+            "$ref": "#/components/schemas/DiagnosticsJob"
+          }
+        },
+        "required": [
+          "job",
+          "diagnostics",
+          "interpretation_warnings"
+        ],
+        "title": "DiagnosticsPayload",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -12,6 +171,45 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InterpretationWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "title",
+          "message",
+          "evidence"
+        ],
+        "title": "InterpretationWarning",
         "type": "object"
       },
       "StatusResponse": {
@@ -789,6 +987,45 @@
           }
         },
         "summary": "Api Job Comparison"
+      }
+    },
+    "/api/jobs/{job_id}/diagnostics": {
+      "get": {
+        "operationId": "api_job_diagnostics_api_jobs__job_id__diagnostics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsPayload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Job Diagnostics"
       }
     },
     "/api/jobs/{job_id}/model-graph": {

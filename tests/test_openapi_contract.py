@@ -24,6 +24,7 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     assert document["info"]["title"] == "QLLM Dashboard"
     assert "/api/status" in document["paths"]
     assert "/api/stream/jobs" in document["paths"]
+    assert "/api/jobs/{job_id}/diagnostics" in document["paths"]
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
 
@@ -43,3 +44,13 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
 
     stream_response = document["paths"]["/api/stream/jobs"]["get"]["responses"]["200"]
     assert "text/event-stream" in stream_response["content"]
+
+    dimensions = document["components"]["schemas"]["DiagnosticsDimensions"]
+    assert dimensions["additionalProperties"] is False
+    assert set(dimensions["required"]) == {
+        "gradient_variance",
+        "parameter_shift_gradient_snr",
+        "expressibility_kl",
+        "meyer_wallach_q",
+        "scaling_fit",
+    }

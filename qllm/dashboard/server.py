@@ -23,6 +23,7 @@ from ..config import QuantumConfig
 from ..registry import supported_choices_payload
 from . import queries as Q
 from .datasets import import_hf_text_dataset, list_datasets
+from .diagnostics import DiagnosticsPayload, diagnostics_payload
 from .explore import domain_payload, explore_payload, result_dashboard_payload
 from .lab import (
     comparison_research_payload,
@@ -422,6 +423,17 @@ def api_job(job_id: int) -> dict:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return enrich_job(job, db())
+
+
+@app.get("/api/jobs/{job_id}/diagnostics", response_model=DiagnosticsPayload)
+def api_job_diagnostics(job_id: int) -> DiagnosticsPayload:
+    try:
+        return DiagnosticsPayload(
+            **diagnostics_payload(db(), job_id, results_dir=RESULTS_DIR)
+        )
+    except KeyError as exc:
+        detail = str(exc.args[0]) if exc.args else "job not found"
+        raise HTTPException(status_code=404, detail=detail) from exc
 
 
 @app.post("/api/jobs")

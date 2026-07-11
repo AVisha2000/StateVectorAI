@@ -884,7 +884,7 @@ Progress:
   security tests.
 - [x] Pin `/api/status` and ship localhost-only SQLite-authoritative SSE updates;
   record D1 and D2.
-- [ ] Ship capability-aware diagnostics and focused regressions.
+- [x] Ship capability-aware diagnostics and focused regressions.
 - [ ] Ship the additive verdict store/API; record D3.
 - [ ] Ship the bounded research-service scaffold and stop at D4.
 - [ ] Regenerate the final OpenAPI snapshot and update only the backend-owned API
@@ -931,6 +931,12 @@ python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openap
 PASS: 1 passed; the status schema has five typed fields and SSE advertises text/event-stream.
 python -m pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-dashboard-d1d2
 PASS: 74 passed.
+python -m pytest -q tests/test_dashboard_diagnostics.py --basetemp .tmp/pytest-diagnostics-parent
+PASS: 10 passed; repeated same-qubit rows cannot become a scaling axis.
+python -m pytest -q tests/test_metrics.py tests/test_backend_capabilities.py --basetemp .tmp/pytest-diagnostics-metrics
+PASS: 58 passed; six existing JAX complex128-to-complex64 warnings.
+python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-diagnostics
+PASS: 1 passed; the five diagnostics dimensions are explicit in OpenAPI.
 git diff --check
 PASS: no whitespace errors; Windows line-ending notices only.
 ```
