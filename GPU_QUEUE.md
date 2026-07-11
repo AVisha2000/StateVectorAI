@@ -93,10 +93,12 @@ back if the soft version caps out, and I'll build the hard-routing variant.
 
 ## 6. Two-stream: settle the quantum-bias lean (RESULTS §20)
 
-The most statistically fragile result in the project: quantum-bias led
-its param-matched classical control 9.29 vs 9.64 ppl over 4 seeds, with
-heavily overlapping error bars. This needs real seed count to know if
-it's signal or noise:
+Historical full-window quantum-bias rows used future side information and are
+rerun-required; their 9.29 vs 9.64 perplexity values are not strict
+autoregressive evidence and must not be pooled with the causal model. The
+command below is a fresh `two-stream-causal-v2` confirmation study. Its paired
+count, controls, equivalence margin, power plan, and resource ledger determine
+interpretation; the historical lean is motivation only:
 
 ```bash
 python benchmarks/two_stream_probe.py --dataset text \

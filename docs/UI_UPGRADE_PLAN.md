@@ -2,13 +2,17 @@
 
 ## Implementation status
 
-The original phases are retained as a design record, but most structural UI
-work is already present: Lab Overview, filtered jobs, model diagrams,
-dedicated comparisons, studies and reports, persisted model specs, per-layer
-configuration, and the visual builder. `PLANS.md` milestone M08 now owns the
-remaining work: connect those surfaces to canonical metric types, claim IDs,
-paired/equivalence statistics, fairness mismatches, manifests, checkpoints,
-queue recovery, and resource ledgers, then complete responsive/browser QA.
+The original phases are retained as a design record. All structural phases are
+implemented: Lab Overview, filtered jobs, model diagrams, dedicated
+comparisons, studies/reports, persisted per-layer model specs, and the visual
+builder. M08 completed canonical metric/claim IDs, paired/equivalence/power
+statistics, complete fairness mismatches, manifests, checkpoints/recovery,
+resource ledgers, unavoidable warnings, and responsive/browser QA.
+
+The original Phase 7 name, “Quantum Advantage Reporting,” is superseded by
+cautious evidence reporting: the UI presents claim contracts and limitations
+but never promotes a scientific claim. See
+[`COMPLETION_AUDIT.md`](COMPLETION_AUDIT.md) for phase-by-phase evidence.
 
 ## Purpose
 

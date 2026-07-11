@@ -32,6 +32,14 @@ Generated experiment outputs may exist locally under `results/`, `mlruns/`,
 and `mlflow.db`. They are useful research artifacts, but they are ignored by
 Git so the source tree stays clean.
 
+## Start here
+
+- Researchers: [docs/RESEARCHER_GUIDE.md](docs/RESEARCHER_GUIDE.md)
+- Engineers: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- Local-platform completion/status: [docs/COMPLETION_AUDIT.md](docs/COMPLETION_AUDIT.md)
+- Scientific roadmap and historical findings:
+  [docs/RESEARCH_PROGRAM.md](docs/RESEARCH_PROGRAM.md) and [RESULTS.md](RESULTS.md)
+
 ## Setup
 
 ```bash
@@ -149,8 +157,14 @@ column, and QLLM Lab writes a local `.txt` corpus under `data/imported/`.
 
 ## Current status
 
-The project has working classical baselines, several quantum swap-in modules,
-scaling diagnostics, recurrent quantum-memory probes, contextual tasks,
-two-stream experiments, and a SQLite-backed dashboard. The next high-value
-work is the GPU queue in `GPU_QUEUE.md`, especially the separation flagship and
-the two-stream seed-count expansion.
+The nine-milestone local CPU-capable research platform is complete: canonical
+data/config contracts, causal metrics, claim/fairness statistics, immutable
+runs and recovery, localhost safety, backend capability/resource metadata, and
+warning-first dashboard evidence views are implemented and verified. The
+[completion audit](docs/COMPLETION_AUDIT.md) records every engineering and UI
+item as completed, superseded, deferred, or human-gated.
+
+Scientific campaigns continue. `GPU_QUEUE.md`, cluster/QPU work, paid services,
+remote exposure, destructive artifact migrations, and stronger claim wording
+remain separate approval-gated programs; historical full-window two-stream
+results require causal reruns and are not current autoregressive evidence.

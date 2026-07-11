@@ -10,9 +10,10 @@ record in [RESULTS.md](../RESULTS.md), the current run list in
 [GPU_QUEUE.md](../GPU_QUEUE.md), and the machine-readable area map in
 [RESEARCH_MAP.yaml](RESEARCH_MAP.yaml).
 
-Boundary-safe synthetic dataset loading and sampling landed in commit
-`83c5fa1`. The remaining local-platform work is sequenced through milestones
-M01-M09 in `PLANS.md`; GPU/cluster/QPU execution remains separately gated.
+The local CPU-capable engineering program is complete through milestones
+M01-M09; [`COMPLETION_AUDIT.md`](COMPLETION_AUDIT.md) records the evidence and
+explicit follow-ons. Research campaigns, GPU/cluster/QPU execution, paid
+services, and claim promotion remain separately gated.
 
 ## Executive decision
 

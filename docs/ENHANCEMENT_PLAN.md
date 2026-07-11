@@ -7,9 +7,12 @@ Execution is tracked in `PLANS.md` through milestones M01-M09.
 
 - Boundary-safe synthetic loading, trajectory splitting, control generation,
   and batch sampling are complete as of commit `83c5fa1`.
-- The dashboard already contains the cockpit, model graph, comparison, study,
-  per-layer model-spec, and visual-builder foundations described by the older
-  UI plan; remaining UI work is evidence-contract integration and hardening.
+- The local CPU-capable implementation and dashboard evidence hardening are
+  complete through M09. [`COMPLETION_AUDIT.md`](COMPLETION_AUDIT.md) classifies
+  each of the 23 numbered items with concrete implementation/test evidence.
+- The body below is retained as the preimplementation problem statement and
+  acceptance record. `COMPLETION_AUDIT.md`, not tense in the original prose,
+  is the current status authority.
 - Item numbering below is retained for traceability. Acceptance criteria, not
   the original prose order, determine completion.
 
@@ -842,7 +845,7 @@ Suggested files:
 
 - `docs/DEVELOPMENT.md`
 - `README.md`
-- `.codex/skills/qllm-model-development/references/component-map.md`
+- `.agents/skills/qllm-model-development/references/component-map.md`
 
 Acceptance criteria:
 

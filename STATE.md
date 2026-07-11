@@ -2,6 +2,11 @@
 
 Last run: 2026-07-04T15:14:21+01:00
 
+> Historical loop snapshot: this report predates milestones M01-M09 and is not
+> current engineering status. Use `PLANS.md` and
+> `docs/COMPLETION_AUDIT.md`; refresh the detailed loop state only through an
+> explicit `$qllm-loop-triage` run.
+
 ## High Priority
 
 - Boundary-safe synthetic sampling remains the top correctness gate. Generated datasets are flattened, `qllm/data/text.py::sample_batch` is shared by train/eval, and `qllm/data/datasets.py::DATASET_KINDS` is stale. Next: promote one L2 single-fix run to add dataset boundary metadata, boundary-aware split/sampling, cache metadata, and focused tests before trusting new synthetic-memory results.

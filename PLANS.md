@@ -44,10 +44,68 @@ Progress:
   (`codex/m06-safety-resources`), delivered to `main` in commit `182192c`.
 - [x] M07 Local scaling architecture (`codex/m07-local-scaling`), delivered
   to `main` in commit `dcec571`.
-- [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
+- [x] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`),
+  delivered to `main` in commit `f3daa85`.
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M08 dashboard and UI evidence completion.
+Current milestone: M09 documentation and completion audit.
+
+M09 acceptance evidence:
+
+- Researcher onboarding explains claim levels, matched controls, multi-seed
+  studies, resource ledgers, warnings, and safe interpretation without
+  strengthening any scientific conclusion.
+- Engineer onboarding maps registries, canonical datasets/config validation,
+  model/backend extension points, durable runs, dashboard evidence contracts,
+  tests, and safe local workflows.
+- Every enhancement-plan item is classified completed, superseded, deferred,
+  or human-gated with concrete repository evidence; unresolved hardware,
+  cluster, paid-service, destructive-migration, and claim-promotion work stays
+  explicitly outside local-platform completion.
+- Documentation links and commands are valid, agent setup and change-aware
+  verification pass, the complete CPU suite remains green, and a fresh
+  read-only verifier confirms the repository audit before delivery.
+
+M09 progress:
+
+- [x] Deliver M08 and create `codex/m09-docs-audit` from updated `main`.
+- [x] Build the documentation and enhancement-status coverage map.
+- [x] Add researcher and engineer onboarding plus evidence-backed status audit.
+- [x] Validate links, commands, documentation checks, and the complete CPU suite.
+- [ ] Obtain a fresh verifier PASS and deliver M09 under standing Git approval.
+
+M09 design constraints:
+
+- Documentation describes the implemented repository; it does not invent
+  unverified behavior or silently close deferred/human-gated programs.
+- `RESULTS.md` claim-bearing text and claim status/level remain unchanged.
+- Existing historical plans and validation evidence remain intact. Mechanical
+  status/link edits receive parent review before acceptance.
+- No GPU/QPU/cluster run, paid service, destructive artifact/database action,
+  remote dashboard exposure, or stronger claim is part of M09.
+
+M09 validation results:
+
+```text
+relative Markdown link audit
+PASS: every local target in repository Markdown resolves.
+research YAML/claim registry audit
+PASS: RESEARCH_MAP.yaml parses and 19 canonical claim contracts load.
+documented CLI help audit
+PASS: seven researcher benchmark entry points plus queue/GPU helpers resolve in the repository virtual environment.
+python scripts/check_agent_setup.py --repo .
+PASS: project agent/profile/skill setup is valid.
+pytest -q tests/test_agent_configuration.py tests/test_verify_changes.py --basetemp .tmp/pytest-m09-agent
+PASS: 17 passed.
+python scripts/verify_changes.py --run
+SAFE CHECKS PASS: agent setup/tests. The verifier reports its conservative `gpu` HUMAN GATE because GPU_QUEUE.md warning prose changed; no GPU workload is selected or launched, and the user authorized safe in-scope documentation delivery.
+pytest -vv --tb=short --basetemp .tmp/pytest-m09-full-retry
+PASS: 351 passed, 2 skipped; 44 existing dependency/JAX precision warnings. An earlier buffered run was interrupted by the external command timeout without an assertion result; the clean retry used a fresh temp root.
+git diff --check
+PASS: no whitespace errors; line-ending notices only.
+independent research-documentation review
+PASS after correcting seed-axis coupling language and claim-loader module attribution; no claim promotion or unsupported completion classification remains.
+```
 
 M08 acceptance evidence:
 
@@ -76,7 +134,7 @@ M08 progress:
 - [x] Implement backend/API integration with regression tests.
 - [x] Implement frontend evidence presentation and resilient route states.
 - [x] Run backend/frontend/queue/browser and full CPU verification.
-- [ ] Obtain a fresh verifier PASS and deliver M08 under standing Git approval.
+- [x] Obtain a fresh verifier PASS and deliver M08 under standing Git approval.
 
 M08 design constraints:
 
