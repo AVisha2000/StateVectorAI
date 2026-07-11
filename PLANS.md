@@ -887,7 +887,7 @@ Progress:
 - [x] Ship capability-aware diagnostics and focused regressions.
 - [x] Ship the additive verdict store/API; record D3.
 - [x] Ship the bounded research-service scaffold and stop at D4.
-- [ ] Regenerate the final OpenAPI snapshot and update only the backend-owned API
+- [x] Regenerate the final OpenAPI snapshot and update only the backend-owned API
   contract and Backend log in `docs/BUILD_COORDINATION.md`.
 - [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
   and commit authorized deliverables without merging the feature branch.
@@ -954,8 +954,29 @@ python -m pytest -q tests/test_dashboard_security.py --basetemp .tmp/pytest-secu
 PASS: 14 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
 python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-research
 PASS: 1 passed; capabilities and bounded scan routes are typed in OpenAPI.
+python scripts/check_agent_setup.py
+PASS: agent setup validation passed.
+python scripts/verify_changes.py --plan
+PASS: selected agent-setup for the clean committed worktree; the script does not
+compare committed branch history to origin/main, so the full suite below supplies
+the branch-wide behavioral verification.
+python scripts/verify_changes.py --run
+PASS: agent-setup passed for verification fingerprint
+91f8dea9b78c842f01de8272747f3cc704d625fc35178ef1bcd22edc0a89e327.
+python -m pytest -q --basetemp .tmp/pytest-backend-full-final
+PASS: 492 passed, 1 skipped, 48 warnings in 312.66 seconds; the warnings are one
+existing Starlette/httpx deprecation and 47 existing JAX complex128-to-complex64
+warnings.
+python scripts/queue_smoke.py --url http://127.0.0.1:8179 --steps 1
+  --eval-every 1 --device-target cpu --timeout 180
+PASS: isolated job 1 completed on CPU at step 1 and wrote latest/best checkpoints;
+the temporary loopback dashboard was stopped and port 8179 was confirmed free.
+python scripts/dump_openapi.py --check
+PASS: committed qllm/dashboard/openapi.json is current after all endpoint changes.
+git diff --name-only origin/main...HEAD
+PASS: 20 backend/plan/test paths changed and no qllm/dashboard/frontend path changed.
 git diff --check
-PASS: no whitespace errors; Windows line-ending notices only.
+PASS: no whitespace errors.
 ```
 
 ## Completed plan: local platform completion
