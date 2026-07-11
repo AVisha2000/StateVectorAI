@@ -1,0 +1,749 @@
+schema_version: 1
+
+claims:
+  - claim_id: variational_component_swaps
+    research_area_id: variational_component_swaps
+    statement: Generic variational quantum component swaps on classical text provide a quantum-specific predictive edge over matched trainable, frozen, and classical controls.
+    level: diagnostic
+    status: contradicted
+    replication_status: multi_seed_single_instance
+    metric_type: validation_perplexity
+    evidence:
+      - source: RESULTS.md
+        sections: [2, 6, 8, 10]
+        suites: [ablation, qnlp-v1]
+        summary: Trained circuits tie frozen circuits or lose to matched classical controls in the tested text regimes.
+    contradictions:
+      - Frozen/random circuits and matched classical bottlenecks explain the apparent parameter-efficiency observations.
+    limitations:
+      - Evidence covers small circuits, classical text, limited training budgets, and a single task instance.
+    fairness_schema: &component_schema
+      schema_id: controlled_component_ablation_v1
+      required_equal:
+        - data.*
+        - job.dataset_name
+        - job.device_target
+        - job.eval_every
+        - job.seed
+        - job.steps
+        - seed_axes.generator
+        - seed_axes.initialization
+        - seed_axes.minibatch
+        - seed_axes.split
+        - train.batch_size
+        - train.eval_batches
+        - train.grad_clip
+        - train.lr
+        - train.seq_len
+        - train.weight_decay
+      intentional_differences:
+        - path: model.attn_type
+          reason: Attention kind is an allowed named quantum-to-classical component intervention.
+        - path: model.embed_type
+          reason: Embedding kind is an allowed named quantum-to-classical component intervention.
+        - path: model.encoder_kind
+          reason: Sentence-encoder kind is an allowed named quantum-to-classical component intervention.
+        - path: model.ffn_type
+          reason: Feed-forward kind is an allowed named quantum-to-classical component intervention.
+        - path: model.head_type
+          reason: Output-head kind is an allowed named quantum-to-classical component intervention.
+        - path: model.quantum.*
+          reason: Top-level circuit settings are structurally inactive in the classical component analogue and remain explicitly reported.
+        - path: model.blocks.*.attn_type
+          reason: A declared per-block attention-kind swap is an allowed component intervention.
+        - path: model.blocks.*.ffn_type
+          reason: A declared per-block feed-forward-kind swap is an allowed component intervention.
+        - path: model.blocks.*.quantum.*
+          reason: Quantum-only per-block circuit settings are structurally absent from the classical component analogue.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness applies to the quantum candidate and is structurally inapplicable to its classical analogue; every such mismatch remains explicit.
+      parameter_tolerance: 0.10
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &component_ladder
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: architecture-aware classical component analogue
+        match_mode: parameters
+        limitation: A missing or unfair linked analogue blocks an edge assessment.
+      - rung_id: parameter_match
+        required: true
+        comparator: parameter-matched classical analogue
+        match_mode: parameters
+        limitation: Parameter imbalance must remain within the claim-specific tolerance.
+      - rung_id: resource_accounting
+        required: true
+        comparator: candidate and analogue resource ledgers
+        match_mode: circuit_evaluations
+        limitation: Missing wall time or parameter/resource accounting blocks cost-aware interpretation.
+      - rung_id: frozen_random_control
+        required: true
+        comparator: frozen or random quantum-feature control
+        match_mode: circuit_evaluations
+        limitation: Trainability cannot be attributed to the quantum component without this control.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: strongest architecture-aware classical challenger in the study
+        match_mode: parameters
+        limitation: A small curated twin does not exhaust the classical reference class.
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.1
+      suites: [ablation, qnlp-v1]
+      preset_ids: [quantum-attn-4q, quantum-ffn-4q]
+    next_decisive_test: Reopen only with a new data-mechanism alignment argument, powered paired instances, and frozen, no-entanglement, and architecture-aware classical controls.
+
+  - claim_id: barren_plateau_scaling
+    research_area_id: barren_plateau_scaling
+    statement: The tested reuploading ansatz exhibits rapidly decaying gradient variance as qubit count grows under the repository scaling probe.
+    level: diagnostic
+    status: supported
+    replication_status: within_study_resampling
+    metric_type: gradient_variance
+    evidence:
+      - source: RESULTS.md
+        sections: [3]
+        suites: [scaling_probe]
+        summary: Repeated random initializations show exponential gradient-variance decay from two through twelve qubits.
+    contradictions: []
+    limitations:
+      - This is a simulator diagnostic for one ansatz, depth, observable, and initialization family; it is not an advantage metric.
+    fairness_schema: &diagnostic_schema
+      schema_id: diagnostic_matched_probe_v1
+      required_equal:
+        - data.*
+        - job.device_target
+        - seed_axes.initialization
+        - train.eval_batches
+      intentional_differences:
+        - path: model.quantum.n_qubits
+          reason: Qubit count is the prespecified diagnostic sweep axis.
+        - path: model.quantum.n_circuit_layers
+          reason: Circuit depth may be a separately declared diagnostic sweep axis.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness is explicitly not applicable to a circuit-free diagnostic comparator.
+      parameter_tolerance: 1.0
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &diagnostic_ladder
+      - rung_id: linked_component_analogue
+        required: false
+        comparator: matched diagnostic reference
+        match_mode: circuit_evaluations
+        limitation: Diagnostic characterization does not by itself establish a model-quality edge.
+      - rung_id: resource_accounting
+        required: true
+        comparator: per-size circuit and wall-time ledger
+        match_mode: circuit_evaluations
+        limitation: Scaling interpretation requires explicit work and precision accounting.
+    analysis_settings:
+      phase: exploratory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.00001
+      suites: [scaling_probe]
+      preset_ids: []
+    next_decisive_test: Expand to local initialization, layerwise training, finite-shot gradient signal-to-noise, optimizer success probability, and time-to-target.
+
+  - claim_id: kernel_geometry_controls
+    research_area_id: kernel_geometry_controls
+    statement: Quantum-kernel geometry yields a held-out application benefit over a prespecified strong classical kernel family under nested model selection.
+    level: diagnostic
+    status: inconclusive
+    replication_status: within_study_resampling
+    metric_type: kernel_target_alignment
+    evidence:
+      - source: RESULTS.md
+        sections: [7]
+        suites: [advantage_probe]
+        summary: Engineered positive and classical negative controls behave as intended, while application selection remains test-leaky.
+    contradictions:
+      - Ridge regularization was selected on the test split and the classical challenger family was too narrow.
+    limitations:
+      - Engineered labels demonstrate instrument sensitivity rather than application advantage.
+    fairness_schema: &kernel_schema
+      schema_id: held_out_kernel_benchmark_v1
+      required_equal:
+        - data.*
+        - job.dataset_name
+        - seed_axes.generator
+        - seed_axes.split
+        - train.eval_batches
+      intentional_differences:
+        - path: model.kernel_family
+          reason: Kernel family is the named comparison axis under an equal validation-search budget.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness is explicitly not applicable to a circuit-free kernel comparator.
+      parameter_tolerance: 0.10
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &kernel_ladder
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: strong classical kernel family
+        match_mode: parameters
+        limitation: A narrow RBF-only comparison cannot support a kernel edge.
+      - rung_id: resource_accounting
+        required: true
+        comparator: feature and kernel-evaluation budgets
+        match_mode: state_preparations
+        limitation: Kernel estimation, shots, and model-selection work must be reported.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: random-feature, projected, tensor-network, and neural kernel challengers
+        match_mode: parameters
+        limitation: The current classical attack family is incomplete.
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.02
+      suites: [advantage_probe]
+      preset_ids: []
+    next_decisive_test: Add nested validation, projected and classical challenger families, finite-shot ladders, and untouched held-out application labels.
+
+  - claim_id: monitored_quantum_memory
+    research_area_id: monitored_quantum_memory
+    statement: A QRNN exploiting monitored quantum-process memory reaches a predictive target with less classical state or measured resource than the strong classical memory frontier.
+    level: diagnostic
+    status: blocked
+    replication_status: single_task_instance
+    metric_type: predictive_memory_to_target
+    evidence:
+      - source: RESULTS.md
+        sections: [9, 11, 12, 13]
+        suites: [memory-sweep-v1, memory-sweep-v2, resonance-v1]
+        summary: A fixed-capacity trend is visible, but well-provisioned classical models remain competitive in the measured range.
+    contradictions:
+      - The stated density-matrix dimension is an upper bound, not a proven minimal classical-memory lower bound.
+    limitations:
+      - Decisive runs lack independent generator-instance replication and complete oracle resource accounting.
+    fairness_schema: &memory_schema
+      schema_id: predictive_memory_scaling_v1
+      required_equal:
+        - data.*
+        - job.device_target
+        - job.eval_every
+        - job.steps
+        - seed_axes.generator
+        - seed_axes.minibatch
+        - seed_axes.split
+        - train.eval_batches
+      intentional_differences:
+        - path: model.arch
+          reason: Recurrent cell family is the prespecified quantum-memory versus classical-memory intervention.
+        - path: model.rnn_hidden
+          reason: Classical recurrent width is the declared capacity-ladder axis and remains separately resource checked.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness is explicitly not applicable to a circuit-free memory comparator.
+      parameter_tolerance: 0.25
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &memory_ladder
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: matched classical predictive-memory model
+        match_mode: memory
+        limitation: A single small GRU is not a sufficient classical memory frontier.
+      - rung_id: parameter_match
+        required: false
+        comparator: parameter-matched recurrent baseline
+        match_mode: parameters
+        limitation: Parameter matching is one view and does not replace a memory-capacity frontier.
+      - rung_id: resource_accounting
+        required: true
+        comparator: candidate, oracle, and classical memory/resource ledgers
+        match_mode: memory
+        limitation: Oracle and simulator resources must be measured rather than recorded as zero.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: HMM, PSR, state-space, weighted-automaton, MPS, and scaled recurrent challengers
+        match_mode: memory
+        limitation: Task-specific compressed classical predictors remain untested.
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.05
+      suites: [memory-sweep-v1, memory-sweep-v2, resonance-v1]
+      preset_ids: []
+    next_decisive_test: Replicate generator instances, measure predictive-state rank, add task-specific classical challengers, and preregister the minimal memory needed to reach a fixed target.
+
+  - claim_id: qrnn_representability_and_training
+    research_area_id: qrnn_representability_and_training
+    statement: A planted QRNN solution exists, while tested random initializations converge to a worse optimization basin.
+    level: diagnostic
+    status: supported
+    replication_status: multi_seed_single_instance
+    metric_type: time_to_target
+    evidence:
+      - source: RESULTS.md
+        sections: [11, 12, 13]
+        suites: [battery-v1, qrnn-landscape-v1]
+        summary: Planted parameters reach a better basin than repeated random-initialization training runs.
+    contradictions: []
+    limitations:
+      - Analytic simulator backpropagation does not establish hardware-feasible trainability.
+    fairness_schema: *diagnostic_schema
+    analogue_ladder: *diagnostic_ladder
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.05
+      suites: [battery-v1, qrnn-landscape-v1]
+      preset_ids: [qrnn-small]
+    next_decisive_test: Compare planted and warm starts with hardware-feasible optimizers using circuit evaluations and time-to-target as primary metrics.
+
+  - claim_id: unitary_weight_transplant
+    research_area_id: unitary_weight_transplant
+    statement: Unitary weight transplantation provides a quantum-specific warm-start benefit beyond rank-, initialization-, and resource-matched classical compression controls.
+    level: diagnostic
+    status: relabeled
+    replication_status: multi_seed_single_instance
+    metric_type: validation_perplexity
+    evidence:
+      - source: RESULTS.md
+        sections: [11, 12]
+        suites: [transplant-v1, transplant-v2]
+        summary: The matched classical SVD warm-start twin reproduces the quantum transplant result.
+    contradictions:
+      - The matched low-rank classical twin overturns the earlier quantum-specific attribution.
+    limitations:
+      - The useful method is classically deployable and should be treated as quantum-inspired compression.
+    fairness_schema: *component_schema
+    analogue_ladder: *component_ladder
+    analysis_settings:
+      phase: confirmatory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.1
+      suites: [transplant-v1, transplant-v2]
+      preset_ids: []
+    next_decisive_test: Preserve the method as a compression baseline and implementation technique, not an advantage track.
+
+  - claim_id: heuristic_parity_memory
+    research_area_id: heuristic_parity_memory
+    statement: The contextual quantum recurrent construction yields a theorem-aligned parity-memory separation over the declared classical model class.
+    level: mechanism
+    status: relabeled
+    replication_status: single_task_instance
+    metric_type: constrained_accuracy
+    evidence:
+      - source: RESULTS.md
+        sections: [14, 17, 18]
+        suites: [contextual-v1]
+        summary: Parity accumulation and routing work in bounded controls, while no end-to-end separation over the classical ladder is established.
+    contradictions:
+      - The generated task lacks the compatibility and contradiction structure required by the cited contextuality theorem.
+    limitations:
+      - No theorem-matched classical lower bound or independently replicated task family has been demonstrated.
+    fairness_schema: &mechanism_schema
+      schema_id: bounded_mechanism_probe_v1
+      required_equal:
+        - data.*
+        - job.dataset_name
+        - job.device_target
+        - job.eval_every
+        - job.seed
+        - job.steps
+        - seed_axes.generator
+        - seed_axes.initialization
+        - seed_axes.minibatch
+        - train.eval_batches
+      intentional_differences:
+        - path: model.arch
+          reason: Recurrent mechanism family is the prespecified intervention.
+        - path: model.rnn_hidden
+          reason: Classical recurrent width is the declared architecture-aware control axis and remains separately resource checked.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness is explicitly not applicable to a circuit-free mechanism control.
+      parameter_tolerance: 0.10
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &mechanism_ladder
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: architecture-aware mechanism control
+        match_mode: parameters
+        limitation: The isolated mechanism needs a matched classical representation.
+      - rung_id: parameter_match
+        required: true
+        comparator: parameter-matched mechanism control
+        match_mode: parameters
+        limitation: Unmatched capacity cannot support a mechanism attribution.
+      - rung_id: resource_accounting
+        required: true
+        comparator: candidate and control resource ledgers
+        match_mode: circuit_evaluations
+        limitation: Simulator and circuit costs must remain visible.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: explicit classical algorithm or sufficiently wide architecture ladder
+        match_mode: memory
+        limitation: A small neural baseline does not establish a memory separation.
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.02
+      suites: [contextual-v1]
+      preset_ids: []
+    next_decisive_test: Relabel existing evidence as parity memory and separately reproduce a published contextual sequence task with proof-to-code invariants and theorem-matched controls.
+
+  - claim_id: interference_output_head
+    research_area_id: interference_output_head
+    statement: A matched single-layer interference head represents the isolated cancellation primitive efficiently in the tested linear-feature probe.
+    level: mechanism
+    status: supported
+    replication_status: multi_seed_single_instance
+    metric_type: excess_cross_entropy
+    evidence:
+      - source: RESULTS.md
+        sections: [15]
+        suites: [interference-head-v1]
+        summary: The interference head reaches the exact entropy floor at matched single-layer parameter budgets.
+    contradictions: []
+    limitations:
+      - The construction is classically simulable, the absolute gap is small, and the result is not an end-to-end sequence advantage.
+    fairness_schema: *mechanism_schema
+    analogue_ladder: *mechanism_ladder
+    analysis_settings:
+      phase: confirmatory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.001
+      suites: [interference-head-v1]
+      preset_ids: []
+    next_decisive_test: Keep this as a bounded expressivity probe and reopen end-to-end work only when the body exposes cancellation features without precomputing them.
+
+  - claim_id: sequential_interference
+    research_area_id: sequential_interference
+    statement: The interference output head produces an end-to-end sequence-prediction edge over frozen, full-width, bottlenecked, and architecture-aware classical controls.
+    level: diagnostic
+    status: contradicted
+    replication_status: multi_seed_single_instance
+    metric_type: strict_autoregressive_next_token
+    evidence:
+      - source: RESULTS.md
+        sections: [16]
+        suites: [interference-v1, interference-width, seq-interference-v1]
+        summary: Interference ties or loses across all tested sequential regimes.
+    contradictions:
+      - End-to-end experiments contradict extension of the isolated head result into a sequence-level edge.
+    limitations:
+      - The result covers the tested feature-access regimes and does not exclude a future theory-driven construction.
+    fairness_schema: *component_schema
+    analogue_ladder: *component_ladder
+    analysis_settings:
+      phase: confirmatory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.1
+      suites: [interference-v1, interference-width, seq-interference-v1]
+      preset_ids: []
+    next_decisive_test: Archive the track unless a theory-driven task supplies the precise feature-access condition required by the isolated mechanism.
+
+  - claim_id: two_stream_conditioning
+    research_area_id: two_stream_conditioning
+    statement: Causal quantum sentence-summary conditioning improves strict autoregressive prediction over a parameter- and resource-matched classical sentence encoder.
+    level: diagnostic
+    status: rerun_required
+    replication_status: multi_seed_single_instance
+    metric_type: strict_autoregressive_next_token
+    evidence:
+      - source: RESULTS.md
+        sections: [20]
+        suites: [two-stream-v1]
+        summary: Historical full-window observations are retained as teacher-forced side-information evidence only.
+    contradictions:
+      - The historical metric contract contradicts strict autoregressive interpretation.
+    limitations:
+      - No post-repair causal-prefix study has been completed and v1 metrics cannot be mixed with the new protocol.
+    fairness_schema: *component_schema
+    analogue_ladder: *component_ladder
+    analysis_settings:
+      phase: pilot
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.1
+      suites: [two-stream-causal-v2, two-stream-v1]
+      preset_ids: [two-stream-quantum-bias]
+    next_decisive_test: Run two-stream-causal-v2 with powered paired seeds, the parameter-matched classical encoder, no-conditioning ablation, and complete resource accounting.
+
+  - claim_id: theorem_faithful_contextual_sequence_learning
+    research_area_id: theorem_faithful_contextual_sequence_learning
+    statement: A theorem-faithful contextual sequence task yields a predictive separation under an explicit classical model-class restriction.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: constrained_accuracy
+    evidence: []
+    contradictions: []
+    limitations:
+      - A formal task specification, proof-to-code invariant, and explicit classical model-class assumptions are required.
+    fairness_schema: &future_schema
+      schema_id: prespecified_future_study_v1
+      required_equal:
+        - data.*
+        - job.dataset_name
+        - job.device_target
+        - job.eval_every
+        - job.seed
+        - job.steps
+        - seed_axes.generator
+        - seed_axes.initialization
+        - seed_axes.minibatch
+        - seed_axes.split
+        - train.eval_batches
+      intentional_differences:
+        - path: model.declared_intervention
+          reason: A future study must replace this placeholder with its exact prespecified intervention paths before claim-bearing execution.
+        - path: seed_axes.*circuit
+          reason: Circuit randomness is explicitly not applicable to a circuit-free comparator and remains reported as N/A.
+      parameter_tolerance: 0.10
+      resource_requirements: [n_params, wall_seconds]
+    analogue_ladder: &future_ladder
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: prespecified architecture-aware classical analogue
+        match_mode: parameters
+        limitation: No candidate claim is assessed without a declared analogue.
+      - rung_id: parameter_match
+        required: true
+        comparator: parameter or explicitly justified resource-matched comparator
+        match_mode: parameters
+        limitation: Capacity differences require an explicit comparison mode.
+      - rung_id: resource_accounting
+        required: true
+        comparator: complete candidate and comparator resource ledgers
+        match_mode: logical_resources
+        limitation: Missing end-to-end resources block promotion.
+      - rung_id: frozen_random_control
+        required: true
+        comparator: frozen, random, or resource-removing control when applicable
+        match_mode: circuit_evaluations
+        limitation: The named nonclassical resource must survive an appropriate ablation.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: prespecified best-known classical challenger ladder
+        match_mode: parameters
+        limitation: A narrow reference class cannot establish an edge.
+    analysis_settings: &future_analysis
+      phase: exploratory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: null
+      suites: []
+      preset_ids: []
+    next_decisive_test: Reproduce one published construction exactly, verify its contextual invariant, and recover the small-scale quantum/classical memory separation before adaptation.
+
+  - claim_id: projected_quantum_kernels
+    research_area_id: projected_quantum_kernels
+    statement: Observable-aligned projected quantum kernels improve held-out prediction over strong projected classical and random-feature kernel families.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: held_out_predictive_quality
+    evidence: []
+    contradictions: []
+    limitations:
+      - Nested model selection and strong dequantization challengers are required.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Compare local-observable and shadow projections against RBF, neural-tangent, Nystrom, random-feature, and tensor-network kernels on held-out quantum-structured tasks.
+
+  - claim_id: coherent_quantum_data_learning
+    research_area_id: coherent_quantum_data_learning
+    statement: Coherent access to quantum data or experiments yields a predictive or sample-complexity benefit under a matched explicit access model.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: held_out_predictive_quality
+    evidence: []
+    contradictions: []
+    limitations:
+      - Quantum and classical data-access models must be stated separately and an actual quantum data source is required.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Build a simulator-level coherent-access benchmark with a measured-classical control, then port only the data-acquisition primitive to hardware.
+
+  - claim_id: quantum_reservoir_and_dynamic_circuits
+    research_area_id: quantum_reservoir_and_dynamic_circuits
+    statement: Fixed quantum reservoirs or dynamic quantum recurrence improve prediction or memory-to-target over strong classical reservoir controls at matched resources.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: validation_perplexity
+    evidence: []
+    contradictions: []
+    limitations:
+      - Fixed random quantum features may be explained by classical reservoir or random-feature effects.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Train only the readout, compare against echo-state, random-feature, and MPS reservoirs, and require a nonclassical-resource ablation.
+
+  - claim_id: quantum_generative_models
+    research_area_id: quantum_generative_models
+    statement: A quantum generative model improves held-out likelihood or sampling quality on a structured discrete distribution under matched end-to-end resources.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: exact_likelihood
+    evidence: []
+    contradictions: []
+    limitations:
+      - Strong autoregressive, flow, VAE, and MPS baselines plus exact held-out likelihood are required.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Use a small discrete task with exact likelihood and compare quality per sample, circuit call, parameter, and wall-clock cost.
+
+  - claim_id: hardware_feasible_training_methods
+    research_area_id: hardware_feasible_training_methods
+    statement: A hardware-feasible optimization method reaches a predictive target with fewer circuit evaluations or lower wall time than matched alternatives.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: time_to_target
+    evidence:
+      - source: RESULTS.md
+        sections: [13]
+        suites: [qrnn-landscape-v1]
+        summary: Existing simulator-backpropagation runs diagnose a bad basin but do not test hardware-feasible optimizers.
+    contradictions: []
+    limitations:
+      - Analytic backpropagation understates finite-shot and hardware execution cost.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings:
+      phase: exploratory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: null
+      suites: [qrnn-landscape-v1]
+      preset_ids: []
+    next_decisive_test: Compare parameter shift, SPSA, natural-gradient approximations, surrogate optimization, layerwise schedules, and planted warm starts by time-to-target and circuit executions.
+
+  - claim_id: fault_tolerant_ml_primitives
+    research_area_id: fault_tolerant_ml_primitives
+    statement: A fault-tolerant quantum ML primitive offers a defensible logical-resource benefit for a specified learning workload.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: logical_resource_estimate
+    evidence: []
+    contradictions: []
+    limitations:
+      - Data loading, output readout, precision, logical errors, and fault-tolerant resources dominate the end-to-end claim.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Select one end-to-end primitive and estimate logical qubits, T count, depth, runtime, precision, and data-loading resources before implementation.
+
+  - claim_id: post_variational_shadow_models
+    research_area_id: post_variational_shadow_models
+    statement: Quantum feature acquisition followed by classical training and deployment improves held-out prediction or acquisition cost over matched classical features.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: held_out_predictive_quality
+    evidence: []
+    contradictions: []
+    limitations:
+      - Quantum acquisition cost and classical surrogate capacity must both be counted under the same access assumptions.
+    fairness_schema: *future_schema
+    analogue_ladder: *future_ladder
+    analysis_settings: *future_analysis
+    next_decisive_test: Acquire a fixed observable or shadow feature table once, train classical downstream models, and compare state preparations, samples, deployment cost, and accuracy.
+
+  - claim_id: communication_limited_quantum_learning
+    research_area_id: communication_limited_quantum_learning
+    statement: Entanglement-assisted communication-limited learning reduces communication complexity for a specified predictive target under a fair classical protocol.
+    level: untested
+    status: untested
+    replication_status: none
+    metric_type: communication_complexity
+    evidence: []
+    contradictions: []
+    limitations:
+      - Network model, prior entanglement, communication direction, repetitions, and entanglement consumption must be explicit.
+    fairness_schema: *future_schema
+    analogue_ladder:
+      - rung_id: linked_component_analogue
+        required: true
+        comparator: classical shared-randomness communication protocol
+        match_mode: communication
+        limitation: A communication claim requires the best relevant classical protocol.
+      - rung_id: resource_accounting
+        required: true
+        comparator: transmitted bits or qubits, entanglement, repetitions, latency, and success probability
+        match_mode: communication
+        limitation: End-to-end communication resources and failure probability must be reported.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: best-known classical communication strategy under the same access model
+        match_mode: communication
+        limitation: A narrow classical protocol does not establish a communication edge.
+    analysis_settings: *future_analysis
+    next_decisive_test: Reproduce one theorem-backed protocol and compare transmitted resources, entanglement consumed, repetitions, latency, and classical shared-randomness baselines.

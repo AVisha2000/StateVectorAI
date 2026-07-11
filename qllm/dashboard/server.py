@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
 from ..config import QuantumConfig
 from ..registry import supported_choices_payload
@@ -98,6 +99,19 @@ def api_config_choices() -> dict:
     payload = supported_choices_payload()
     payload["quantum_default"] = dataclasses.asdict(QuantumConfig())
     return payload
+
+
+@app.get("/api/claims")
+def api_claims() -> list[dict]:
+    return list_claims()
+
+
+@app.get("/api/claims/{claim_id}")
+def api_claim(claim_id: str) -> dict:
+    try:
+        return get_claim(claim_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/presets/{preset_id}/model-graph")
@@ -196,6 +210,9 @@ def api_create_model_spec_job(spec_id: int, payload: dict) -> dict:
             seq_len=(
                 int(payload["seq_len"]) if payload.get("seq_len") not in (None, "") else None
             ),
+            claim_id=payload.get("claim_id") or None,
+            seed_axes=payload.get("seed_axes") or None,
+            metric_type=payload.get("metric_type") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc
@@ -347,6 +364,9 @@ def api_create_job(payload: dict) -> dict:
             seq_len=(
                 int(payload["seq_len"]) if payload.get("seq_len") not in (None, "") else None
             ),
+            claim_id=payload.get("claim_id") or None,
+            seed_axes=payload.get("seed_axes") or None,
+            metric_type=payload.get("metric_type") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc
@@ -374,6 +394,9 @@ def api_create_scaling_sweep(payload: dict) -> dict:
             seq_len=(
                 int(payload["seq_len"]) if payload.get("seq_len") not in (None, "") else None
             ),
+            claim_id=payload.get("claim_id") or None,
+            seed_axes=payload.get("seed_axes") or None,
+            metric_type=payload.get("metric_type") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc

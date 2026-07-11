@@ -26,16 +26,29 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import hashlib
+import inspect
+import json
 import statistics
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qllm.config import load_yaml  # noqa: E402
+from qllm.data.datasets import data_config_hash  # noqa: E402
 from qllm.data.text import CharTokenizer, load_corpus  # noqa: E402
 from qllm.models.model import matched_classical_d_ff  # noqa: E402
+from qllm.research_protocol import (  # noqa: E402
+    classify_claim,
+    normalize_seed_axes,
+    paired_improvements,
+    paired_power_plan,
+    paired_stats,
+    practical_equivalence,
+)
 from qllm.train.loop import fit  # noqa: E402
 
 ALL_VARIANTS = (
@@ -52,7 +65,25 @@ FIELDS = [
     "val_ppl",
     "wall_seconds",
     "grad_norm_ratio",
+    "protocol_version",
+    "protocol_hash",
+    "data_config_hash",
+    "data_kind",
+    "data_gen_seed",
+    "steps",
+    "eval_every",
+    "device_target",
+    "batch_size",
+    "seq_len",
+    "lr",
+    "weight_decay",
+    "grad_clip",
+    "eval_batches",
+    "seed_axes_json",
 ]
+
+DEFAULT_EQUIVALENCE_MARGIN = 0.10
+DEFAULT_SMALLEST_USEFUL_EFFECT = 0.10
 
 
 def _load_existing(path: Path) -> list[dict]:
@@ -74,9 +105,532 @@ def _load_existing(path: Path) -> list[dict]:
                         if r.get("grad_norm_ratio") not in (None, "", "None")
                         else None
                     ),
+                    "protocol_version": (
+                        int(r["protocol_version"])
+                        if r.get("protocol_version") not in (None, "")
+                        else None
+                    ),
+                    "protocol_hash": r.get("protocol_hash") or None,
+                    "data_config_hash": r.get("data_config_hash") or None,
+                    "data_kind": r.get("data_kind") or None,
+                    "data_gen_seed": (
+                        int(r["data_gen_seed"])
+                        if r.get("data_gen_seed") not in (None, "")
+                        else None
+                    ),
+                    "steps": int(r["steps"]) if r.get("steps") else None,
+                    "eval_every": (
+                        int(r["eval_every"]) if r.get("eval_every") else None
+                    ),
+                    "device_target": r.get("device_target") or None,
+                    "batch_size": (
+                        int(r["batch_size"]) if r.get("batch_size") else None
+                    ),
+                    "seq_len": int(r["seq_len"]) if r.get("seq_len") else None,
+                    "lr": float(r["lr"]) if r.get("lr") else None,
+                    "weight_decay": (
+                        float(r["weight_decay"])
+                        if r.get("weight_decay") else None
+                    ),
+                    "grad_clip": (
+                        float(r["grad_clip"]) if r.get("grad_clip") else None
+                    ),
+                    "eval_batches": (
+                        int(r["eval_batches"])
+                        if r.get("eval_batches") else None
+                    ),
+                    "seed_axes_json": r.get("seed_axes_json") or None,
                 }
             )
     return rows
+
+
+def _protocol_metadata(cfg, *, circuit_applicable: bool) -> dict[str, Any]:
+    """Persist the protocol needed to verify rows accumulated across invocations."""
+    import jax
+
+    protocol = {
+        "protocol_version": 2,
+        "data_config_hash": data_config_hash(cfg.data),
+        "data_kind": cfg.data.kind,
+        "data_gen_seed": cfg.data.gen_seed,
+        "steps": cfg.train.steps,
+        "eval_every": cfg.train.eval_every,
+        "device_target": jax.default_backend(),
+        "batch_size": cfg.train.batch_size,
+        "seq_len": cfg.train.seq_len,
+        "lr": cfg.train.lr,
+        "weight_decay": cfg.train.weight_decay,
+        "grad_clip": cfg.train.grad_clip,
+        "eval_batches": cfg.train.eval_batches,
+    }
+    identity = json.dumps(
+        protocol, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    axes = normalize_seed_axes(
+        cfg.train.seed,
+        generator_seed=cfg.data.gen_seed,
+        data_kind=cfg.data.kind,
+        circuit_applicable=circuit_applicable,
+    )
+    return {
+        **protocol,
+        "protocol_hash": hashlib.sha256(identity).hexdigest(),
+        "seed_axes_json": json.dumps(
+            axes, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ),
+    }
+
+
+def _as_payload(value: Any) -> dict[str, Any]:
+    """Normalize protocol dataclasses and dictionaries for report rendering."""
+    if isinstance(value, dict):
+        return value
+    as_dict = getattr(value, "as_dict", None)
+    if callable(as_dict):
+        return as_dict()
+    if dataclasses.is_dataclass(value):
+        return dataclasses.asdict(value)
+    raise TypeError(f"unsupported research-protocol payload: {type(value)!r}")
+
+
+def _classify_paired_result(
+    *,
+    fairness: dict[str, bool],
+    stats: Any,
+    equivalence: dict[str, Any],
+    power: dict[str, Any],
+    analogue_ladder: dict[str, Any],
+) -> dict[str, Any]:
+    """Use every claim-classification input supported by the installed API."""
+    kwargs: dict[str, Any] = {
+        "fairness": fairness,
+        "paired": stats,
+        "min_pairs": 6,
+        "metric_name": "validation perplexity",
+    }
+    supported = inspect.signature(classify_claim).parameters
+    if "equivalence" in supported:
+        kwargs["equivalence"] = equivalence
+    if "power" in supported:
+        kwargs["power"] = power
+    if "analogue_ladder" in supported:
+        kwargs["analogue_ladder"] = analogue_ladder
+    return classify_claim(**kwargs)
+
+
+def _rows_by_seed(rows: list[dict], variant: str) -> dict[int, dict]:
+    indexed: dict[int, dict] = {}
+    for row in rows:
+        if row["variant"] != variant:
+            continue
+        seed = int(row["seed"])
+        if seed in indexed:
+            raise ValueError(f"duplicate ablation row for {variant!r}, seed {seed}")
+        indexed[seed] = row
+    return indexed
+
+
+_PROTOCOL_FIELDS = (
+    "protocol_version",
+    "protocol_hash",
+    "data_config_hash",
+    "data_kind",
+    "data_gen_seed",
+    "steps",
+    "eval_every",
+    "device_target",
+    "batch_size",
+    "seq_len",
+    "lr",
+    "weight_decay",
+    "grad_clip",
+    "eval_batches",
+    "seed_axes_json",
+)
+
+
+def _decoded_seed_axes(row: dict) -> dict[str, Any] | None:
+    raw = row.get("seed_axes_json")
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _seed_axes_match_row(row: dict) -> bool:
+    axes = _decoded_seed_axes(row)
+    if axes is None or not axes.get("supported"):
+        return False
+    seed = int(row["seed"])
+    if axes.get("initialization") != seed or axes.get("minibatch") != seed:
+        return False
+    expected_generator = (
+        int(row["data_gen_seed"])
+        if row.get("data_kind") not in (None, "text")
+        and row.get("data_gen_seed") is not None
+        else None
+    )
+    if axes.get("generator") != expected_generator:
+        return False
+    expected_circuit = seed if str(row["variant"]).startswith("quantum-") else None
+    return axes.get("circuit") == expected_circuit
+
+
+def _ablation_fairness(
+    candidate_by_seed: dict[int, dict],
+    baseline_by_seed: dict[int, dict],
+    paired_seeds: list[int],
+    *,
+    complete_pairs: bool,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    paired_rows = [
+        row
+        for seed in paired_seeds
+        for row in (candidate_by_seed[seed], baseline_by_seed[seed])
+    ]
+    complete_metadata = bool(paired_rows) and all(
+        all(row.get(field) is not None for field in _PROTOCOL_FIELDS)
+        for row in paired_rows
+    )
+
+    def one_non_null_value(field: str) -> bool:
+        values = {row.get(field) for row in paired_rows}
+        return len(values) == 1 and None not in values
+
+    same_protocol = one_non_null_value("protocol_hash")
+    seed_axes_valid = complete_metadata and all(
+        _seed_axes_match_row(row) for row in paired_rows
+    )
+    fairness = {
+        "same_dataset": one_non_null_value("data_config_hash"),
+        "same_seed": complete_pairs,
+        "same_steps": one_non_null_value("steps"),
+        "same_eval_interval": one_non_null_value("eval_every"),
+        "same_device_target": one_non_null_value("device_target"),
+        "same_training_budget": all(
+            one_non_null_value(field)
+            for field in (
+                "batch_size", "seq_len", "lr", "weight_decay",
+                "grad_clip", "eval_batches",
+            )
+        ),
+        "same_preprocessing": one_non_null_value("data_config_hash"),
+        "role_validation": complete_pairs and complete_metadata,
+        "protocol_complete": complete_metadata,
+        "same_protocol_hash": same_protocol,
+        "seed_axes_valid": seed_axes_valid,
+    }
+    fairness["valid"] = all(bool(value) for value in fairness.values())
+    mismatches = [
+        {
+            "path": key,
+            "reason": (
+                "legacy row is missing protocol provenance"
+                if key == "protocol_complete"
+                else "accumulated ablation rows do not share this protocol field"
+            ),
+            "allowed": False,
+        }
+        for key, value in fairness.items()
+        if key != "valid" and not value
+    ]
+    return fairness, mismatches
+
+
+def _ablation_analogue_ladder(
+    rows: list[dict], candidate: str, baseline: str, paired_seeds: list[int]
+) -> dict[str, Any]:
+    frozen_seeds = {
+        int(row["seed"]) for row in rows if row["variant"] == "quantum-frozen"
+    }
+    classical_seeds = {
+        int(row["seed"])
+        for row in rows
+        if row["variant"] in {"classical-matched", "classical-full"}
+    }
+    frozen_complete = set(paired_seeds) <= frozen_seeds
+    classical_complete = set(paired_seeds) <= classical_seeds
+    missing = ["resource_accounting"]
+    if not frozen_complete:
+        missing.append("frozen_random_control")
+    if not classical_complete:
+        missing.append("strong_classical_challenger")
+    return {
+        "required_complete": False,
+        "missing_required": missing,
+        "rungs": [
+            {
+                "id": "frozen_random_control",
+                "required": True,
+                "status": "met" if frozen_complete else "unknown",
+            },
+            {
+                "id": "strong_classical_challenger",
+                "required": True,
+                "status": "met" if classical_complete else "unknown",
+            },
+            {
+                "id": "resource_accounting",
+                "required": True,
+                "status": "unknown",
+                "detail": (
+                    "legacy ablation rows do not record circuit calls; wall time "
+                    "and parameters alone cannot complete the resource rung"
+                ),
+            },
+        ],
+        "candidate": candidate,
+        "baseline": baseline,
+    }
+
+
+def paired_ablation_analysis(
+    rows: list[dict],
+    candidate: str,
+    baseline: str,
+    *,
+    equivalence_margin: float = DEFAULT_EQUIVALENCE_MARGIN,
+    smallest_useful_effect: float = DEFAULT_SMALLEST_USEFUL_EFFECT,
+) -> dict[str, Any]:
+    """Analyze a comparison only across exact seed-matched result rows.
+
+    The result deliberately retains unmatched seed lists.  A partial seed
+    intersection can still be inspected, but it fails the fairness gate and
+    cannot support an empirical-edge label.
+    """
+    if equivalence_margin <= 0.0:
+        raise ValueError("equivalence_margin must be > 0")
+    if smallest_useful_effect <= 0.0:
+        raise ValueError("smallest_useful_effect must be > 0")
+
+    candidate_by_seed = _rows_by_seed(rows, candidate)
+    baseline_by_seed = _rows_by_seed(rows, baseline)
+    candidate_seeds = set(candidate_by_seed)
+    baseline_seeds = set(baseline_by_seed)
+    paired_seeds = sorted(candidate_seeds & baseline_seeds)
+    complete_pairs = bool(paired_seeds) and candidate_seeds == baseline_seeds
+
+    fairness, fairness_mismatches = _ablation_fairness(
+        candidate_by_seed,
+        baseline_by_seed,
+        paired_seeds,
+        complete_pairs=complete_pairs,
+    )
+    analogue_ladder = _ablation_analogue_ladder(
+        rows, candidate, baseline, paired_seeds
+    )
+    result: dict[str, Any] = {
+        "candidate": candidate,
+        "baseline": baseline,
+        "paired_seeds": paired_seeds,
+        "unmatched_candidate_seeds": sorted(candidate_seeds - baseline_seeds),
+        "unmatched_baseline_seeds": sorted(baseline_seeds - candidate_seeds),
+        "fairness": fairness,
+        "fairness_mismatches": fairness_mismatches,
+        "analogue_ladder": analogue_ladder,
+        "paired_stats": None,
+        "equivalence": None,
+        "power": None,
+    }
+
+    if paired_seeds:
+        candidate_scores = [
+            float(candidate_by_seed[seed]["val_ppl"]) for seed in paired_seeds
+        ]
+        baseline_scores = [
+            float(baseline_by_seed[seed]["val_ppl"]) for seed in paired_seeds
+        ]
+        stats = paired_stats(
+            candidate_scores,
+            baseline_scores,
+            lower_is_better=True,
+            bootstrap_seed=0,
+            sign_flip_seed=0,
+        )
+        equivalence = practical_equivalence(stats, margin=equivalence_margin)
+        power = paired_power_plan(
+            paired_improvements(
+                candidate_scores,
+                baseline_scores,
+                lower_is_better=True,
+            ),
+            smallest_useful_effect=smallest_useful_effect,
+        )
+        result["paired_stats"] = _as_payload(stats)
+        result["equivalence"] = _as_payload(equivalence)
+        result["power"] = _as_payload(power)
+        result["claim"] = _classify_paired_result(
+            fairness=fairness,
+            stats=stats,
+            equivalence=equivalence,
+            power=power,
+            analogue_ladder=analogue_ladder,
+        )
+    else:
+        result["claim"] = classify_claim(
+            fairness=fairness,
+            metric_name="validation perplexity",
+        )
+    return result
+
+
+def _aggregate_variant(rows: list[dict], name: str) -> tuple[float, float, int, list[dict]]:
+    variant_rows = sorted(
+        (row for row in rows if row["variant"] == name),
+        key=lambda row: int(row["seed"]),
+    )
+    ppls = [float(row["val_ppl"]) for row in variant_rows]
+    mean = statistics.mean(ppls)
+    std = statistics.stdev(ppls) if len(ppls) > 1 else 0.0
+    return mean, std, int(variant_rows[0]["n_params"]), variant_rows
+
+
+def _format_pair_analysis(title: str, analysis: dict[str, Any]) -> list[str]:
+    seeds = analysis["paired_seeds"]
+    claim = analysis["claim"]
+    if not seeds:
+        return [
+            f"- {title}: no shared seeds; verdict: {claim['label']} — "
+            f"{claim['reason']}."
+        ]
+
+    stats = analysis["paired_stats"]
+    equivalence = analysis["equivalence"]
+    power = analysis["power"]
+    ci_method = stats.get("ci_method", "paired interval")
+    sign_flip_method = stats.get("sign_flip_method", "sign flip")
+    seed_text = ", ".join(str(seed) for seed in seeds)
+    lines = [
+        f"- {title}: paired n={stats['n_pairs']} on seeds [{seed_text}]; "
+        f"mean Δppl={stats['mean_improvement']:+.3f}, "
+        f"95% {ci_method} CI [{stats['ci_low']:+.3f}, "
+        f"{stats['ci_high']:+.3f}], {sign_flip_method} "
+        f"p={stats['p_value']:.4f}."
+    ]
+    if analysis["unmatched_candidate_seeds"] or analysis["unmatched_baseline_seeds"]:
+        lines.append(
+            "  - unmatched rows: candidate-only seeds "
+            f"{analysis['unmatched_candidate_seeds']}; baseline-only seeds "
+            f"{analysis['unmatched_baseline_seeds']}."
+        )
+    if analysis.get("fairness_mismatches"):
+        lines.append(
+            "  - protocol fairness failed: "
+            + "; ".join(
+                f"{item['path']} ({item['reason']})"
+                for item in analysis["fairness_mismatches"]
+            )
+            + "."
+        )
+    else:
+        lines.append(
+            "  - seed lineage: generator and deterministic split are recorded; "
+            "initialization/minibatch and applicable circuit axes share the "
+            "paired train seed."
+        )
+
+    equivalent = equivalence.get("equivalent")
+    eq_label = (
+        "equivalent"
+        if equivalent is True
+        else "not equivalent"
+        if equivalent is False
+        else equivalence.get("status", "not assessed")
+    )
+    lines.append(
+        f"  - practical equivalence: {eq_label} at ±"
+        f"{float(equivalence['margin']):.3f} ppl."
+    )
+
+    recommended = power.get("recommended_pairs")
+    recommendation = (
+        "unavailable"
+        if recommended is None
+        else f"{int(recommended)} paired seeds"
+    )
+    lines.append(
+        f"  - power planning: {power.get('status', 'unavailable')}; "
+        f"recommended total={recommendation}; adequately powered="
+        f"{bool(power.get('adequately_powered', False))}."
+    )
+    lines.append(f"  - verdict: {claim['label']} — {claim['reason']}.")
+    return lines
+
+
+def build_ablation_report(
+    rows: list[dict],
+    *,
+    tag: str,
+    steps: int,
+    base_config: str,
+    matched_d_ff: int,
+    equivalence_margin: float = DEFAULT_EQUIVALENCE_MARGIN,
+    smallest_useful_effect: float = DEFAULT_SMALLEST_USEFUL_EFFECT,
+) -> str:
+    """Render the accumulated grid using paired, conservative inference."""
+    have = {row["variant"] for row in rows}
+    lines = [
+        f"# 2x2 ablation results — {tag}",
+        "",
+        f"{steps} steps, base={base_config}, matched d_ff={matched_d_ff}",
+        "",
+        "| variant | params | val ppl (mean ± std) | per-seed |",
+        "|---|---|---|---|",
+    ]
+    for name in ALL_VARIANTS:
+        if name not in have:
+            continue
+        mean, std, n_params, variant_rows = _aggregate_variant(rows, name)
+        per_seed = ", ".join(
+            f"s{int(row['seed'])}={float(row['val_ppl']):.2f}"
+            for row in variant_rows
+        )
+        lines.append(
+            f"| {name} | {n_params:,} | {mean:.3f} ± {std:.3f} | {per_seed} |"
+        )
+
+    if have >= set(ALL_VARIANTS):
+        lines += [
+            "",
+            "## Paired decision rules",
+            "",
+            "Positive Δppl means the first-listed candidate has lower "
+            "perplexity. Inference uses exact seed pairs; three pairs remain "
+            "pilot evidence regardless of effect direction.",
+            "",
+        ]
+        trained_frozen = paired_ablation_analysis(
+            rows,
+            "quantum-trained",
+            "quantum-frozen",
+            equivalence_margin=equivalence_margin,
+            smallest_useful_effect=smallest_useful_effect,
+        )
+        trained_classical = paired_ablation_analysis(
+            rows,
+            "quantum-trained",
+            "classical-matched",
+            equivalence_margin=equivalence_margin,
+            smallest_useful_effect=smallest_useful_effect,
+        )
+        lines.extend(
+            _format_pair_analysis("trained vs frozen circuit", trained_frozen)
+        )
+        lines.extend(
+            _format_pair_analysis(
+                "trained quantum vs parameter-matched classical",
+                trained_classical,
+            )
+        )
+    else:
+        missing = sorted(set(ALL_VARIANTS) - have)
+        lines += ["", f"(partial grid — missing: {', '.join(missing)})"]
+
+    return "\n".join(lines) + "\n"
 
 
 def main() -> None:
@@ -87,6 +641,18 @@ def main() -> None:
     parser.add_argument("--only", nargs="+", choices=ALL_VARIANTS, default=None)
     parser.add_argument("--tag", default=None, help="default: config file stem")
     parser.add_argument("--out", default="results")
+    parser.add_argument(
+        "--equivalence-margin",
+        type=float,
+        default=DEFAULT_EQUIVALENCE_MARGIN,
+        help="practical-equivalence margin in validation perplexity",
+    )
+    parser.add_argument(
+        "--smallest-useful-effect",
+        type=float,
+        default=DEFAULT_SMALLEST_USEFUL_EFFECT,
+        help="smallest useful validation-perplexity improvement for power planning",
+    )
     args = parser.parse_args()
 
     base = load_yaml(args.base_config)
@@ -133,6 +699,9 @@ def main() -> None:
             res = fit(cfg, verbose=False, out_dir=args.out)
             s = res["summary"]
             ratio = s["history"][-1].get("grad_norm_ratio")
+            protocol_metadata = _protocol_metadata(
+                cfg, circuit_applicable=name.startswith("quantum-")
+            )
             rows.append(
                 {
                     "variant": name,
@@ -142,6 +711,7 @@ def main() -> None:
                     "val_ppl": s["val_ppl"],
                     "wall_seconds": s["wall_seconds"],
                     "grad_norm_ratio": ratio,
+                    **protocol_metadata,
                 }
             )
             extra = f"  g_ratio={ratio:.2e}" if ratio is not None else ""
@@ -155,72 +725,15 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    have = {r["variant"] for r in rows}
-
-    def agg(name: str):
-        ppls = [r["val_ppl"] for r in rows if r["variant"] == name]
-        mean = statistics.mean(ppls)
-        std = statistics.stdev(ppls) if len(ppls) > 1 else 0.0
-        n_params = next(r["n_params"] for r in rows if r["variant"] == name)
-        return mean, std, n_params, ppls
-
-    lines = [
-        f"# 2x2 ablation results — {tag}",
-        "",
-        f"{args.steps} steps, base={args.base_config}, matched d_ff={d_ff_matched}",
-        "",
-        "| variant | params | val ppl (mean ± std) | per-seed |",
-        "|---|---|---|---|",
-    ]
-    summary = {}
-    for name in ALL_VARIANTS:
-        if name not in have:
-            continue
-        mean, std, n_params, ppls = agg(name)
-        summary[name] = (mean, std)
-        per_seed = ", ".join(f"{p:.2f}" for p in sorted(ppls))
-        lines.append(
-            f"| {name} | {n_params:,} | {mean:.3f} ± {std:.3f} | {per_seed} |"
-        )
-
-    if have >= set(ALL_VARIANTS):
-        qt, qf = summary["quantum-trained"], summary["quantum-frozen"]
-        cm = summary["classical-matched"]
-        lines += ["", "## Decision rules", ""]
-
-        d_train = qf[0] - qt[0]
-        sep_train = d_train > (qt[1] + qf[1])
-        lines.append(
-            f"- trained vs frozen circuit: Δppl = {d_train:+.3f} "
-            f"({'SEPARATED' if sep_train else 'within noise'} at ±1σ) — "
-            + (
-                "training the circuit helps; it is not just a random feature map."
-                if sep_train and d_train > 0
-                else "circuit training is NOT clearly beneficial; the quantum "
-                "layer may be acting as a fixed random feature map."
-            )
-        )
-
-        d_cls = cm[0] - qt[0]
-        sep_cls = abs(d_cls) > (qt[1] + cm[1])
-        lines.append(
-            f"- trained quantum vs parameter-matched classical: "
-            f"Δppl = {d_cls:+.3f} "
-            f"({'SEPARATED' if sep_cls else 'within noise'} at ±1σ) — "
-            + (
-                "quantum FFN beats its equal-parameter classical twin here."
-                if sep_cls and d_cls > 0
-                else "classical twin beats the quantum FFN at equal parameters."
-                if sep_cls
-                else "no separable difference; no evidence of quantum "
-                "contribution."
-            )
-        )
-    else:
-        missing = sorted(set(ALL_VARIANTS) - have)
-        lines += ["", f"(partial grid — missing: {', '.join(missing)})"]
-
-    report = "\n".join(lines) + "\n"
+    report = build_ablation_report(
+        rows,
+        tag=tag,
+        steps=args.steps,
+        base_config=args.base_config,
+        matched_d_ff=d_ff_matched,
+        equivalence_margin=args.equivalence_margin,
+        smallest_useful_effect=args.smallest_useful_effect,
+    )
     (out / f"ablation_{tag}.md").write_text(report)
     print("\n" + report)
     print(f"wall: {time.time() - t_start:.0f}s -> {out / f'ablation_{tag}.md'}")

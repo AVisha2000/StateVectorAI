@@ -23,11 +23,11 @@ DEFAULT_FAIRNESS_REQUIREMENTS = (
     "same_dataset",
     "same_seed",
     "same_steps",
-    "same_eval_every",
-    "same_train_split",
+    "same_eval_interval",
+    "same_device_target",
+    "same_training_budget",
     "same_preprocessing",
-    "same_batch_size",
-    "same_sequence_length",
+    "role_validation",
 )
 
 

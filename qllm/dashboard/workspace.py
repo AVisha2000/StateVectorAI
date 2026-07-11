@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
+from ..claims import get_claim, infer_claim_id
+from ..research_protocol import normalize_seed_axes
 from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
@@ -120,6 +122,20 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         suite="lab",
         config=job.get("config") or {},
     )
+    config = job.get("config") or {}
+    claim_id = infer_claim_id(
+        explicit=config.get("research.claim_id"),
+        preset_id=job.get("preset_id"),
+    )
+    claim = get_claim(claim_id) if claim_id else None
+    seed_axes = config.get("research.seed_axes")
+    if not isinstance(seed_axes, dict):
+        seed_axes = normalize_seed_axes(
+            int(job.get("seed", 0)),
+            generator_seed=config.get("data.gen_seed"),
+            data_kind=config.get("data.kind"),
+            circuit_applicable=uses_quantum_config(config),
+        )
     return {
         "job": job,
         "preset": preset,
@@ -128,6 +144,15 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         "curve": _curve(db, job.get("run_key")),
         "final_run": _final_run(db, job),
         "metric_contract": metric_contract,
+        "claim_id": claim_id,
+        "claim": claim,
+        "metric_type": (
+            (metric_contract or {}).get("metric_type")
+            or config.get("research.metric_type")
+            or (claim or {}).get("metric_type")
+        ),
+        "seed_axes": seed_axes,
+        "assessment_status": "unassigned" if claim_id is None else "descriptive",
     }
 
 
@@ -157,6 +182,10 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
             "baseline": None,
             "deltas": None,
             "metric_contract": _comparison_metric_contract(candidate_payload),
+            "claim_id": (candidate_payload or {}).get("claim_id"),
+            "claim": (candidate_payload or {}).get("claim"),
+            "metric_type": (candidate_payload or {}).get("metric_type"),
+            "seed_axes": (candidate_payload or {}).get("seed_axes"),
         }
 
     if job.get("comparison_role") == "baseline":
@@ -176,15 +205,23 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
             "wall_seconds": _delta(candidate_run, baseline_run, "wall_seconds"),
             "n_params": _delta(candidate_run, baseline_run, "n_params"),
         }
+    metric_contract = _comparison_metric_contract(
+        candidate_payload,
+        baseline_payload,
+    )
     return {
         "available": True,
         "candidate": candidate_payload,
         "baseline": baseline_payload,
         "deltas": deltas,
-        "metric_contract": _comparison_metric_contract(
-            candidate_payload,
-            baseline_payload,
+        "metric_contract": metric_contract,
+        "claim_id": (candidate_payload or {}).get("claim_id"),
+        "claim": (candidate_payload or {}).get("claim"),
+        "metric_type": (
+            (metric_contract or {}).get("metric_type")
+            or (candidate_payload or {}).get("metric_type")
         ),
+        "seed_axes": (candidate_payload or {}).get("seed_axes"),
     }
 
 

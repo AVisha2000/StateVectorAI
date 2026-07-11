@@ -9,8 +9,11 @@ import json
 import statistics as st
 from collections import defaultdict
 
+from ..claims import get_claim, infer_claim_id
 from ..research_protocol import two_stream_metric_contract
+from ..research_protocol import normalize_seed_axes
 from ..resultsdb import ResultsDB
+from .model_graph import uses_quantum_config
 
 
 def _contract_for_run(run: dict) -> dict | None:
@@ -22,6 +25,38 @@ def _contract_for_run(run: dict) -> dict | None:
         suite=str(run.get("suite") or ""),
         config=config,
     )
+
+
+def _claim_fields(run: dict, config: dict | None = None) -> dict:
+    config = config or {}
+    claim_id = infer_claim_id(
+        explicit=config.get("research.claim_id"),
+        suite=run.get("suite"),
+        preset_id=run.get("variant"),
+    )
+    claim = get_claim(claim_id) if claim_id else None
+    contract = two_stream_metric_contract(
+        suite=str(run.get("suite") or ""), config=config
+    )
+    seed_axes = config.get("research.seed_axes")
+    if not isinstance(seed_axes, dict):
+        seed_axes = normalize_seed_axes(
+            int(run.get("seed", 0)),
+            generator_seed=config.get("data.gen_seed"),
+            data_kind=config.get("data.kind"),
+            circuit_applicable=uses_quantum_config(config),
+        )
+    return {
+        "claim_id": claim_id,
+        "claim": claim,
+        "metric_type": (
+            (contract or {}).get("metric_type")
+            or config.get("research.metric_type")
+            or (claim or {}).get("metric_type")
+        ),
+        "seed_axes": seed_axes,
+        "assessment_status": "unassigned" if claim_id is None else "descriptive",
+    }
 
 
 def suites_overview(db: ResultsDB) -> list[dict]:
@@ -96,6 +131,11 @@ def all_runs(db: ResultsDB, suite: str | None = None) -> list[dict]:
         rows = [dict(r) for r in con.execute(q, args).fetchall()]
     for row in rows:
         row["metric_contract"] = _contract_for_run(row)
+        try:
+            config = json.loads(row.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            config = {}
+        row.update(_claim_fields(row, config))
     return rows
 
 
@@ -110,6 +150,7 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
         suite=run.get("suite", ""),
         config=run["config"],
     )
+    run.update(_claim_fields(run, run["config"]))
     # matching extra metrics (same suite/variant/dataset/seed)
     with db._conn() as con:
         mets = con.execute(

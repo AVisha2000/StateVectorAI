@@ -12,6 +12,7 @@ from ..config import (
     TrainConfig,
     to_flat_dict,
 )
+from .analogues import DEFAULT_FAIRNESS_REQUIREMENTS
 
 
 _BASE_TRAIN = TrainConfig(
@@ -386,16 +387,7 @@ def _classical_analogue_meta(preset_id: str, payload: dict) -> dict | None:
                 f"Uses curated classical twin '{twin_id}' from preset metadata. "
                 "Queueing preserves dataset, seed, steps, eval cadence, preprocessing, batch size, and sequence length."
             ),
-            "fairness_requirements": [
-                "same_dataset",
-                "same_seed",
-                "same_steps",
-                "same_eval_every",
-                "same_train_split",
-                "same_preprocessing",
-                "same_batch_size",
-                "same_sequence_length",
-            ],
+            "fairness_requirements": list(DEFAULT_FAIRNESS_REQUIREMENTS),
             "known_limitations": [
                 "Curated twin is the repository-defined fair comparison, not necessarily exact parameter matching before training."
             ],
@@ -409,16 +401,7 @@ def _classical_analogue_meta(preset_id: str, payload: dict) -> dict | None:
             "source_preset_id": preset_id,
             "analogue_preset_id": None,
             "reason": "Quantum components are replaced by classical components while preserving the surrounding model and training protocol.",
-            "fairness_requirements": [
-                "same_dataset",
-                "same_seed",
-                "same_steps",
-                "same_eval_every",
-                "same_train_split",
-                "same_preprocessing",
-                "same_batch_size",
-                "same_sequence_length",
-            ],
+            "fairness_requirements": list(DEFAULT_FAIRNESS_REQUIREMENTS),
             "known_limitations": [
                 "Parameter matching is verified after training metrics are recorded."
             ],

@@ -3,17 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from .analogues import DEFAULT_FAIRNESS_REQUIREMENTS
 
-REQUIRED_FAIRNESS = (
-    "same_dataset",
-    "same_seed",
-    "same_steps",
-    "same_eval_interval",
-    "same_device_target",
-    "same_training_budget",
-    "same_preprocessing",
-    "role_validation",
-)
+REQUIRED_FAIRNESS = DEFAULT_FAIRNESS_REQUIREMENTS
 
 
 def _step(key: str, label: str, ok: bool, detail: str, caution: str | None = None) -> dict:
@@ -40,13 +32,20 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     metric_contract = payload.get("metric_contract") or {}
     protocol_valid = not metric_contract.get("rerun_required", False)
     parameter_ratio = flags.get("parameter_delta_ratio")
+    analogue = payload.get("analogue_ladder") or {}
+    analogue_by_id = {
+        row.get("id"): row for row in analogue.get("rungs") or []
+    }
+    parameter_tolerance = float(analogue.get("parameter_tolerance", 0.10))
     parameter_matched = (
-        parameter_ratio is not None and abs(float(parameter_ratio)) <= 0.10
+        parameter_ratio is not None
+        and abs(float(parameter_ratio)) <= parameter_tolerance
     )
     fair = (
         available
         and protocol_valid
-        and all(flags.get(key) for key in REQUIRED_FAIRNESS)
+        and bool(flags.get("complete"))
+        and bool(flags.get("valid"))
     )
     improvement = (
         deltas.get("val_ppl") is not None
@@ -55,7 +54,8 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     )
     cost_reviewed = resource.get("improvement") is not None
     cost_justified = (
-        cost_reviewed
+        fair
+        and cost_reviewed
         and resource.get("improvement_per_extra_second") is not None
         and float(resource.get("improvement") or 0.0) > 0
     )
@@ -107,7 +107,7 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
         _step(
             "ablation_supported",
             "Ablation-supported improvement",
-            False,
+            analogue_by_id.get("frozen_random_control", {}).get("status") == "met",
             "requires trainable quantum to beat frozen/random quantum controls",
         ),
         _step(
@@ -149,6 +149,9 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     elif not improvement:
         label = "negative"
         reason = "candidate does not beat the baseline on the fair run"
+    elif payload.get("claim_id") is None:
+        label = "unassigned smoke result"
+        reason = "no unambiguous claim ID is attached; this run cannot be promoted"
     elif parameter_matched and cost_justified:
         label = "cost-aware promising run"
         reason = "single fair run improves while passing parameter and cost review"
@@ -159,6 +162,8 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     return {
         "label": label,
         "claim_level": verdict.get("claim_level") or "run",
+        "claim_id": payload.get("claim_id"),
+        "assessment_status": payload.get("assessment_status") or verdict.get("assessment_status"),
         "reason": reason,
         "steps": steps,
         "met_count": sum(1 for step in steps if step["ok"]),
@@ -172,7 +177,8 @@ def study_evidence_ladder(evidence: dict[str, Any]) -> list[dict]:
     wins = int(evidence.get("wins") or 0)
     mean_delta = evidence.get("mean_delta_val_ppl")
     std_delta = evidence.get("std_delta_val_ppl")
-    has_multi_seed = fair_pairs >= 3
+    paired = evidence.get("paired_stats") or {}
+    has_multi_seed = int(paired.get("n_pairs") or 0) >= 6
     candidate_wins = has_multi_seed and wins > fair_pairs / 2 and (mean_delta or 0) < 0
     low_variance = std_delta is not None and fair_pairs >= 2
     return [
@@ -180,8 +186,8 @@ def study_evidence_ladder(evidence: dict[str, Any]) -> list[dict]:
         _step("multi_seed", "Repeated multi-seed evidence", has_multi_seed, f"{fair_pairs} fair completed seed(s)"),
         _step("candidate_better", "Candidate better on average", candidate_wins, f"{wins}/{fair_pairs} candidate win(s)"),
         _step("variance_reviewed", "Variance reviewed", low_variance, "-" if std_delta is None else f"std {float(std_delta):.3f}"),
-        _step("parameter_matched", "Parameter-matched evidence", False, "requires per-pair parameter deltas within protocol tolerance"),
-        _step("ablation_supported", "Ablation-supported evidence", False, "requires frozen/random quantum controls"),
+        _step("parameter_matched", "Parameter-matched evidence", bool((evidence.get("analogue_ladder") or {}).get("required_complete")), "see structured analogue ladder"),
+        _step("ablation_supported", "Ablation-supported evidence", any(row.get("id") == "frozen_random_control" and row.get("status") == "met" for row in ((evidence.get("analogue_ladder") or {}).get("rungs") or [])), "requires frozen/random quantum controls"),
         _step("task_specific", "Task-specific evidence", False, "requires explicit task prior or quantum-structured dataset"),
         _step("cost_aware", "Cost-aware advantage", False, "requires resource-normalized study-level benefit"),
     ]

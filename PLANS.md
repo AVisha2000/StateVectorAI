@@ -34,7 +34,8 @@ Progress:
   delivered to `main` in commit `98b91f7`.
 - [x] M02 Trust inputs and configuration (`codex/m02-inputs-config`),
   delivered to `main` in commit `bb4a11e`.
-- [ ] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`).
+- [x] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`),
+  delivered to `main` in commit `e5e5230`.
 - [ ] M04 Trust claims (`codex/m04-claim-integrity`).
 - [ ] M05 Trust runs (`codex/m05-durable-runs`).
 - [ ] M06 Local safety and resource reproducibility (`codex/m06-safety-resources`).
@@ -42,7 +43,64 @@ Progress:
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M03 causal two-stream replacement.
+Current milestone: M04 trust claims.
+
+M04 acceptance evidence:
+
+- `research/claims.yaml` is the canonical, schema-validated claim registry and
+  records claim ID, level, status, evidence, contradictions, limitations,
+  metric type, and next decisive test without strengthening `RESULTS.md`.
+- Paired effects use deterministic bootstrap intervals for the mean, exact
+  sign-flip inference where enumerable (seeded Monte Carlo otherwise), explicit
+  practical-equivalence margins, and pilot-variance power planning.
+- Three-pair pilots cannot reach the `paired empirical edge` level regardless
+  of apparent win rate or nominal sign-flip result.
+- Generator, split, initialization, minibatch, circuit, and
+  hardware-calibration seed axes are explicit in study/run contracts and remain
+  backward-compatible with the legacy scalar seed.
+- Claim-specific fairness schemas support documented intentional differences,
+  report every mismatch, and require parameter/resource-matched analogue
+  ladders before stronger evidence labels.
+- Positive, negative, equivalent, underpowered, unfair, and mismatched fixtures
+  pass focused tests; change-aware and full CPU validation pass; a fresh
+  verifier returns PASS.
+
+M04 progress:
+
+- [x] Deliver M03 and create `codex/m04-claim-integrity` from updated `main`.
+- [x] Inventory claim-bearing paths, statistical primitives, seed contracts,
+  fairness checks, and analogue evidence surfaces.
+- [x] Implement the canonical claim/statistics/seed/fairness contracts with
+  additive payload compatibility.
+- [x] Wire claims and complete mismatch reporting through studies, comparisons,
+  and evidence ladders without editing `RESULTS.md`.
+- [x] Run focused, change-aware, and full verification.
+- [x] Obtain a fresh verifier pass; Git delivery follows under standing
+  approval.
+
+M04 design constraints:
+
+- Scientific status changes remain conservative: missing controls, inadequate
+  replication, or unfair comparisons can only lower or invalidate a claim.
+- Deterministic routines must accept an explicit seed and produce stable output
+  independent of process hash ordering.
+- New payload fields are additive; existing dashboard keys and legacy scalar
+  seeds remain supported.
+- No experiment, GPU/QPU workload, paid service, artifact rewrite, or
+  `RESULTS.md` edit is part of this milestone.
+- The 19 stable `RESEARCH_MAP.yaml` area IDs are the initial canonical claim
+  IDs. Canonical level, ledger status, replication status, assessment status,
+  and display verdict remain separate dimensions.
+- `RESULTS.md` is an immutable historical evidence reference, not the current
+  verdict authority. Corrected, blocked, relabeled, and rerun-required states
+  come from the research program/map and the new claim ledger.
+- M04 records legacy seed coupling truthfully instead of inventing independent
+  execution: initialization, minibatch, and circuit axes alias the scalar seed;
+  generator seed is separate where applicable; split is deterministic; hardware
+  calibration is not applicable to current local runs.
+- Paired inference operates within a fixed claim/metric/dataset/sweep cell and
+  pairs across independent seeds. Dataset or sweep cells never count as extra
+  replications.
 
 M03 acceptance evidence:
 

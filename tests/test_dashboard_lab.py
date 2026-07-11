@@ -16,6 +16,7 @@ from qllm.config import BlockConfig, ExperimentConfig, ModelConfig, QuantumConfi
 from qllm.dashboard.datasets import import_hf_text_dataset, list_datasets
 from qllm.dashboard.analogues import (
     AnalogueSpec,
+    DEFAULT_FAIRNESS_REQUIREMENTS,
     classical_analogue_for_config,
     classical_analogue_for_preset,
     config_from_flat_payload,
@@ -742,6 +743,21 @@ def test_queue_generates_classical_analogue_for_quantum_model_spec(tmp_path):
     assert payload["comparison"]["available"] is True
     assert payload["comparison"]["baseline"]["preset"]["kind"] == "classical"
 
+    db.update_lab_job(job["id"], status="done")
+    db.update_lab_job(twin["id"], status="done")
+    db.record(
+        "lab", job["preset_id"], "default-text", 3, 4,
+        101, 1.0, 2.0, 1.2, 2.0, config=job["config"],
+    )
+    db.record(
+        "lab", twin["preset_id"], "default-text", 3, 4,
+        100, 1.1, 2.2, 1.3, 1.0, config=twin["config"],
+    )
+    comparison = comparison_research_payload(db, job["id"])
+    assert comparison["claim_id"] is None
+    assert comparison["fairness"]["valid"] is True
+    assert comparison["evidence_ladder"]["label"] == "unassigned smoke result"
+
 
 def test_queue_creates_linked_classical_comparison(tmp_path):
     db_path = tmp_path / "results.db"
@@ -1007,14 +1023,15 @@ def test_study_payload_summarizes_multiseed_evidence(tmp_path):
         )
 
     payload = study_payload(db, study["id"])
-    assert payload["evidence"]["label"] == "promising study"
+    assert payload["evidence"]["label"] == "paired smoke only"
+    assert payload["evidence"]["assessment_status"] == "pilot_only"
     assert payload["evidence"]["fair_pairs"] == 3
     assert payload["evidence"]["wins"] == 3
     assert payload["evidence"]["mean_delta_val_ppl"] == pytest.approx(-0.5)
     assert payload["evidence"]["std_delta_val_ppl"] == pytest.approx(0.0)
     ladder = {item["key"]: item for item in payload["evidence"]["ladder"]}
-    assert ladder["multi_seed"]["ok"] is True
-    assert ladder["candidate_better"]["ok"] is True
+    assert ladder["multi_seed"]["ok"] is False
+    assert ladder["candidate_better"]["ok"] is False
     assert ladder["ablation_supported"]["ok"] is False
 
 
@@ -1052,12 +1069,14 @@ def test_study_report_payload_surfaces_verdict_cost_and_limitations(tmp_path):
         )
 
     report = study_report_payload(db, study["id"])
-    assert report["verdict"]["label"] == "promising study"
+    assert report["verdict"]["label"] == "paired smoke only"
     assert report["statistics"]["fair_pairs"] == 3
     assert report["statistics"]["wins"] == 3
+    assert report["statistics"]["aggregate_available"] is True
     assert report["resource_summary"]["candidate"]["completed_jobs"] == 3
     assert report["candidate"]["label"]
     assert report["pair_rows"][0]["comparison_link"].startswith("/comparisons/")
+    assert report["pair_rows"][0]["metric_type"] == "validation_perplexity"
     assert "## Verdict" in report["markdown"]
     assert any("Ablation-supported evidence" in item for item in report["limitations"])
 
@@ -1091,6 +1110,7 @@ def test_study_excludes_historical_two_stream_pairs_from_evidence(tmp_path):
     assert payload["evidence"]["fair_pairs"] == 0
     assert payload["evidence"]["wins"] == 0
     assert payload["evidence"]["rerun_required_pairs"] == 1
+    assert payload["assessment_status"] == "rerun_required"
     assert payload["evidence"]["comparisons"][0]["fair"] is False
 
     report = study_report_payload(db, study["id"])
@@ -1098,6 +1118,7 @@ def test_study_excludes_historical_two_stream_pairs_from_evidence(tmp_path):
     assert report["statistics"]["rerun_required_pairs"] == 1
     assert report["pair_rows"][0]["rerun_required"] is True
     assert report["pair_rows"][0]["fair"] is False
+    assert report["assessment_status"] == "rerun_required"
     assert any("causal rerun" in item for item in report["limitations"])
 
 
@@ -1202,6 +1223,10 @@ def test_explore_payload_maps_runs_and_jobs_to_research_context(tmp_path):
     assert datasets["default-text"]["best_val_ppl"] == pytest.approx(2.4)
     assert any(run["link"].startswith("/run/") for run in payload["runs"])
     assert any(item["id"] == job["id"] for item in payload["jobs"])
+    claimed_run = next(run for run in payload["runs"] if run["variant"] == "quantum-ffn-4q")
+    assert claimed_run["claim_id"] == "variational_component_swaps"
+    assert claimed_run["metric_type"] == "validation_perplexity"
+    assert claimed_run["seed_axes"]["initialization"] == 7
 
     qnlp = domain_payload(db, "qnlp")
     assert qnlp["available"] is True
@@ -1243,6 +1268,9 @@ def test_result_dashboard_payload_surfaces_cards_cost_and_verdicts(tmp_path):
     assert qrow["resource"]["resource_band"] in {"low", "medium", "high", "extreme", "classical"}
     assert qrow["verdict_label"] == "single-run candidate better"
     assert qrow["claim_level"] == "anecdote"
+    assert qrow["claim_id"] == "variational_component_swaps"
+    assert qrow["metric_type"] == "validation_perplexity"
+    assert qrow["seed_axes"]["initialization"] == 8
     assert qrow["comparison_link"] == f"/comparisons/{job['id']}"
 
     task_payload = result_dashboard_payload(db, task_slug="language-modelling", domain_slug="qnlp")
@@ -1341,3 +1369,245 @@ def test_unmarked_historical_two_stream_comparison_cannot_gain_a_verdict(tmp_pat
         step for step in payload["evidence_ladder"]["steps"]
         if step["key"] == "fair_protocol"
     )["ok"] is False
+
+
+def _complete_study_jobs(db: ResultsDB, study_id: int) -> None:
+    for row in db.fetch_study_jobs(study_id):
+        variant = ExperimentQueue._variant_for_job(row)
+        run_key = (
+            f"lab/{variant}/{row['dataset_name']}/{row['seed']}/{row['steps']}"
+        )
+        db.update_lab_job(row["id"], status="done", run_key=run_key)
+        role = row["role"]
+        val_ppl = 2.0 if role == "candidate" else 2.5 if role == "baseline" else 2.4
+        wall = 5.0 if role == "candidate" else 3.0
+        db.record(
+            "lab", variant, row["dataset_name"], int(row["seed"]),
+            int(row["steps"]), 100, 1.0, val_ppl, 1.2, wall,
+            config=row.get("config") or {},
+        )
+
+
+def test_legacy_study_protocol_infers_additive_claim_and_metric_fields(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "legacy-protocol",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "dataset_names": ["default-text"],
+        "seeds": [0, 1, 2],
+        "steps": 2,
+        "eval_every": 1,
+    })
+    stored = dict(db.get_study(study["id"])["protocol"])
+    for key in ("claim_id", "claim", "metric_type", "analysis_settings", "seed_axes"):
+        stored.pop(key, None)
+    db.update_study(study["id"], protocol=stored)
+    _complete_study_jobs(db, study["id"])
+
+    payload = study_payload(db, study["id"])
+    assert "claim_id" not in payload["protocol"]
+    assert payload["resolved_protocol"]["claim_id"] == "variational_component_swaps"
+    assert payload["claim_id"] == "variational_component_swaps"
+    assert payload["metric_type"] == "validation_perplexity"
+    assert payload["evidence"]["label"] == "paired smoke only"
+    assert payload["evidence"]["mixed_claim_ids"] is False
+    assert payload["evidence"]["mixed_metric_types"] is False
+    report = study_report_payload(db, study["id"])
+    assert all(
+        row["metric_type"] == "validation_perplexity"
+        for row in report["pair_rows"]
+    )
+
+
+def test_claim_api_and_preset_analogue_use_canonical_contract(monkeypatch, tmp_path):
+    monkeypatch.setenv("QLLM_DB", str(tmp_path / "api.db"))
+    server = importlib.import_module("qllm.dashboard.server")
+    claims = server.api_claims()
+    assert len(claims) == 19
+    assert server.api_claim("variational_component_swaps")["status"] == "contradicted"
+    with pytest.raises(Exception) as exc_info:
+        server.api_claim("missing-claim")
+    assert getattr(exc_info.value, "status_code", None) == 404
+
+    qffn = next(row for row in list_presets() if row["id"] == "quantum-ffn-4q")
+    assert qffn["classical_analogue"]["fairness_requirements"] == list(
+        DEFAULT_FAIRNESS_REQUIREMENTS
+    )
+
+
+def test_claim_metric_and_seed_axes_propagate_to_pairs_controls_and_sweeps(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "lineage",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "control_preset_ids": ["classical-small"],
+        "dataset_names": ["default-text"],
+        "seeds": [5],
+        "steps": 2,
+        "eval_every": 1,
+        "seed_axes": {"initialization": 5},
+    })
+    jobs = study["jobs"]
+    assert {job["claim_id"] for job in jobs} == {"variational_component_swaps"}
+    assert {job["metric_type"] for job in jobs} == {"validation_perplexity"}
+    for job in jobs:
+        axes = job["seed_axes"]
+        assert axes["requested"]["initialization"] == 5
+        assert axes["initialization"] == axes["minibatch"] == 5
+        if job["study_role"] == "candidate":
+            assert axes["circuit"] == 5
+        else:
+            assert axes["circuit"] is None
+    observed = study["seed_axes"]["observed"]
+    assert len(observed) == 3
+    assert {row["role"] for row in observed} == {"candidate", "baseline", "control"}
+
+    sweep = queue.submit_scaling_sweep(
+        "quantum-ffn-4q", "default-text", "claim-scale", 5, 2, 1,
+        "cpu", qubits=[3, 4], depths=[1],
+        claim_id="variational_component_swaps",
+        seed_axes={"initialization": 5},
+        metric_type="validation_perplexity",
+    )
+    assert all(
+        job["config"]["research.claim_id"] == "variational_component_swaps"
+        and job["config"]["research.metric_type"] == "validation_perplexity"
+        and job["config"]["research.seed_axes"]["requested"]["initialization"] == 5
+        for job in sweep["jobs"]
+    )
+
+
+def test_supported_explicit_seed_request_keeps_pair_fair(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    candidate = queue.submit(
+        "quantum-ffn-4q", "default-text", "explicit-seed", 5, 2, 1,
+        queue_classical_comparison=True,
+        seed_axes={"initialization": 5},
+    )
+    baseline = candidate["comparison_job"]
+    db = ResultsDB(db_path)
+    for job, ppl in ((candidate, 2.0), (baseline, 2.5)):
+        db.update_lab_job(job["id"], status="done")
+        db.record(
+            "lab", job["preset_id"], "default-text", 5, 2,
+            100, 1.0, ppl, 1.2, 2.0, config=job["config"],
+        )
+    payload = comparison_research_payload(db, candidate["id"])
+    assert payload["fairness"]["valid"] is True
+    assert payload["fairness"]["seed_axes"]["candidate"]["requested"] == {
+        "initialization": 5
+    }
+    assert payload["fairness"]["seed_axes"]["baseline"]["requested"] == {
+        "initialization": 5
+    }
+
+    db.record(
+        "legacy", "classical-legacy", "default-text", 9, 2,
+        10, 1.0, 2.0, 1.2, 1.0,
+        config={"model.ffn_type": "classical", "data.kind": "text"},
+    )
+    legacy = run_detail(db, db.fetch("legacy")[0]["id"])
+    assert legacy["seed_axes"]["circuit"] is None
+
+
+def test_unsupported_claim_metric_is_never_relabelled_as_perplexity(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    candidate = queue.submit(
+        "qrnn-small", "default-text", "qrnn-metric", 0, 2, 1,
+        queue_classical_comparison=True,
+    )
+    baseline = candidate["comparison_job"]
+    db = ResultsDB(db_path)
+    for job, ppl in ((candidate, 2.0), (baseline, 2.5)):
+        db.update_lab_job(job["id"], status="done")
+        db.record(
+            "lab", job["preset_id"], "default-text", 0, 2,
+            100, 1.0, ppl, 1.2, 2.0, config=job["config"],
+        )
+    payload = comparison_research_payload(db, candidate["id"])
+    assert payload["metric_type"] == "time_to_target"
+    assert payload["verdict"]["label"] == "unsupported metric"
+    assert payload["assessment_status"] == "unsupported"
+    with pytest.raises(ValueError, match="does not support metric_type 'time_to_target'"):
+        create_study(db, queue, {
+            "name": "unsupported-qrnn",
+            "candidate_preset_id": "qrnn-small",
+            "dataset_names": ["default-text"],
+        })
+
+
+def test_sweep_cells_are_independent_and_never_pooled(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "three-cells-one-seed",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "dataset_names": ["default-text"],
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+        "sweep": {"qubits": [3, 4, 5], "depths": [1]},
+    })
+    _complete_study_jobs(db, study["id"])
+    payload = study_payload(db, study["id"])
+    assert payload["evidence"]["label"] == "multiple analysis cells"
+    assert payload["evidence"]["fair_pairs"] == 3
+    assert payload["evidence"]["aggregate_available"] is False
+    assert payload["evidence"]["wins"] == 0
+    assert payload["evidence"]["mean_delta_val_ppl"] is None
+    assert len(payload["analyses"]) == 3
+    assert all(row["independent_pairs"] == 1 for row in payload["analyses"])
+    assert all(row["paired_stats"]["n_pairs"] == 1 for row in payload["analyses"])
+    assert len({job["run_key"] for job in payload["jobs"]}) == 6
+
+    report = study_report_payload(db, study["id"])
+    assert report["statistics"]["aggregate_available"] is False
+    assert report["statistics"]["win_rate"] is None
+
+
+def test_study_controls_are_cell_matched_and_missing_baseline_is_reported(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "matched-control",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "control_preset_ids": ["classical-small"],
+        "dataset_names": ["default-text"],
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+    })
+    _complete_study_jobs(db, study["id"])
+    payload = study_payload(db, study["id"])
+    rungs = {
+        row["id"]: row
+        for row in payload["analyses"][0]["analogue_ladder"]["rungs"]
+    }
+    assert rungs["strong_classical_challenger"]["status"] == "met"
+    assert rungs["frozen_random_control"]["status"] == "unknown"
+    assert rungs["resource_accounting"]["status"] == "unknown"
+
+    missing = create_study(db, queue, {
+        "name": "missing-baseline",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "baseline_policy": "none",
+        "dataset_names": ["default-text"],
+        "seeds": [1],
+        "steps": 2,
+        "eval_every": 1,
+    })
+    missing_payload = study_payload(db, missing["id"])
+    assert missing_payload["evidence"]["label"] == "incomplete"
+    assert missing_payload["fairness_mismatch_count"] > 0
+    assert any(
+        row["path"] == "comparison.pair"
+        for row in missing_payload["fairness_mismatches"]
+    )

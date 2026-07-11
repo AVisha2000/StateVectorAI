@@ -5,6 +5,8 @@ import json
 from collections import defaultdict
 from typing import Any
 
+from ..claims import get_claim, infer_claim_id
+from ..research_protocol import normalize_seed_axes
 from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .datasets import list_datasets
@@ -111,6 +113,30 @@ def _resource_from_config(config: dict) -> dict:
     }
 
 
+def _claim_metadata(*, suite: str, preset_id: str, seed: int, config: dict) -> dict:
+    claim_id = infer_claim_id(
+        explicit=config.get("research.claim_id"),
+        suite=suite,
+        preset_id=preset_id,
+    )
+    claim = get_claim(claim_id) if claim_id else None
+    seed_axes = config.get("research.seed_axes")
+    if not isinstance(seed_axes, dict):
+        seed_axes = normalize_seed_axes(
+            int(seed),
+            generator_seed=config.get("data.gen_seed"),
+            data_kind=config.get("data.kind"),
+            circuit_applicable=uses_quantum_config(config),
+        )
+    return {
+        "claim_id": claim_id,
+        "claim": claim,
+        "metric_type": config.get("research.metric_type") or (claim or {}).get("metric_type"),
+        "seed_axes": seed_axes,
+        "assessment_status": "unassigned" if claim_id is None else "descriptive",
+    }
+
+
 def _run_item(row: dict) -> dict:
     config = _decode_config(row)
     contract = two_stream_metric_contract(
@@ -124,7 +150,7 @@ def _run_item(row: dict) -> dict:
         config=config,
     )
     family = model_family(config) if config else row.get("variant")
-    return {
+    item = {
         "kind": "run",
         "id": row["id"],
         "suite": row["suite"],
@@ -145,6 +171,15 @@ def _run_item(row: dict) -> dict:
         "metric_contract": contract,
         "rerun_required": bool(contract and contract["rerun_required"]),
     }
+    item.update(_claim_metadata(
+        suite=row.get("suite", ""),
+        preset_id=row.get("variant", ""),
+        seed=int(row.get("seed", 0)),
+        config=config,
+    ))
+    if contract:
+        item["metric_type"] = contract.get("metric_type")
+    return item
 
 
 def _job_item(row: dict) -> dict:
@@ -156,7 +191,7 @@ def _job_item(row: dict) -> dict:
         dataset=row.get("dataset_name", ""),
         config=config,
     )
-    return {
+    item = {
         "kind": "job",
         "id": row["id"],
         "status": row["status"],
@@ -179,6 +214,15 @@ def _job_item(row: dict) -> dict:
         "metric_contract": contract,
         "rerun_required": bool(contract and contract["rerun_required"]),
     }
+    item.update(_claim_metadata(
+        suite="lab",
+        preset_id=row.get("preset_id", ""),
+        seed=int(row.get("seed", 0)),
+        config=config,
+    ))
+    if contract:
+        item["metric_type"] = contract.get("metric_type")
+    return item
 
 
 def _all_run_items(db: ResultsDB) -> list[dict]:
@@ -199,6 +243,9 @@ def _job_variant(job: dict) -> str:
     config = _decode_config(job)
     q = config.get("lab.quantum_override.n_qubits")
     d = config.get("lab.quantum_override.n_circuit_layers")
+    if q is None or d is None:
+        q = config.get("lab.study_cell.n_qubits")
+        d = config.get("lab.study_cell.n_circuit_layers")
     if q is not None and d is not None:
         return f"{job['preset_id']}-q{q}-d{d}"
     return job["preset_id"]
@@ -372,7 +419,6 @@ def _summary_card(label: str, row: dict | None, note: str) -> dict:
 
 def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
     item = _run_item(row)
-    contract = item.get("metric_contract") or {}
     metrics = metrics_by_key.get((row["suite"], row["variant"], row["dataset"], row["seed"]), {})
     return {
         "source": "run",
@@ -394,8 +440,12 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
         "n_params": row["n_params"],
         "resource": item["resource"],
         "metric_contract": item.get("metric_contract"),
-        "metric_type": contract.get("metric_type"),
-        "rerun_required": bool(contract.get("rerun_required")),
+        "metric_type": item.get("metric_type"),
+        "claim_id": item.get("claim_id"),
+        "claim": item.get("claim"),
+        "seed_axes": item.get("seed_axes"),
+        "assessment_status": item.get("assessment_status"),
+        "rerun_required": bool(item.get("rerun_required")),
         "verdict_label": None,
         "claim_level": None,
         "link": item["link"],
@@ -406,7 +456,6 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
 
 def _job_result_row(db: ResultsDB, job: dict) -> dict:
     item = _job_item(job)
-    contract = item.get("metric_contract") or {}
     final = _lab_final_run(db, job) or {}
     verdict = {}
     resource_normalized = None
@@ -439,8 +488,12 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "n_params": final.get("n_params"),
         "resource": item["resource"],
         "metric_contract": item.get("metric_contract"),
-        "metric_type": contract.get("metric_type"),
-        "rerun_required": bool(contract.get("rerun_required")),
+        "metric_type": item.get("metric_type"),
+        "claim_id": item.get("claim_id"),
+        "claim": item.get("claim"),
+        "seed_axes": item.get("seed_axes"),
+        "assessment_status": item.get("assessment_status"),
+        "rerun_required": bool(item.get("rerun_required")),
         "verdict_label": verdict.get("label"),
         "claim_level": verdict.get("claim_level"),
         "resource_normalized": resource_normalized,

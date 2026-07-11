@@ -15,7 +15,8 @@ from ..config import (
     to_flat_dict,
     validate_config,
 )
-from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL
+from ..claims import METRIC_TYPES, get_claim, infer_claim_id
+from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL, normalize_seed_axes
 from ..resultsdb import ResultsDB
 from . import with_dashboard
 from .analogues import (
@@ -31,9 +32,21 @@ from .gpu_reservation import (
     reservation_metadata,
     update_reservation_state,
 )
+from .model_graph import uses_quantum_config
 from .model_specs import config_payload, create_spec
 from .presets import apply_quantum_overrides, build_preset
 from .resources import quantum_resource_estimate
+
+
+def _compatible_seed_request(snapshot: dict | None, cfg) -> dict | None:
+    """Retain supported shared requests and drop structurally N/A axes."""
+    if not isinstance(snapshot, dict):
+        return None
+    raw = snapshot.get("requested")
+    requested = dict(raw if isinstance(raw, dict) else snapshot)
+    if not uses_quantum_config(cfg):
+        requested.pop("circuit", None)
+    return requested or None
 
 
 class ExperimentQueue:
@@ -59,6 +72,9 @@ class ExperimentQueue:
         group_id: str | None = None,
         batch_size: int | None = None,
         seq_len: int | None = None,
+        claim_id: str | None = None,
+        seed_axes: dict | None = None,
+        metric_type: str | None = None,
     ) -> dict:
         db = self.db()
         dataset = get_dataset(db, dataset_name)
@@ -96,6 +112,33 @@ class ExperimentQueue:
             seed, steps, eval_every, batch_size, seq_len,
         )
         self._require_valid_config(cfg, "candidate")
+        resolved_claim_id = infer_claim_id(
+            explicit=claim_id,
+            preset_id=preset_id,
+        )
+        if claim_id and resolved_claim_id is None:
+            raise ValueError(f"Unknown or ambiguous claim_id '{claim_id}'.")
+        claim = get_claim(resolved_claim_id) if resolved_claim_id else None
+        resolved_metric_type = str(
+            metric_type
+            or (claim or {}).get("metric_type")
+            or "strict_autoregressive_next_token"
+        )
+        if resolved_metric_type not in METRIC_TYPES:
+            raise ValueError(f"Unsupported metric_type '{resolved_metric_type}'.")
+        if claim and resolved_metric_type != claim["metric_type"]:
+            raise ValueError(
+                f"metric_type must match claim '{resolved_claim_id}': "
+                f"{claim['metric_type']}"
+            )
+        axes = normalize_seed_axes(
+            seed,
+            generator_seed=cfg.data.gen_seed,
+            data_kind=cfg.data.kind,
+            circuit_applicable=uses_quantum_config(cfg),
+            explicit=seed_axes,
+            reject_unsupported=True,
+        )
         prepared_twin_cfg = None
         if wants_comparison and analogue:
             twin_name = f"{run_name}-classical"
@@ -118,11 +161,18 @@ class ExperimentQueue:
                 f"Current estimate: {estimate['band']}."
             )
         job_config = to_flat_dict(cfg)
+        job_config["research.claim_id"] = resolved_claim_id
+        job_config["research.metric_type"] = resolved_metric_type
+        job_config["research.seed_axes"] = axes
         if cfg.model.arch == "two_stream":
             job_config["lab.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
         if quantum_overrides:
             job_config["lab.quantum_override.n_qubits"] = cfg.model.quantum.n_qubits
             job_config["lab.quantum_override.n_circuit_layers"] = (
+                cfg.model.quantum.n_circuit_layers
+            )
+            job_config["lab.study_cell.n_qubits"] = cfg.model.quantum.n_qubits
+            job_config["lab.study_cell.n_circuit_layers"] = (
                 cfg.model.quantum.n_circuit_layers
             )
         if batch_size is not None:
@@ -166,6 +216,21 @@ class ExperimentQueue:
                 raise AssertionError("Missing validated classical analogue config.")
             twin_cfg = prepared_twin_cfg
             twin_config = to_flat_dict(twin_cfg)
+            twin_config["research.claim_id"] = resolved_claim_id
+            twin_config["research.metric_type"] = resolved_metric_type
+            twin_config["research.seed_axes"] = normalize_seed_axes(
+                seed,
+                generator_seed=twin_cfg.data.gen_seed,
+                data_kind=twin_cfg.data.kind,
+                circuit_applicable=uses_quantum_config(twin_cfg),
+                explicit=_compatible_seed_request(axes, twin_cfg),
+                reject_unsupported=True,
+            )
+            if quantum_overrides:
+                twin_config["lab.study_cell.n_qubits"] = cfg.model.quantum.n_qubits
+                twin_config["lab.study_cell.n_circuit_layers"] = (
+                    cfg.model.quantum.n_circuit_layers
+                )
             if twin_cfg.model.arch == "two_stream":
                 twin_config["lab.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
             twin_estimate = quantum_resource_estimate(twin_cfg)
@@ -223,6 +288,9 @@ class ExperimentQueue:
         queue_classical_comparison: bool = False,
         batch_size: int | None = None,
         seq_len: int | None = None,
+        claim_id: str | None = None,
+        seed_axes: dict | None = None,
+        metric_type: str | None = None,
     ) -> dict:
         if not qubits:
             raise ValueError("At least one qubit count is required.")
@@ -252,6 +320,9 @@ class ExperimentQueue:
                         group_id=group_id,
                         batch_size=batch_size,
                         seq_len=seq_len,
+                        claim_id=claim_id,
+                        seed_axes=seed_axes,
+                        metric_type=metric_type,
                     )
                 )
         return {"group_id": group_id, "count": len(jobs), "jobs": jobs}
@@ -263,6 +334,9 @@ class ExperimentQueue:
         queue_classical_comparison: bool = False,
         batch_size: int | None = None,
         seq_len: int | None = None,
+        claim_id: str | None = None,
+        seed_axes: dict | None = None,
+        metric_type: str | None = None,
     ) -> dict:
         spec = self.db().get_model_spec(spec_id)
         if spec is None:
@@ -278,6 +352,9 @@ class ExperimentQueue:
             queue_classical_comparison=queue_classical_comparison,
             batch_size=batch_size,
             seq_len=seq_len,
+            claim_id=claim_id,
+            seed_axes=seed_axes,
+            metric_type=metric_type,
         )
 
     def classical_analogue_for_job(self, job_id: int) -> dict:
@@ -336,6 +413,27 @@ class ExperimentQueue:
             db, analogue, job["run_name"], job["preset_id"], int(job["id"])
         )
         twin_config = to_flat_dict(twin_cfg)
+        twin_config.update({
+            key: value
+            for key, value in (job.get("config") or {}).items()
+            if str(key).startswith("research.")
+        })
+        source_overrides = self._quantum_overrides_from_decoded_job(job) or {}
+        if {"n_qubits", "n_circuit_layers"} <= set(source_overrides):
+            twin_config["lab.study_cell.n_qubits"] = source_overrides["n_qubits"]
+            twin_config["lab.study_cell.n_circuit_layers"] = source_overrides[
+                "n_circuit_layers"
+            ]
+        twin_config["research.seed_axes"] = normalize_seed_axes(
+            int(job["seed"]),
+            generator_seed=twin_cfg.data.gen_seed,
+            data_kind=twin_cfg.data.kind,
+            circuit_applicable=uses_quantum_config(twin_cfg),
+            explicit=_compatible_seed_request(
+                (job.get("config") or {}).get("research.seed_axes"), twin_cfg
+            ),
+            reject_unsupported=True,
+        )
         twin_estimate = quantum_resource_estimate(twin_cfg)
         twin_config["lab.resource.band"] = twin_estimate["band"]
         twin_config["lab.resource.score"] = twin_estimate["score"]
@@ -368,6 +466,13 @@ class ExperimentQueue:
         })
 
         candidate_config = dict(job.get("config") or {})
+        if {"n_qubits", "n_circuit_layers"} <= set(source_overrides):
+            candidate_config["lab.study_cell.n_qubits"] = source_overrides[
+                "n_qubits"
+            ]
+            candidate_config["lab.study_cell.n_circuit_layers"] = (
+                source_overrides["n_circuit_layers"]
+            )
         candidate_config.update(
             analogue_config_fields(
                 analogue,
@@ -705,10 +810,26 @@ class ExperimentQueue:
 
     @staticmethod
     def _variant_for_job(job: dict) -> str:
+        variant = job["preset_id"]
+        if job.get("comparison_role") in {"control", "frozen_control"}:
+            variant = f"{variant}-control"
         overrides = ExperimentQueue._quantum_overrides_from_job(job) or {}
+        if not {"n_qubits", "n_circuit_layers"} <= set(overrides):
+            try:
+                config = json.loads(job.get("config_json") or "{}")
+            except json.JSONDecodeError:
+                config = {}
+            overrides = {
+                "n_qubits": config.get("lab.study_cell.n_qubits"),
+                "n_circuit_layers": config.get(
+                    "lab.study_cell.n_circuit_layers"
+                ),
+            }
         if {"n_qubits", "n_circuit_layers"} <= set(overrides):
+            if overrides["n_qubits"] is None or overrides["n_circuit_layers"] is None:
+                return variant
             return (
-                f"{job['preset_id']}-q{overrides['n_qubits']}"
+                f"{variant}-q{overrides['n_qubits']}"
                 f"-d{overrides['n_circuit_layers']}"
             )
-        return job["preset_id"]
+        return variant

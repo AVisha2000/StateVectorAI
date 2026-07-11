@@ -4,8 +4,12 @@ from __future__ import annotations
 import json
 from collections import Counter
 
+from ..claims import get_claim, infer_claim_id
 from ..research_protocol import (
     classify_claim,
+    evaluate_analogue_ladder,
+    evaluate_fairness,
+    normalize_seed_axes,
     resource_normalized_delta,
     two_stream_metric_contract,
 )
@@ -18,11 +22,65 @@ from .presets import preset_meta
 from .workspace import comparison_payload
 
 
+_UNASSIGNED_COMPONENT_SCHEMA = {
+    "schema_id": "unassigned_component_swap_v1",
+    "required_equal": [
+        "data.*",
+        "job.dataset_name",
+        "job.device_target",
+        "job.eval_every",
+        "job.seed",
+        "job.steps",
+        "seed_axes.generator",
+        "seed_axes.initialization",
+        "seed_axes.minibatch",
+        "seed_axes.split",
+        "train.batch_size",
+        "train.eval_batches",
+        "train.grad_clip",
+        "train.lr",
+        "train.seq_len",
+        "train.weight_decay",
+    ],
+    "intentional_differences": [
+        {
+            "path": path,
+            "reason": "Narrow automatic quantum-to-classical component swap.",
+        }
+        for path in (
+            "model.arch",
+            "model.rnn_hidden",
+            "model.attn_type",
+            "model.embed_type",
+            "model.encoder_kind",
+            "model.ffn_type",
+            "model.head_type",
+            "model.blocks.*.attn_type",
+            "model.blocks.*.ffn_type",
+            "model.blocks.*.quantum.*",
+            "seed_axes.*circuit",
+        )
+    ],
+}
+PAIRABLE_VAL_PPL_METRIC_TYPES = frozenset({
+    "strict_autoregressive_next_token",
+    "validation_perplexity",
+})
+
+
 def _quantum_scale(job: dict) -> dict | None:
     config = job.get("config") or {}
     try:
-        qubits = int(config.get("lab.quantum_override.n_qubits"))
-        depth = int(config.get("lab.quantum_override.n_circuit_layers"))
+        qubits = int(
+            config.get("lab.quantum_override.n_qubits")
+            if config.get("lab.quantum_override.n_qubits") is not None
+            else config.get("lab.study_cell.n_qubits")
+        )
+        depth = int(
+            config.get("lab.quantum_override.n_circuit_layers")
+            if config.get("lab.quantum_override.n_circuit_layers") is not None
+            else config.get("lab.study_cell.n_circuit_layers")
+        )
     except (TypeError, ValueError):
         return None
     return {"n_qubits": qubits, "n_circuit_layers": depth}
@@ -67,6 +125,24 @@ def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
     out["model_family"] = model_family(config)
     out["resource_band"] = config.get("lab.resource.band")
     out["resource_score"] = config.get("lab.resource.score")
+    claim_id = infer_claim_id(
+        explicit=config.get("research.claim_id"),
+        preset_id=out.get("preset_id"),
+    )
+    claim = get_claim(claim_id) if claim_id else None
+    seed_axes = config.get("research.seed_axes")
+    if not isinstance(seed_axes, dict):
+        seed_axes = normalize_seed_axes(
+            int(out.get("seed", 0)),
+            generator_seed=config.get("data.gen_seed"),
+            data_kind=config.get("data.kind"),
+            circuit_applicable=uses_quantum_config(config),
+        )
+    out["claim_id"] = claim_id
+    out["claim"] = claim
+    out["metric_type"] = config.get("research.metric_type") or (claim or {}).get("metric_type")
+    out["seed_axes"] = seed_axes
+    out["assessment_status"] = "unassigned" if claim_id is None else "descriptive"
     out["gpu_reservation"] = job_reservation(out)
     out.update(analogue_status_for_job(db, out))
     if out.get("compare_to_job_id"):
@@ -82,76 +158,46 @@ def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
 
 
 def fairness_flags(candidate: dict | None, baseline: dict | None) -> dict:
-    if not candidate or not baseline:
-        return {
-            "complete": False,
-            "same_dataset": False,
-            "same_seed": False,
-            "same_steps": False,
-            "same_eval_interval": False,
-            "same_device_target": False,
-            "role_validation": False,
-            "parameter_delta_ratio": None,
-        }
-    cjob, bjob = candidate["job"], baseline["job"]
-    cparams = (candidate.get("final_run") or {}).get("n_params")
-    bparams = (baseline.get("final_run") or {}).get("n_params")
-    cconfig = cjob.get("config") or {}
-    bconfig = bjob.get("config") or {}
-    training_fields = (
-        "train.batch_size",
-        "train.seq_len",
-        "train.lr",
-        "train.weight_decay",
-        "train.grad_clip",
+    job = (candidate or {}).get("job") or {}
+    config = job.get("config") or {}
+    claim_id = infer_claim_id(
+        explicit=config.get("research.claim_id"),
+        preset_id=job.get("preset_id"),
     )
-    preprocessing_fields = (
-        "data.kind",
-        "data.corpus_path",
-        "data.val_fraction",
+    claim = get_claim(claim_id) if claim_id else None
+    schema = (claim or {}).get("fairness_schema")
+    if claim is None and config.get("lab.analogue.type") == "component_swap":
+        schema = _UNASSIGNED_COMPONENT_SCHEMA
+    return evaluate_fairness(
+        candidate,
+        baseline,
+        schema=schema,
     )
-    matched_config_fields = {
-        key: cconfig.get(key) == bconfig.get(key)
-        for key in (*training_fields, *preprocessing_fields)
-    }
-    ratio = None
-    if cparams is not None and bparams:
-        ratio = (cparams - bparams) / max(abs(bparams), 1)
-    return {
-        "complete": bool(candidate.get("final_run") and baseline.get("final_run")),
-        "same_dataset": cjob.get("dataset_name") == bjob.get("dataset_name"),
-        "same_seed": int(cjob.get("seed", -1)) == int(bjob.get("seed", -2)),
-        "same_steps": int(cjob.get("steps", -1)) == int(bjob.get("steps", -2)),
-        "same_eval_interval": int(cjob.get("eval_every", -1)) == int(bjob.get("eval_every", -2)),
-        "same_device_target": (cjob.get("device_target") or "auto") == (bjob.get("device_target") or "auto"),
-        "same_training_budget": all(
-            matched_config_fields[key] for key in training_fields
-        ),
-        "same_preprocessing": all(
-            matched_config_fields[key] for key in preprocessing_fields
-        ),
-        "matched_config_fields": matched_config_fields,
-        "role_validation": (
-            cjob.get("comparison_role") == "candidate"
-            and bjob.get("comparison_role") == "baseline"
-        ),
-        "parameter_delta_ratio": ratio,
-    }
 
 
-def verdict_for_comparison(payload: dict) -> dict:
+def verdict_for_comparison(payload: dict, metric_type: str | None = None) -> dict:
     if not payload.get("available"):
         return {"label": "incomplete", "reason": payload.get("reason", "comparison missing")}
     flags = fairness_flags(payload.get("candidate"), payload.get("baseline"))
-    required = [
-        "same_dataset", "same_seed", "same_steps", "same_eval_interval",
-        "same_device_target", "same_training_budget", "same_preprocessing",
-        "role_validation",
-    ]
     if not flags["complete"]:
         return {"label": "incomplete", "reason": "one or both runs have not finished", "fairness": flags}
-    if not all(flags[k] for k in required):
-        return {"label": "insufficient fairness", "reason": "protocol fields do not match", "fairness": flags}
+    if metric_type not in PAIRABLE_VAL_PPL_METRIC_TYPES:
+        return {
+            "label": "unsupported metric",
+            "claim_level": "descriptive",
+            "assessment_status": "unsupported",
+            "reason": (
+                f"dashboard comparison inference does not extract {metric_type!r}; "
+                "validation perplexity is not relabeled as that metric"
+            ),
+            "fairness": flags,
+        }
+    if not flags.get("valid"):
+        return {
+            "label": "insufficient fairness",
+            "reason": "one or more undisclosed protocol mismatches remain",
+            "fairness": flags,
+        }
     delta = (payload.get("deltas") or {}).get("val_ppl")
     if delta is None:
         return {"label": "needs review", "reason": "validation perplexity is unavailable", "fairness": flags}
@@ -184,6 +230,14 @@ def _resource_normalized_for_payload(payload: dict) -> dict | None:
 
 def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
     payload = comparison_payload(db, job_id)
+    candidate = payload.get("candidate") or {}
+    candidate_job = candidate.get("job") or {}
+    candidate_config = candidate_job.get("config") or {}
+    claim_id = infer_claim_id(
+        explicit=candidate_config.get("research.claim_id"),
+        preset_id=candidate_job.get("preset_id"),
+    )
+    claim = get_claim(claim_id) if claim_id else None
     contracts = []
     for role in ("candidate", "baseline"):
         job = (payload.get(role) or {}).get("job") or {}
@@ -198,11 +252,17 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
         contracts[0] if contracts else None,
     )
     payload["metric_contract"] = metric_contract
-    verdict = verdict_for_comparison(payload)
+    effective_metric_type = (
+        (metric_contract or {}).get("metric_type")
+        or candidate_config.get("research.metric_type")
+        or (claim or {}).get("metric_type")
+    )
+    verdict = verdict_for_comparison(payload, effective_metric_type)
     if metric_contract and metric_contract["rerun_required"]:
         verdict = {
             "label": "rerun required",
             "claim_level": "invalid",
+            "assessment_status": "rerun_required",
             "reason": metric_contract["limitation"],
         }
     payload["fairness"] = verdict.get("fairness") or fairness_flags(
@@ -210,6 +270,22 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
     )
     payload["verdict"] = {k: v for k, v in verdict.items() if k != "fairness"}
     payload["resource_normalized"] = _resource_normalized_for_payload(payload)
+    payload["claim_id"] = claim_id
+    payload["claim"] = claim
+    payload["metric_type"] = effective_metric_type
+    payload["seed_axes"] = (payload["fairness"].get("seed_axes") or {}).get(
+        "candidate"
+    )
+    payload["fairness_mismatches"] = payload["fairness"].get("mismatches") or []
+    payload["analogue_ladder"] = evaluate_analogue_ladder(
+        candidate=payload.get("candidate"),
+        baseline=payload.get("baseline"),
+        fairness=payload["fairness"],
+        claim=claim,
+    )
+    payload["assessment_status"] = payload["verdict"].get(
+        "assessment_status"
+    ) or ("smoke" if claim_id is None else "descriptive")
     payload["evidence_ladder"] = comparison_evidence_ladder(payload)
     return payload
 
