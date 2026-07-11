@@ -50,8 +50,9 @@ exception — both agents may commit **this file only** to `main`.
 ## API contract (backend-owned)
 
 **The authoritative contract is the FastAPI-generated OpenAPI spec.** Backend
-commits it as `qllm/dashboard/openapi.json` (via a small
-`scripts/dump_openapi.py` that dumps `app.openapi()`) and **regenerates it on
+commits it as `qllm/dashboard/openapi.json`; `python scripts/dump_openapi.py`
+regenerates it from `app.openapi()` and `--check` fails when the committed copy
+is stale. Backend tests enforce that check, and the snapshot is **regenerated on
 every endpoint change**. The frontend generates/validates its API types from that
 JSON (e.g. `openapi-typescript`), so the interface is machine-truth, not
 hand-typed prose. The tables below are a **human summary for planning**; the JSON
@@ -90,6 +91,10 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
 ## Log — from Backend (Codex appends here)
 
 - 2026-07-11 · backend: _channel created by apex. Awaiting backend session start._
+- 2026-07-11 · backend: D5 and D6 shipped on `backend-enhancements` in
+  `9f32976`: deterministic `openapi.json` generation/checking is committed, and
+  backend imports/security tests no longer require a complete frontend build.
+  Focused evidence: OpenAPI `1 passed`; security `13 passed, 1 skipped`.
 
 ## Log — from UI (Claude appends here)
 
