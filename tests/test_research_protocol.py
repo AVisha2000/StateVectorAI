@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
+from benchmarks.two_stream_probe import build_parser, validate_suite
 from qllm.research_protocol import (
+    TWO_STREAM_CAUSAL_PROTOCOL,
+    TWO_STREAM_CAUSAL_SUITE,
     classify_claim,
     paired_stats,
     resource_ledger_from_config,
     resource_normalized_delta,
+    two_stream_metric_contract,
 )
 
 
@@ -99,3 +105,49 @@ def test_resource_normalized_delta_reports_extra_cost_efficiency():
     assert no_extra["improvement"] == 0.5
     assert no_extra["improvement_per_extra_second"] is None
     assert math.isfinite(no_extra["improvement"])
+
+
+def test_historical_two_stream_metrics_require_a_causal_rerun():
+    contract = two_stream_metric_contract(suite="two-stream-v1")
+    assert contract == {
+        "metric_type": "teacher_forced_side_information",
+        "protocol": "full_window_v1",
+        "protocol_status": "rerun_required",
+        "rerun_required": True,
+        "strict_autoregressive": False,
+        "limitation": (
+            "Historical two-stream results used a full-window encoder "
+            "summary. They are teacher-forced side-information metrics, "
+            "not strict autoregressive evidence, and require a causal rerun."
+        ),
+    }
+
+
+def test_two_stream_jobs_need_an_explicit_causal_protocol_marker():
+    unmarked = two_stream_metric_contract(
+        suite="lab",
+        config={"model.arch": "two_stream"},
+    )
+    assert unmarked["rerun_required"] is True
+
+    current = two_stream_metric_contract(
+        suite="lab",
+        config={
+            "model": {"arch": "two_stream"},
+            "lab": {"two_stream_protocol": TWO_STREAM_CAUSAL_PROTOCOL},
+        },
+    )
+    assert current["metric_type"] == "strict_autoregressive_next_token"
+    assert current["rerun_required"] is False
+
+    causal_suite = two_stream_metric_contract(suite=TWO_STREAM_CAUSAL_SUITE)
+    assert causal_suite["protocol"] == TWO_STREAM_CAUSAL_PROTOCOL
+    assert causal_suite["strict_autoregressive"] is True
+
+    assert two_stream_metric_contract(suite="qnlp-v1") is None
+
+
+def test_two_stream_benchmark_defaults_to_causal_and_rejects_v1():
+    assert build_parser().parse_args([]).suite == TWO_STREAM_CAUSAL_SUITE
+    with pytest.raises(ValueError, match="immutable full-window"):
+        validate_suite("two-stream-v1")

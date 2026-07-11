@@ -9,7 +9,19 @@ import json
 import statistics as st
 from collections import defaultdict
 
+from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
+
+
+def _contract_for_run(run: dict) -> dict | None:
+    try:
+        config = json.loads(run.get("config_json") or "{}")
+    except json.JSONDecodeError:
+        config = {}
+    return two_stream_metric_contract(
+        suite=str(run.get("suite") or ""),
+        config=config,
+    )
 
 
 def suites_overview(db: ResultsDB) -> list[dict]:
@@ -20,7 +32,16 @@ def suites_overview(db: ResultsDB) -> list[dict]:
             "COUNT(DISTINCT dataset) datasets, MIN(val_ppl) best_ppl, "
             "MAX(ts) last_ts FROM runs GROUP BY suite ORDER BY last_ts DESC"
         ).fetchall()
-    return [dict(r) for r in rows]
+    suites = []
+    for raw in rows:
+        row = dict(raw)
+        contract = two_stream_metric_contract(suite=row["suite"])
+        row["metric_contract"] = contract
+        if contract and contract["rerun_required"]:
+            row["historical_best_ppl"] = row["best_ppl"]
+            row["best_ppl"] = None
+        suites.append(row)
+    return suites
 
 
 def suite_detail(db: ResultsDB, suite: str, dataset: str | None = None) -> dict:
@@ -56,8 +77,13 @@ def suite_detail(db: ResultsDB, suite: str, dataset: str | None = None) -> dict:
                                     e["val_ppl_mean"] or 0))
     datasets = sorted({r["dataset"] for r in db.fetch(suite)})
     metric_names = sorted({m["name"] for m in metrics})
-    return {"suite": suite, "datasets": datasets, "metric_names": metric_names,
-            "leaderboard": leaderboard}
+    return {
+        "suite": suite,
+        "datasets": datasets,
+        "metric_names": metric_names,
+        "leaderboard": leaderboard,
+        "metric_contract": two_stream_metric_contract(suite=suite),
+    }
 
 
 def all_runs(db: ResultsDB, suite: str | None = None) -> list[dict]:
@@ -67,7 +93,10 @@ def all_runs(db: ResultsDB, suite: str | None = None) -> list[dict]:
         q += " WHERE suite=?"; args.append(suite)
     q += " ORDER BY ts DESC"
     with db._conn() as con:
-        return [dict(r) for r in con.execute(q, args).fetchall()]
+        rows = [dict(r) for r in con.execute(q, args).fetchall()]
+    for row in rows:
+        row["metric_contract"] = _contract_for_run(row)
+    return rows
 
 
 def run_detail(db: ResultsDB, run_id: int) -> dict:
@@ -77,6 +106,10 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
         return {}
     run = dict(row)
     run["config"] = json.loads(run.get("config_json") or "{}")
+    run["metric_contract"] = two_stream_metric_contract(
+        suite=run.get("suite", ""),
+        config=run["config"],
+    )
     # matching extra metrics (same suite/variant/dataset/seed)
     with db._conn() as con:
         mets = con.execute(

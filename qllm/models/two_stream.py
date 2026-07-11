@@ -9,63 +9,87 @@ on classical text, so the strict control is the whole point: quantum vs
 classical sentence encoder at IDENTICAL output dim and (closely) param count.
 
 Streams:
-  - SentenceEncoder: pool the whole context -> small vector s (dim d_sent).
-    Quantum variant: pooled embedding -> QuantumCore (VQC, measured) -> s.
-    Classical control: pooled embedding -> MLP -> s, sized to match params.
+  - SentenceEncoder: cumulative mean over each real-token prefix -> one small
+    vector s_t (dim d_sent) per position. Quantum and classical encoders receive
+    the identical ``(batch, time, d_model)`` causal-prefix tensor.
+    Quantum variant: prefix means -> QuantumCore (VQC, measured) -> s_t.
+    Classical control: prefix means -> MLP -> s_t, sized to match params.
   - Word transformer: standard causal decoder, each block CONDITIONED on s
     by one of three modes:
-      film    : per-block FiLM (learned gain+bias from s modulate the stream)
-      token   : s projected to d_model, PREPENDED as a virtual token 0
-      bias    : s projected to d_model, ADDED to every token embedding
+      film    : per-block gain/bias from s_t modulates position t
+      token   : [summary_t, real_token_t] pairs are interleaved causally
+      bias    : projected s_t is added to real-token embedding t
 
-The sentence vector is computed from the LEFT context only (mean-pool of
-embeddings up to each position is too expensive per-step; we use a single
-summary from the full sequence with a causal-safe note below), so this is a
-research probe rather than a strictly autoregressive model: the sentence
-stream sees the whole window. We therefore evaluate teacher-forced
-perplexity (standard) and treat the sentence vector as side information,
-exactly as a document/topic embedding would be in practice.
+Prefix t includes input tokens <=t, matching next-token language-model
+semantics: logit t may use the current input token but never a future token.
 """
 from __future__ import annotations
 
-import math
-
-import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from ..config import ModelConfig
+from ..config import ModelConfig, two_stream_position_count
 from ..quantum.layers import QuantumCore
 
 
+def causal_prefix_mean(embeddings: jnp.ndarray) -> jnp.ndarray:
+    """Cumulative mean for every real-token prefix, including the current token."""
+    if embeddings.ndim != 3:
+        raise ValueError(
+            "causal_prefix_mean expects (batch, time, features) embeddings."
+        )
+    counts = jnp.arange(
+        1, embeddings.shape[1] + 1, dtype=embeddings.dtype
+    )[None, :, None]
+    return jnp.cumsum(embeddings, axis=1) / counts
+
+
+def interleave_summary_tokens(
+    summaries: jnp.ndarray, real_tokens: jnp.ndarray
+) -> jnp.ndarray:
+    """Order each pair as ``[summary_t, real_token_t]`` without a time loop."""
+    if summaries.shape != real_tokens.shape or summaries.ndim != 3:
+        raise ValueError(
+            "summary and real-token tensors must share (batch, time, features)."
+        )
+    batch, time, features = real_tokens.shape
+    return jnp.stack((summaries, real_tokens), axis=2).reshape(
+        batch, 2 * time, features
+    )
+
+
+def real_token_slots(sequence: jnp.ndarray) -> jnp.ndarray:
+    """Select real-token positions from an interleaved summary/token sequence."""
+    return sequence[:, 1::2, ...]
+
+
 class ClassicalSentenceEncoder(nn.Module):
-    """Mean-pool embeddings -> MLP -> sentence vector (the control)."""
+    """Causal prefix features -> MLP -> per-position summary (the control)."""
 
     d_sent: int
     hidden: int
 
     @nn.compact
-    def __call__(self, emb: jnp.ndarray) -> jnp.ndarray:
-        pooled = emb.mean(axis=1)                      # (B, d_model)
-        h = nn.tanh(nn.Dense(self.hidden, name="fc1")(pooled))
-        return nn.Dense(self.d_sent, name="fc2")(h)    # (B, d_sent)
+    def __call__(self, prefixes: jnp.ndarray) -> jnp.ndarray:
+        h = nn.tanh(nn.Dense(self.hidden, name="fc1")(prefixes))
+        return nn.Dense(self.d_sent, name="fc2")(h)
 
 
 class QuantumSentenceEncoder(nn.Module):
-    """Mean-pool embeddings -> QuantumCore (VQC, measured) -> sentence vector."""
+    """Causal prefix features -> vectorized VQC -> per-position summary."""
 
     d_sent: int
     quantum: object  # QuantumConfig
 
     @nn.compact
-    def __call__(self, emb: jnp.ndarray) -> jnp.ndarray:
-        pooled = emb.mean(axis=1)                      # (B, d_model)
+    def __call__(self, prefixes: jnp.ndarray) -> jnp.ndarray:
         return QuantumCore.from_config(
-            self.quantum, out_features=self.d_sent, name="qcore")(pooled)
+            self.quantum, out_features=self.d_sent, name="qcore"
+        )(prefixes)
 
 
 class TwoStreamLM(nn.Module):
-    """Classical word transformer conditioned on a sentence vector."""
+    """Classical word transformer conditioned on causal prefix summaries."""
 
     cfg: ModelConfig
     encoder_kind: str = "quantum"   # quantum | classical | none
@@ -76,34 +100,63 @@ class TwoStreamLM(nn.Module):
     @nn.compact
     def __call__(self, tokens: jnp.ndarray) -> jnp.ndarray:
         cfg = self.cfg
+        if tokens.ndim != 2:
+            raise ValueError("TwoStreamLM expects tokens with shape (batch, time).")
         B, T = tokens.shape
+        if T < 1:
+            raise ValueError("TwoStreamLM requires at least one input token.")
+        internal_positions = two_stream_position_count(
+            T, self.encoder_kind, self.condition
+        )
+        if internal_positions > cfg.max_seq_len:
+            detail = (
+                " Active token conditioning interleaves one summary before "
+                "every real token."
+                if self.encoder_kind != "none" and self.condition == "token"
+                else ""
+            )
+            raise ValueError(
+                f"TwoStreamLM requires {internal_positions} internal positions "
+                f"for {T} input tokens, but model.max_seq_len is "
+                f"{cfg.max_seq_len}.{detail}"
+            )
         emb = nn.Embed(cfg.vocab_size, cfg.d_model, name="token_embed")(tokens)
+        prefixes = causal_prefix_mean(emb)
 
         # ---- sentence stream ----
         s = None
         if self.encoder_kind == "quantum":
+            if cfg.quantum is None:
+                raise ValueError(
+                    "TwoStreamLM encoder_kind='quantum' requires model.quantum."
+                )
             s = QuantumSentenceEncoder(
-                d_sent=self.d_sent, quantum=cfg.quantum, name="sent_q")(emb)
+                d_sent=self.d_sent, quantum=cfg.quantum, name="sent_q"
+            )(prefixes)
         elif self.encoder_kind == "classical":
             s = ClassicalSentenceEncoder(
-                d_sent=self.d_sent, hidden=self.sent_hidden, name="sent_c")(emb)
+                d_sent=self.d_sent, hidden=self.sent_hidden, name="sent_c"
+            )(prefixes)
 
-        # positional + optional virtual token / bias injection
-        pos = self.param("pos_embed", nn.initializers.normal(0.02),
-                         (1, cfg.max_seq_len + 1, cfg.d_model))
+        # positional + per-position summary/bias injection
+        pos = self.param(
+            "pos_embed",
+            nn.initializers.normal(0.02),
+            (1, cfg.max_seq_len, cfg.d_model),
+        )
         x = emb
         if s is not None and self.condition == "bias":
-            x = x + nn.Dense(cfg.d_model, name="sent_to_bias")(s)[:, None, :]
+            x = x + nn.Dense(cfg.d_model, name="sent_to_bias")(s)
         if s is not None and self.condition == "token":
-            vtok = nn.Dense(cfg.d_model, name="sent_to_tok")(s)[:, None, :]
-            x = jnp.concatenate([vtok, x], axis=1)     # prepend
-        x = x + pos[:, :x.shape[1], :]
+            summary_tokens = nn.Dense(cfg.d_model, name="sent_to_tok")(s)
+            x = interleave_summary_tokens(summary_tokens, x)
+        x = x + pos[:, :internal_positions, :]
 
-        # FiLM params from s, per block
+        # FiLM params from s_t, per position and block
         film = None
         if s is not None and self.condition == "film":
             film = nn.Dense(2 * cfg.d_model * cfg.n_blocks, name="film")(s)
-            film = film.reshape(B, cfg.n_blocks, 2, cfg.d_model)
+            film = film.reshape(B, T, cfg.n_blocks, 2, cfg.d_model)
 
         # ---- word transformer ----
         seq = x.shape[1]
@@ -116,8 +169,8 @@ class TwoStreamLM(nn.Module):
             x = x + h
             h = nn.LayerNorm(name=f"ln2_{b}")(x)
             if film is not None:
-                gain = 1.0 + film[:, b, 0, :][:, None, :]
-                bias = film[:, b, 1, :][:, None, :]
+                gain = 1.0 + film[:, :, b, 0, :]
+                bias = film[:, :, b, 1, :]
                 h = h * gain + bias
             h = nn.Dense(cfg.d_ff, name=f"ff1_{b}")(h)
             h = nn.gelu(h)
@@ -127,5 +180,5 @@ class TwoStreamLM(nn.Module):
         x = nn.LayerNorm(name="ln_f")(x)
         logits = nn.Dense(cfg.vocab_size, name="lm_head")(x)
         if s is not None and self.condition == "token":
-            logits = logits[:, 1:, :]                  # drop virtual token
+            logits = real_token_slots(logits)
         return logits

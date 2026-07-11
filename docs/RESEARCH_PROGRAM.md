@@ -67,7 +67,7 @@ These findings must shape the work order before more large sweeps are launched.
 | A two-sided exact sign-flip test cannot reach `p < .05` with three pairs. | Much of the three-seed GPU queue cannot support the current “paired empirical edge” threshold. | Use three pairs only as a variance pilot; calculate confirmation counts from the practical effect threshold and pilot variance. |
 | Most multi-seed synthetic sweeps reuse `gen_seed=0`. | They measure initialization sensitivity, not task-instance generalization. | Separate generator, split, initialization, minibatch, circuit, and hardware-calibration seed axes. |
 | Kernel ridge regularization is selected on the test split. | Existing R2 values are optimistic diagnostics. | Add train/validation/test or nested selection before using application scores. |
-| Two-stream encoders pool the whole token window. | Their perplexity uses future side information and is not strict autoregressive evidence. | Implement causal prefix pooling or label and segregate the task everywhere. |
+| Historical `two-stream-v1` encoders pooled the whole token window. | Their perplexity used future side information and is not strict autoregressive evidence. | Keep v1 segregated and rerun the replacement causal-prefix model under a new suite ID. |
 | The TensorCircuit backend constructs a dense `tc.Circuit`, not `MPSCircuit`. | The repo does not yet have the advertised large-qubit tensor-network path. | Add a real approximate backend with bond-dimension and truncation convergence metadata. |
 | The backend protocol requires full statevector access. | Wide tensor-network backends and QPUs cannot implement the current diagnostic contract. | Make state access optional and add capability-tagged expectation, probability, sample, and hardware-safe diagnostic interfaces. |
 | Run identity omits config, code, data, environment, precision, and executor hashes. | Different experiments can collide under the same suite/variant/seed key. | Introduce immutable experiment and run manifests before cluster execution. |
@@ -158,7 +158,7 @@ flowchart LR
 | Unitary transplant | Explained by classical low-rank warm start | Preserve as quantum-inspired compression. |
 | Interleaved “contextual” parity | Phase/routing mechanisms partially work; task is not theorem-faithful contextuality | Relabel and build a separate faithful contextuality campaign. |
 | Interference output head | Isolated single-layer expressivity works; end-to-end sequence benefit is negative | Keep as a bounded mechanism result. |
-| Two-stream conditioning | Weak lean under one mode, invalid as strict autoregressive evidence | Fix the task contract before any seed expansion. |
+| Two-stream conditioning | Historical v1 lean is teacher-forced side-information and rerun-required; causal-prefix implementation now replaces it | Run a fresh causal suite before interpreting or expanding seeds. |
 | Dashboard/studies | Strong research-cockpit foundation, but studies are not yet the normal execution path | Make every serious run belong to a Study and claim contract. |
 
 ### Highest-value greenfield

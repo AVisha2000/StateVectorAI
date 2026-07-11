@@ -17,7 +17,7 @@ export default function Suites() {
             <div className="stat"><span className="k">runs</span><span className="v">{s.n}</span></div>
             <div className="stat"><span className="k">variants</span><span className="v">{s.variants}</span></div>
             <div className="stat"><span className="k">datasets</span><span className="v">{s.datasets}</span></div>
-            <div className="stat"><span className="k">best ppl</span><span className="v">{s.best_ppl != null ? s.best_ppl.toFixed(3) : '-'}</span></div>
+            <div className="stat"><span className="k">metric status</span><span className="v">{s.metric_contract?.rerun_required ? 'rerun required' : (s.best_ppl != null ? `best ppl ${s.best_ppl.toFixed(3)}` : '-')}</span></div>
           </Link>
         ))}
       </div>

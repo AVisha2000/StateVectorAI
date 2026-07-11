@@ -15,6 +15,7 @@ from ..config import (
     to_flat_dict,
     validate_config,
 )
+from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL
 from ..resultsdb import ResultsDB
 from . import with_dashboard
 from .analogues import (
@@ -117,6 +118,8 @@ class ExperimentQueue:
                 f"Current estimate: {estimate['band']}."
             )
         job_config = to_flat_dict(cfg)
+        if cfg.model.arch == "two_stream":
+            job_config["lab.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
         if quantum_overrides:
             job_config["lab.quantum_override.n_qubits"] = cfg.model.quantum.n_qubits
             job_config["lab.quantum_override.n_circuit_layers"] = (
@@ -163,6 +166,8 @@ class ExperimentQueue:
                 raise AssertionError("Missing validated classical analogue config.")
             twin_cfg = prepared_twin_cfg
             twin_config = to_flat_dict(twin_cfg)
+            if twin_cfg.model.arch == "two_stream":
+                twin_config["lab.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
             twin_estimate = quantum_resource_estimate(twin_cfg)
             twin_config["lab.resource.band"] = twin_estimate["band"]
             twin_config["lab.resource.score"] = twin_estimate["score"]

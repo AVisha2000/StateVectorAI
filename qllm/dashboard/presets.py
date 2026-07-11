@@ -52,7 +52,7 @@ _QUANTUM_CONTROL_SPECS: dict[str, dict] = {
         },
     },
     "two-stream-quantum-bias": {
-        "summary": "Tune the sentence-level quantum encoder while leaving the token stack unchanged.",
+        "summary": "Tune the causal-prefix quantum encoder while leaving the token stack unchanged.",
         "warning": "Treat larger encoders as research probes first; compare against the classical twin at the same seed.",
         "fields": {
             "n_qubits": {"label": "Encoder qubits", "min": 2, "max": 10, "gpu_max": 16},
@@ -287,12 +287,13 @@ PRESETS: dict[str, dict] = {
         label="Two-Stream Classical Bias",
         kind="classical",
         cost="Medium; two-stream classical control",
-        summary="Two-stream LM with a classical sentence encoder bias.",
+        summary="Two-stream LM with a classical causal-prefix encoder bias.",
         description=(
-            "A two-stream language model where a classical sentence encoder biases "
-            "the token model. It controls for the two-stream architecture itself."
+            "A two-stream language model where a classical cumulative-prefix "
+            "encoder biases each token position. It controls for the two-stream "
+            "architecture itself."
         ),
-        architecture="Two-stream transformer with classical sentence encoder and bias conditioning.",
+        architecture="Two-stream transformer with classical causal-prefix encoder and per-position bias conditioning.",
         quantum_role="None. Classical control for two-stream quantum bias.",
         recommended_use="Baseline for the two-stream quantum-bias preset.",
         risks="Larger control than classical-small; compare within two-stream family.",
@@ -307,16 +308,16 @@ PRESETS: dict[str, dict] = {
     "two-stream-quantum-bias": _preset(
         label="Two-Stream Quantum Bias",
         kind="hybrid",
-        cost="Medium; probes sentence-level quantum conditioning",
-        summary="Two-stream LM where a quantum sentence encoder biases token modeling.",
+        cost="Medium; probes causal-prefix quantum conditioning",
+        summary="Two-stream LM where a quantum causal-prefix encoder biases token modeling.",
         description=(
-            "A two-stream language model where sentence-level state comes from a "
-            "quantum encoder and is injected as a bias into token prediction."
+            "A two-stream language model where each cumulative token prefix is "
+            "encoded quantumly and injected as a per-position prediction bias."
         ),
-        architecture="Two-stream transformer with quantum sentence encoder and bias conditioning.",
-        quantum_role="4-qubit quantum sentence encoder conditions the token stream.",
+        architecture="Two-stream transformer with quantum causal-prefix encoder and per-position bias conditioning.",
+        quantum_role="A 4-qubit encoder transforms each causal prefix summary before it conditions the token stream.",
         recommended_use="Compare against two-stream-classical-bias across multiple seeds.",
-        risks="Signal has been statistically fragile; overlapping error bars are expected.",
+        risks="Historical full-window results are rerun-required; no causal-prefix encoder edge has been established.",
         classical_twin_id="two-stream-classical-bias",
         config=_cfg(
             ModelConfig(arch="two_stream", encoder_kind="quantum",

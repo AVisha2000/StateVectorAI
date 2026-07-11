@@ -21,7 +21,7 @@ function roleClass(role) {
 
 function chartRows(rows) {
   return rows
-    .filter((row) => row.val_ppl != null)
+    .filter((row) => row.val_ppl != null && !row.rerun_required)
     .map((row) => ({
       ...row,
       label: row.model.length > 18 ? `${row.model.slice(0, 16)}...` : row.model,
@@ -86,6 +86,7 @@ export default function ResearchResults({ mode }) {
         Performance is shown with resource cost and cautious verdict labels.
       </h2>
       {error && <div className="alert error">{error}</div>}
+      {(payload?.protocol_warnings || []).map((warning) => <div className="alert error" key={warning}>{warning}</div>)}
 
       {payload?.available && (
         <>
@@ -179,7 +180,7 @@ export default function ResearchResults({ mode }) {
                     <td className="num">{row.resource?.n_circuit_layers ?? '-'}</td>
                     <td>{row.resource?.shots ?? 'analytic'} / {row.resource?.backend || '-'}</td>
                     <td>{row.resource?.resource_band || '-'}</td>
-                    <td>{row.comparison_link ? <Link to={row.comparison_link}>{row.verdict_label || 'comparison'}</Link> : (row.verdict_label || '-')}</td>
+                    <td>{row.rerun_required ? 'rerun required' : (row.comparison_link ? <Link to={row.comparison_link}>{row.verdict_label || 'comparison'}</Link> : (row.verdict_label || '-'))}</td>
                   </tr>
                 ))}
                 {rows.length === 0 && <tr><td colSpan="17">No runs found for this slice.</td></tr>}

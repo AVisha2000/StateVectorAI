@@ -8,7 +8,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from qllm.config import from_dict, load_yaml, to_flat_dict, validate_config
+from qllm.config import (
+    from_dict,
+    load_yaml,
+    to_flat_dict,
+    two_stream_position_count,
+    validate_config,
+)
 from qllm.data.text import CharTokenizer, load_corpus, sample_batch, train_val_split
 from qllm.registry import (
     ANSATZ_TYPES,
@@ -136,6 +142,60 @@ def test_validation_reports_numeric_and_semantic_errors():
     assert "data.gen_measured must be smaller than data.gen_qubits" in joined
     assert "data.gen_sequences must be at least 2" in joined
     assert "data.gen_len must be greater than train.seq_len" in joined
+
+
+def test_two_stream_internal_position_count_contract():
+    assert two_stream_position_count(8, "classical", "token") == 16
+    assert two_stream_position_count(8, "quantum", "token") == 16
+    assert two_stream_position_count(8, "none", "token") == 8
+    assert two_stream_position_count(8, "classical", "film") == 8
+    assert two_stream_position_count(8, "classical", "bias") == 8
+
+
+def test_two_stream_token_capacity_validation_uses_expanded_length():
+    invalid = from_dict({
+        "model": {
+            "arch": "two_stream",
+            "encoder_kind": "classical",
+            "condition": "token",
+            "max_seq_len": 15,
+        },
+        "train": {"seq_len": 8},
+    })
+    message = "\n".join(validate_config(invalid))
+    assert "internal positional capacity" in message
+    assert "2 * train.seq_len" in message
+    assert "required 16, got 15" in message
+
+    exact = from_dict({
+        "model": {
+            "arch": "two_stream",
+            "encoder_kind": "classical",
+            "condition": "token",
+            "max_seq_len": 16,
+        },
+        "train": {"seq_len": 8},
+    })
+    assert validate_config(exact) == []
+
+
+@pytest.mark.parametrize(
+    ("encoder_kind", "condition"),
+    [("none", "token"), ("classical", "film"), ("quantum", "bias")],
+)
+def test_two_stream_non_expanded_modes_use_real_token_length(
+    encoder_kind, condition
+):
+    cfg = from_dict({
+        "model": {
+            "arch": "two_stream",
+            "encoder_kind": encoder_kind,
+            "condition": condition,
+            "max_seq_len": 8,
+        },
+        "train": {"seq_len": 8},
+    })
+    assert validate_config(cfg) == []
 
 
 def test_classical_config_can_omit_quantum_and_recurrent_dims_are_not_transformer_constraints():

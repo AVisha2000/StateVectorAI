@@ -297,6 +297,8 @@ export default function RunWorkspace() {
               </>
             )}
             {comparison?.available && (
+              <>
+              {comparison.metric_contract?.rerun_required && <div className="alert error">{comparison.metric_contract.limitation}</div>}
               <div className="comparison-grid">
                 <div>
                   <div className="pill">candidate</div>
@@ -326,19 +328,20 @@ export default function RunWorkspace() {
                     <div className="k">wall</div><div className="v">{comparison.baseline.final_run?.wall_seconds ? `${fmt(comparison.baseline.final_run.wall_seconds, 2)}s` : '-'}</div>
                   </div>
                 </div>
-                <div>
+                {!comparison.metric_contract?.rerun_required && <div>
                   <div className="pill">candidate minus baseline</div>
                   <Delta label="val ppl" value={comparison.deltas?.val_ppl} />
                   <Delta label="val loss" value={comparison.deltas?.val_loss} />
                   <Delta label="val bpc" value={comparison.deltas?.val_bpc} />
                   <Delta label="wall seconds" value={comparison.deltas?.wall_seconds} />
                   <Delta label="parameters" value={comparison.deltas?.n_params} />
-                </div>
+                </div>}
               </div>
+              </>
             )}
           </section>
 
-          {comparison?.available && (
+          {comparison?.available && !comparison.metric_contract?.rerun_required && (
             <CurvePanel
               title={`Comparison curve: ${comparisonMetric}`}
               data={comparisonSeries}

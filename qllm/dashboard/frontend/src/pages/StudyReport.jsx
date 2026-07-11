@@ -46,6 +46,7 @@ export default function StudyReport() {
               <Link className="small" to={`/studies/${payload.id}`}>Back to study</Link>
             </div>
           </div>
+          {(payload.statistics?.rerun_required_pairs || 0) > 0 && <div className="alert error">{payload.verdict.reason}</div>}
 
           <section className="panel">
             <div className="workspace-header">
@@ -57,6 +58,7 @@ export default function StudyReport() {
             </div>
             <div className="stat-row">
               <div className="metric-card"><div className="metric-label">Fair pairs</div><div className="metric-value">{payload.statistics.fair_pairs}</div></div>
+              <div className="metric-card"><div className="metric-label">Rerun-required pairs</div><div className="metric-value">{payload.statistics.rerun_required_pairs || 0}</div></div>
               <div className="metric-card"><div className="metric-label">Wins</div><div className="metric-value">{payload.statistics.wins}</div><div className="muted">win rate {payload.statistics.win_rate == null ? '-' : `${fmt(payload.statistics.win_rate * 100, 1)}%`}</div></div>
               <div className="metric-card"><div className="metric-label">Mean delta val ppl</div><div className="metric-value">{fmt(payload.statistics.mean_delta_val_ppl)}</div><div className="muted">candidate minus baseline</div></div>
               <div className="metric-card"><div className="metric-label">Std delta val ppl</div><div className="metric-value">{fmt(payload.statistics.std_delta_val_ppl)}</div></div>

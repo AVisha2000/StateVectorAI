@@ -9,7 +9,7 @@ export default function Docs() {
         <p><b>Classical presets</b> are the control group: transformer or GRU models with no quantum circuit.</p>
         <p><b>Quantum FFN / Attention</b> swap one transformer component for a variational quantum circuit while keeping the rest of the pipeline comparable.</p>
         <p><b>QRNN</b> uses quantum recurrent memory. Treat it as a slower research probe, not a guaranteed improvement.</p>
-        <p><b>Two-stream quantum bias</b> uses a sentence-level quantum encoder to condition token prediction.</p>
+        <p><b>Two-stream quantum bias</b> quantum-encodes each cumulative token prefix and applies a causal, per-position conditioning signal. Historical full-window runs are labeled rerun-required.</p>
       </section>
 
       <section className="panel docs">

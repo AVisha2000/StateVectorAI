@@ -201,10 +201,11 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
             enc_kind = "quantum" if encoder_kind == "quantum" else "classical"
             prev = add(_node(
                 "sentence_encoder",
-                f"{encoder_kind.title()} Sentence Encoder",
+                f"{encoder_kind.title()} Causal Prefix Encoder",
                 enc_kind,
                 component_type="sentence_encoder",
                 config_path="model.encoder_kind",
+                protocol="causal_prefix_v2",
                 condition=_get(model, "condition", "film"),
                 d_sent=_get(model, "d_sent", 8),
                 n_qubits=quantum["n_qubits"] if enc_kind == "quantum" else None,

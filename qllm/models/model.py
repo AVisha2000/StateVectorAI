@@ -13,7 +13,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from ..classical.layers import CausalSelfAttention, FeedForward
-from ..config import ModelConfig, model_block_config
+from ..config import ModelConfig, model_block_config, two_stream_position_count
 from ..registry import (
     ARCH_TYPES,
     ATTN_TYPES,
@@ -215,7 +215,17 @@ def count_model_params(cfg: ModelConfig, vocab_size: int, seq_len: int = 8) -> i
     import numpy as np
 
     model, _ = build_model(cfg, vocab_size)
-    tokens = jnp.zeros((1, min(seq_len, cfg.max_seq_len)), dtype=jnp.int32)
+    real_capacity = cfg.max_seq_len
+    if cfg.arch == "two_stream":
+        positions_per_token = two_stream_position_count(
+            1, cfg.encoder_kind, cfg.condition
+        )
+        real_capacity = cfg.max_seq_len // positions_per_token
+        if real_capacity < 1:
+            raise ValueError(
+                "two-stream conditioning has no usable real-token capacity"
+            )
+    tokens = jnp.zeros((1, min(seq_len, real_capacity)), dtype=jnp.int32)
     params = model.init(jax.random.PRNGKey(0), tokens)["params"]
     return sum(int(np.prod(p.shape)) for p in jax.tree_util.tree_leaves(params))
 

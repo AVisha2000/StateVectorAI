@@ -4,7 +4,11 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from ..research_protocol import classify_claim, resource_normalized_delta
+from ..research_protocol import (
+    classify_claim,
+    resource_normalized_delta,
+    two_stream_metric_contract,
+)
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
 from .evidence import comparison_evidence_ladder
@@ -180,7 +184,27 @@ def _resource_normalized_for_payload(payload: dict) -> dict | None:
 
 def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
     payload = comparison_payload(db, job_id)
+    contracts = []
+    for role in ("candidate", "baseline"):
+        job = (payload.get(role) or {}).get("job") or {}
+        contract = two_stream_metric_contract(
+            suite="lab",
+            config=job.get("config") or {},
+        )
+        if contract:
+            contracts.append(contract)
+    metric_contract = next(
+        (contract for contract in contracts if contract["rerun_required"]),
+        contracts[0] if contracts else None,
+    )
+    payload["metric_contract"] = metric_contract
     verdict = verdict_for_comparison(payload)
+    if metric_contract and metric_contract["rerun_required"]:
+        verdict = {
+            "label": "rerun required",
+            "claim_level": "invalid",
+            "reason": metric_contract["limitation"],
+        }
     payload["fairness"] = verdict.get("fairness") or fairness_flags(
         payload.get("candidate"), payload.get("baseline")
     )
@@ -188,6 +212,41 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
     payload["resource_normalized"] = _resource_normalized_for_payload(payload)
     payload["evidence_ladder"] = comparison_evidence_ladder(payload)
     return payload
+
+
+def _leaderboard_highlights(db: ResultsDB) -> list[dict]:
+    """Return current-contract highlights without promoting invalid history."""
+    with db._conn() as con:
+        rows = con.execute(
+            "SELECT suite, variant, dataset, val_ppl, ts, config_json "
+            "FROM runs WHERE val_ppl IS NOT NULL"
+        ).fetchall()
+    grouped: dict[tuple[str, str], dict] = {}
+    for raw in rows:
+        row = dict(raw)
+        try:
+            config = json.loads(row.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            config = {}
+        contract = two_stream_metric_contract(
+            suite=row.get("suite", ""),
+            config=config,
+        )
+        if contract and contract["rerun_required"]:
+            continue
+        key = (row["variant"], row["dataset"])
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = {
+                "variant": row["variant"],
+                "dataset": row["dataset"],
+                "best_ppl": row["val_ppl"],
+                "last_ts": row["ts"],
+            }
+            continue
+        current["best_ppl"] = min(current["best_ppl"], row["val_ppl"])
+        current["last_ts"] = max(current["last_ts"], row["ts"])
+    return sorted(grouped.values(), key=lambda item: item["best_ppl"])[:5]
 
 
 def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
@@ -207,11 +266,6 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
             "verdict": payload.get("verdict"),
             "fairness": payload.get("fairness"),
         })
-    with db._conn() as con:
-        rows = con.execute(
-            "SELECT variant, dataset, MIN(val_ppl) best_ppl, MAX(ts) last_ts "
-            "FROM runs GROUP BY variant, dataset ORDER BY best_ppl ASC LIMIT 5"
-        ).fetchall()
     return {
         "counts": dict(counts),
         "active_jobs": active,
@@ -219,7 +273,7 @@ def lab_overview(db: ResultsDB, status_payload: dict) -> dict:
         "recent_comparisons": recent_comparisons,
         "gpu_status": status_payload.get("gpu", {}),
         "gpu_reservation": gpu_reservation_status(db),
-        "leaderboard_highlights": [dict(r) for r in rows],
+        "leaderboard_highlights": _leaderboard_highlights(db),
     }
 
 
@@ -263,6 +317,10 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
     for job in jobs:
         scale = _quantum_scale(job) or {}
         final_run = _final_run_for_job(db, job)
+        metric_contract = two_stream_metric_contract(
+            suite="lab",
+            config=job.get("config") or {},
+        )
         points.append({
             "job": job,
             "n_qubits": scale.get("n_qubits"),
@@ -275,10 +333,22 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
             "val_bpc": final_run.get("val_bpc") if final_run else None,
             "wall_seconds": final_run.get("wall_seconds") if final_run else None,
             "n_params": final_run.get("n_params") if final_run else None,
+            "metric_contract": metric_contract,
+            "rerun_required": bool(
+                metric_contract and metric_contract["rerun_required"]
+            ),
         })
     points.sort(key=lambda p: (p["n_qubits"], p["n_circuit_layers"]))
-    complete = [p for p in points if p["val_ppl"] is not None]
+    complete = [
+        point for point in points
+        if point["val_ppl"] is not None and not point["rerun_required"]
+    ]
     best = min(complete, key=lambda p: p["val_ppl"]) if complete else None
+    protocol_warnings = sorted({
+        point["metric_contract"]["limitation"]
+        for point in points
+        if point["rerun_required"] and point["metric_contract"]
+    })
     return {
         "available": True,
         "group_id": group_id,
@@ -289,6 +359,7 @@ def scaling_test_payload(db: ResultsDB, group_id: str) -> dict:
         "device_target": jobs[0].get("device_target") or "auto",
         "points": points,
         "best": best,
+        "protocol_warnings": protocol_warnings,
         "complete_count": len(complete),
         "total_count": len(points),
     }

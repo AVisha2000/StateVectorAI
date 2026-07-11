@@ -24,6 +24,74 @@ from .registry import (
 )
 
 
+TWO_STREAM_CAUSAL_PROTOCOL = "causal_prefix_v2"
+TWO_STREAM_CAUSAL_SUITE = "two-stream-causal-v2"
+HISTORICAL_TWO_STREAM_SUITES = frozenset({"two-stream-v1"})
+
+
+def _flat_or_nested(config: dict, path: str):
+    if path in config:
+        return config[path]
+    current = config
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def two_stream_metric_contract(
+    *,
+    suite: str = "",
+    config: dict | None = None,
+) -> dict[str, str | bool] | None:
+    """Return the evidence contract for current or historical two-stream runs.
+
+    ``two-stream-v1`` used one full-window summary for every position.  Those
+    rows remain valid records of a teacher-forced side-information probe, but
+    they cannot be compared with strict autoregressive next-token metrics.
+    New dashboard jobs carry an explicit protocol marker; an unmarked
+    two-stream job is conservatively treated as historical.
+    """
+    config = config or {}
+    arch = _flat_or_nested(config, "model.arch")
+    marker = (
+        _flat_or_nested(config, "lab.two_stream_protocol")
+        or _flat_or_nested(config, "research.two_stream_protocol")
+    )
+    historical = suite in HISTORICAL_TWO_STREAM_SUITES or (
+        arch == "two_stream"
+        and suite != TWO_STREAM_CAUSAL_SUITE
+        and marker != TWO_STREAM_CAUSAL_PROTOCOL
+    )
+    if historical:
+        return {
+            "metric_type": "teacher_forced_side_information",
+            "protocol": "full_window_v1",
+            "protocol_status": "rerun_required",
+            "rerun_required": True,
+            "strict_autoregressive": False,
+            "limitation": (
+                "Historical two-stream results used a full-window encoder "
+                "summary. They are teacher-forced side-information metrics, "
+                "not strict autoregressive evidence, and require a causal rerun."
+            ),
+        }
+    if suite == TWO_STREAM_CAUSAL_SUITE or arch == "two_stream":
+        return {
+            "metric_type": "strict_autoregressive_next_token",
+            "protocol": TWO_STREAM_CAUSAL_PROTOCOL,
+            "protocol_status": "current",
+            "rerun_required": False,
+            "strict_autoregressive": True,
+            "limitation": (
+                "Causal-prefix metrics are not evidence of an encoder edge "
+                "without matched controls and adequate paired replication."
+            ),
+        }
+    return None
+
+
 @dataclass(frozen=True)
 class PairedStats:
     """Summary of paired candidate-vs-baseline improvements.

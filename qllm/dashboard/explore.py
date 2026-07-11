@@ -5,6 +5,7 @@ import json
 from collections import defaultdict
 from typing import Any
 
+from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .datasets import list_datasets
 from .model_graph import model_family, uses_quantum_config
@@ -112,6 +113,10 @@ def _resource_from_config(config: dict) -> dict:
 
 def _run_item(row: dict) -> dict:
     config = _decode_config(row)
+    contract = two_stream_metric_contract(
+        suite=row.get("suite", ""),
+        config=config,
+    )
     context = infer_research_context(
         suite=row.get("suite", ""),
         variant=row.get("variant", ""),
@@ -137,11 +142,14 @@ def _run_item(row: dict) -> dict:
         "link": f"/run/{row['id']}",
         "context": context,
         "resource": _resource_from_config(config),
+        "metric_contract": contract,
+        "rerun_required": bool(contract and contract["rerun_required"]),
     }
 
 
 def _job_item(row: dict) -> dict:
     config = _decode_config(row)
+    contract = two_stream_metric_contract(suite="lab", config=config)
     context = infer_research_context(
         suite="lab",
         variant=row.get("preset_id", ""),
@@ -168,6 +176,8 @@ def _job_item(row: dict) -> dict:
         ),
         "context": context,
         "resource": _resource_from_config(config),
+        "metric_contract": contract,
+        "rerun_required": bool(contract and contract["rerun_required"]),
     }
 
 
@@ -262,7 +272,11 @@ def explore_payload(db: ResultsDB) -> dict:
         dataset["tasks"].add(context["task"])
         dataset["runs"] += 1 if item["kind"] == "run" else 0
         dataset["jobs"] += 1 if item["kind"] == "job" else 0
-        if item["kind"] == "run" and item.get("val_ppl") is not None:
+        if (
+            item["kind"] == "run"
+            and item.get("val_ppl") is not None
+            and not item.get("rerun_required")
+        ):
             current = dataset["best_val_ppl"]
             dataset["best_val_ppl"] = item["val_ppl"] if current is None else min(current, item["val_ppl"])
 
@@ -358,6 +372,7 @@ def _summary_card(label: str, row: dict | None, note: str) -> dict:
 
 def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
     item = _run_item(row)
+    contract = item.get("metric_contract") or {}
     metrics = metrics_by_key.get((row["suite"], row["variant"], row["dataset"], row["seed"]), {})
     return {
         "source": "run",
@@ -378,6 +393,9 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
         "wall_seconds": row["wall_seconds"],
         "n_params": row["n_params"],
         "resource": item["resource"],
+        "metric_contract": item.get("metric_contract"),
+        "metric_type": contract.get("metric_type"),
+        "rerun_required": bool(contract.get("rerun_required")),
         "verdict_label": None,
         "claim_level": None,
         "link": item["link"],
@@ -388,6 +406,7 @@ def _run_result_row(row: dict, metrics_by_key: dict[tuple, dict]) -> dict:
 
 def _job_result_row(db: ResultsDB, job: dict) -> dict:
     item = _job_item(job)
+    contract = item.get("metric_contract") or {}
     final = _lab_final_run(db, job) or {}
     verdict = {}
     resource_normalized = None
@@ -419,6 +438,9 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "wall_seconds": final.get("wall_seconds"),
         "n_params": final.get("n_params"),
         "resource": item["resource"],
+        "metric_contract": item.get("metric_contract"),
+        "metric_type": contract.get("metric_type"),
+        "rerun_required": bool(contract.get("rerun_required")),
         "verdict_label": verdict.get("label"),
         "claim_level": verdict.get("claim_level"),
         "resource_normalized": resource_normalized,
@@ -473,22 +495,29 @@ def result_dashboard_payload(
         }
 
     completed = [row for row in rows if row.get("val_ppl") is not None]
-    champion = _summary_pick(completed, lambda row: True)
-    best_quantum = _summary_pick(completed, lambda row: row["role"] in {"quantum", "hybrid"})
-    best_classical = _summary_pick(completed, lambda row: row["role"] == "classical")
+    current = [row for row in completed if not row.get("rerun_required")]
+    champion = _summary_pick(current, lambda row: True)
+    best_quantum = _summary_pick(current, lambda row: row["role"] in {"quantum", "hybrid"})
+    best_classical = _summary_pick(current, lambda row: row["role"] == "classical")
     matched = _summary_pick(
-        completed,
+        current,
         lambda row: "matched" in row["model"].lower() or "classical-matched" in row["model"].lower(),
     )
     frozen = _summary_pick(
-        completed,
+        current,
         lambda row: any(token in row["model"].lower() for token in ("frozen", "random")),
     )
     promising = _summary_pick(
-        completed,
+        current,
         lambda row: row["role"] in {"quantum", "hybrid"} and row.get("verdict_label") not in {"insufficient fairness", "no evidence"},
     ) or best_quantum
-    evidence = next((row for row in completed if row.get("verdict_label")), None)
+    evidence = next((row for row in current if row.get("verdict_label")), None)
+
+    protocol_warnings = sorted({
+        row["metric_contract"]["limitation"]
+        for row in rows
+        if row.get("rerun_required") and row.get("metric_contract")
+    })
 
     summaries = [
         _summary_card("Champion model overall", champion, "Lowest validation perplexity in this slice."),
@@ -509,6 +538,7 @@ def result_dashboard_payload(
         "title": dataset or task_slug or domain_slug or "Results",
         "domains": sorted({row["domain"] for row in rows}),
         "tasks": sorted({row["task"] for row in rows}),
+        "protocol_warnings": protocol_warnings,
         "summaries": summaries,
         "rows": rows,
     }

@@ -29,7 +29,7 @@ export default function Study() {
 
   const evidenceRows = useMemo(() => (
     (payload?.evidence?.comparisons || [])
-      .filter((item) => item.delta_val_ppl != null)
+      .filter((item) => item.delta_val_ppl != null && item.fair && !item.rerun_required)
       .map((item, index) => ({ ...item, index: index + 1 }))
   ), [payload])
 
@@ -51,6 +51,7 @@ export default function Study() {
               <Link className="small" to={`/experiments?group=${payload.group_id}`}>Open group</Link>
             </div>
           </div>
+          {(payload.evidence?.rerun_required_pairs || 0) > 0 && <div className="alert error">{payload.evidence.reason}</div>}
 
           <section className="panel">
             <div className="stat-row">

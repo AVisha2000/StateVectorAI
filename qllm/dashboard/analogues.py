@@ -161,7 +161,7 @@ def classical_analogue_config(cfg: ExperimentConfig) -> tuple[ExperimentConfig, 
         changes.append("quantum embedding -> classical embedding")
     if model.encoder_kind == "quantum":
         updates["encoder_kind"] = "classical"
-        changes.append("quantum sentence encoder -> classical sentence encoder")
+        changes.append("quantum causal-prefix encoder -> classical causal-prefix encoder")
     if model.attn_type in QUANTUM_ATTN:
         updates["attn_type"] = "classical"
         changes.append("quantum attention projection -> classical attention")

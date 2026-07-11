@@ -217,6 +217,15 @@ def model_block_config(model: ModelConfig, index: int) -> ModelConfig:
     )
 
 
+def two_stream_position_count(
+    seq_len: int, encoder_kind: str, condition: str
+) -> int:
+    """Internal positions required for a two-stream input token sequence."""
+    if encoder_kind != "none" and condition == "token":
+        return 2 * seq_len
+    return seq_len
+
+
 def validate_config(cfg: ExperimentConfig) -> list[str]:
     """Return actionable errors for every shared config entry point.
 
@@ -404,13 +413,28 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
     finite_number("train.grad_clip", train.grad_clip, positive=True)
     positive_int("train.eval_every", train.eval_every)
     positive_int("train.eval_batches", train.eval_batches)
-    if (
-        attention_arch
-        and seq_len_ok
-        and max_seq_ok
-        and train.seq_len > model.max_seq_len
-    ):
-        errors.append("train.seq_len must be <= model.max_seq_len.")
+    if attention_arch and seq_len_ok and max_seq_ok:
+        required_positions = (
+            two_stream_position_count(
+                train.seq_len, model.encoder_kind, model.condition
+            )
+            if model.arch == "two_stream"
+            else train.seq_len
+        )
+        if required_positions > model.max_seq_len:
+            if (
+                model.arch == "two_stream"
+                and model.encoder_kind != "none"
+                and model.condition == "token"
+            ):
+                errors.append(
+                    "model.max_seq_len is the internal positional capacity and "
+                    "must be >= 2 * train.seq_len for two-stream token "
+                    f"conditioning with an active encoder; required "
+                    f"{required_positions}, got {model.max_seq_len}."
+                )
+            else:
+                errors.append("train.seq_len must be <= model.max_seq_len.")
 
     # Dataset and generator constraints.  Keeping every generator knob valid,
     # even when inactive, prevents malformed configs from becoming valid merely

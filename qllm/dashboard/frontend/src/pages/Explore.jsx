@@ -51,6 +51,12 @@ export default function Explore() {
     (payload?.jobs || []).filter((job) => !selectedDomain || job.context.domain_slug === selectedDomain.slug).slice(0, 8)
   ), [payload, selectedDomain])
 
+  const rerunWarnings = useMemo(() => Array.from(new Set(
+    domainRuns
+      .filter((run) => run.rerun_required && run.metric_contract?.limitation)
+      .map((run) => run.metric_contract.limitation)
+  )), [domainRuns])
+
   if (!payload && !error) return <div className="loading">Loading research map...</div>
 
   return (
@@ -92,6 +98,7 @@ export default function Explore() {
             </div>
             <Link className="small-link" to="/results">Open legacy results</Link>
           </div>
+          {rerunWarnings.map((warning) => <div className="alert error" key={warning}>{warning}</div>)}
 
           <div className="workspace-grid">
             <section className="panel">
@@ -142,7 +149,7 @@ export default function Explore() {
                     <td><span className={`badge ${roleClass(run.role)}`}>{run.role}</span></td>
                     <td><Link to={`/explore/dataset/${encodeURIComponent(run.dataset)}`}>{run.dataset}</Link></td>
                     <td>{run.context.task}</td>
-                    <td className="num">{fmt(run.val_ppl)}</td>
+                    <td className="num">{run.rerun_required ? <><b>rerun required</b><div className="muted">historical {fmt(run.val_ppl)} ppl</div></> : fmt(run.val_ppl)}</td>
                     <td className="num">{run.wall_seconds == null ? '-' : `${fmt(run.wall_seconds, 2)}s`}</td>
                     <td className="num">{run.resource.n_qubits ?? '-'}</td>
                   </tr>

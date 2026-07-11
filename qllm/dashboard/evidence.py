@@ -37,11 +37,17 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     baseline = payload.get("baseline") or {}
     cjob = candidate.get("job") or {}
     bjob = baseline.get("job") or {}
+    metric_contract = payload.get("metric_contract") or {}
+    protocol_valid = not metric_contract.get("rerun_required", False)
     parameter_ratio = flags.get("parameter_delta_ratio")
     parameter_matched = (
         parameter_ratio is not None and abs(float(parameter_ratio)) <= 0.10
     )
-    fair = available and all(flags.get(key) for key in REQUIRED_FAIRNESS)
+    fair = (
+        available
+        and protocol_valid
+        and all(flags.get(key) for key in REQUIRED_FAIRNESS)
+    )
     improvement = (
         deltas.get("val_ppl") is not None
         and float(deltas["val_ppl"]) < 0
@@ -75,7 +81,12 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
             "fair_protocol",
             "Fair protocol",
             fair,
-            "dataset, seed, steps, eval cadence, device, roles, training budget, and preprocessing match",
+            (
+                metric_contract.get("limitation")
+                if not protocol_valid
+                else "dataset, seed, steps, eval cadence, device, roles, "
+                "training budget, and preprocessing match"
+            ),
         ),
         _step(
             "run_level_improvement",
@@ -126,7 +137,10 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
         ),
     ]
 
-    if not available:
+    if metric_contract.get("rerun_required"):
+        label = "rerun required"
+        reason = metric_contract.get("limitation") or "metric contract is obsolete"
+    elif not available:
         label = "incomplete"
         reason = payload.get("reason", "comparison missing")
     elif not fair:

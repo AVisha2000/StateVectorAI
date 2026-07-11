@@ -262,16 +262,21 @@ areas:
     claim_level: diagnostic
     replication_status: multi_seed_single_instance
     suites: [two-stream-v1]
+    rerun_required_suites: [two-stream-v1]
+    historical_metric_type: teacher_forced_side_information
+    current_protocol: causal_prefix_v2
     results_sections: [20]
     present_conclusion: >-
-      One conditioning mode showed a weak multi-seed lean, but the full-window
-      encoder leaks side information and the result is not strict autoregressive evidence.
+      Historical two-stream-v1 rows used a full-window encoder summary. They
+      remain teacher-forced side-information observations, are not strict
+      autoregressive evidence, and require a fresh causal-prefix rerun.
     blockers:
-      - Causal prefix pooling or explicit side-information labeling is required.
-      - More seeds cannot repair a mismatched evaluation contract.
+      - No post-repair causal-prefix study has been run.
+      - Historical side-information metrics cannot be mixed with the new strict autoregressive contract.
     next_decisive_test: >-
-      Fix the metric contract first, then run a fresh confirmatory study with a
-      powered seed count and architecture-aware classical controls.
+      Run the new two-stream-causal-v2 suite with a powered seed count and
+      architecture-aware, parameter-matched classical controls; do not reuse
+      or append to two-stream-v1.
 
   - id: theorem_faithful_contextual_sequence_learning
     label: Theorem-faithful contextual quantum sequence learning

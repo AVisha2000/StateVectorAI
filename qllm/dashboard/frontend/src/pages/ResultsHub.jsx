@@ -132,7 +132,7 @@ export default function ResultsHub() {
               <Link className="research-card" key={suite.suite} to={`/suite/${encodeURIComponent(suite.suite)}`}>
                 <b>{suite.suite}</b>
                 <span>{suite.n} runs - {suite.variants} variants - {suite.datasets} datasets</span>
-                <span>best ppl {suite.best_ppl == null ? '-' : fmt(suite.best_ppl)}</span>
+                <span>{suite.metric_contract?.rerun_required ? 'teacher-forced side-information - rerun required' : `best ppl ${suite.best_ppl == null ? '-' : fmt(suite.best_ppl)}`}</span>
               </Link>
             ))}
             {topSuites.length === 0 && <p className="muted">No legacy suite runs yet.</p>}

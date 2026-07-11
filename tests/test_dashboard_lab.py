@@ -38,6 +38,7 @@ from qllm.dashboard.model_graph import model_graph_from_config
 from qllm.dashboard.model_specs import create_spec, spec_diff, update_spec, validation_payload
 from qllm.dashboard.model_tests import model_test_payload
 from qllm.dashboard.presets import build_preset, list_presets
+from qllm.dashboard.queries import run_detail, suite_detail, suites_overview
 from qllm.dashboard.runner import ExperimentQueue
 from qllm.dashboard.studies import (
     create_study,
@@ -125,6 +126,15 @@ def test_contextual_recurrent_graphs_are_quantum_and_architecture_honest(
 )
 def test_model_family_covers_every_registered_component_variant(config, family):
     assert model_graph_from_config(config)["summary"]["model_family"] == family
+
+
+def test_two_stream_graph_exposes_the_causal_prefix_protocol():
+    graph = model_graph_from_config(
+        ModelConfig(arch="two_stream", encoder_kind="classical", condition="bias")
+    )
+    encoder = next(node for node in graph["nodes"] if node["id"] == "sentence_encoder")
+    assert encoder["label"] == "Classical Causal Prefix Encoder"
+    assert encoder["meta"]["protocol"] == "causal_prefix_v2"
 
 
 def test_per_layer_config_validates_and_serializes():
@@ -911,6 +921,36 @@ def test_scaling_test_payload_collects_scale_results(monkeypatch, tmp_path):
     assert {point["n_qubits"] for point in payload["points"]} == {4, 8}
 
 
+def test_scaling_test_does_not_select_historical_two_stream_points(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    sweep = queue.submit_scaling_sweep(
+        "two-stream-quantum-bias", "default-text", "historical-scale",
+        0, 2, 1, "cpu", qubits=[2, 3], depths=[1],
+    )
+    db = ResultsDB(db_path)
+    first = sweep["jobs"][0]
+    config = dict(first["config"])
+    config.pop("lab.two_stream_protocol")
+    variant = f"two-stream-quantum-bias-q{config['lab.quantum_override.n_qubits']}-d1"
+    db.update_lab_job(
+        first["id"], status="done",
+        run_key=f"lab/{variant}/default-text/0/2",
+        config=config,
+    )
+    db.record(
+        "lab", variant, "default-text", 0, 2,
+        20, 0.5, 1.0, 0.7, 1.0, config=config,
+    )
+
+    payload = scaling_test_payload(db, sweep["group_id"])
+    point = next(item for item in payload["points"] if item["job"]["id"] == first["id"])
+    assert point["rerun_required"] is True
+    assert payload["protocol_warnings"]
+    assert payload["best"] is None
+    assert payload["complete_count"] == 0
+
+
 def test_study_creation_queues_candidates_baselines_and_controls(tmp_path):
     db_path = tmp_path / "results.db"
     db = ResultsDB(db_path)
@@ -1020,6 +1060,45 @@ def test_study_report_payload_surfaces_verdict_cost_and_limitations(tmp_path):
     assert report["pair_rows"][0]["comparison_link"].startswith("/comparisons/")
     assert "## Verdict" in report["markdown"]
     assert any("Ablation-supported evidence" in item for item in report["limitations"])
+
+
+def test_study_excludes_historical_two_stream_pairs_from_evidence(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "historical-two-stream",
+        "task": "Language modelling",
+        "dataset_names": ["default-text"],
+        "candidate_preset_id": "two-stream-quantum-bias",
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+    })
+    for row in db.fetch_study_jobs(study["id"]):
+        config = dict(enrich_job(row, db).get("config") or {})
+        config.pop("lab.two_stream_protocol")
+        db.update_lab_job(row["id"], status="done", config=config)
+        val_ppl = 1.0 if row["role"] == "candidate" else 2.0
+        db.record(
+            "lab", row["preset_id"], row["dataset_name"],
+            int(row["seed"]), int(row["steps"]), 100, 0.5,
+            val_ppl, 0.7, 1.0, config=config,
+        )
+
+    payload = study_payload(db, study["id"])
+    assert payload["evidence"]["label"] == "rerun required"
+    assert payload["evidence"]["fair_pairs"] == 0
+    assert payload["evidence"]["wins"] == 0
+    assert payload["evidence"]["rerun_required_pairs"] == 1
+    assert payload["evidence"]["comparisons"][0]["fair"] is False
+
+    report = study_report_payload(db, study["id"])
+    assert report["verdict"]["label"] == "rerun required"
+    assert report["statistics"]["rerun_required_pairs"] == 1
+    assert report["pair_rows"][0]["rerun_required"] is True
+    assert report["pair_rows"][0]["fair"] is False
+    assert any("causal rerun" in item for item in report["limitations"])
 
 
 def test_gpu_requested_job_is_rejected_when_jax_has_no_gpu(monkeypatch, tmp_path):
@@ -1169,3 +1248,96 @@ def test_result_dashboard_payload_surfaces_cards_cost_and_verdicts(tmp_path):
     task_payload = result_dashboard_payload(db, task_slug="language-modelling", domain_slug="qnlp")
     assert task_payload["available"] is True
     assert "Language modelling" in task_payload["tasks"]
+
+
+def test_historical_two_stream_rows_are_visible_but_never_promoted(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    db.record(
+        "two-stream-v1", "quantum-bias", "default-text", 0, 100,
+        10, 0.5, 1.1, 0.7, 1.0,
+    )
+    db.record(
+        "strict-current", "classical-control", "default-text", 0, 100,
+        12, 0.8, 2.2, 1.1, 0.5,
+    )
+
+    historical_suite = next(
+        row for row in suites_overview(db) if row["suite"] == "two-stream-v1"
+    )
+    assert historical_suite["best_ppl"] is None
+    assert historical_suite["historical_best_ppl"] == pytest.approx(1.1)
+    assert historical_suite["metric_contract"]["rerun_required"] is True
+
+    detail = suite_detail(db, "two-stream-v1")
+    assert detail["leaderboard"][0]["val_ppl_mean"] == pytest.approx(1.1)
+    assert detail["metric_contract"]["metric_type"] == "teacher_forced_side_information"
+
+    historical_run = db.fetch("two-stream-v1")[0]
+    run = run_detail(db, historical_run["id"])
+    assert run["metric_contract"]["protocol_status"] == "rerun_required"
+
+    payload = result_dashboard_payload(db, dataset="default-text")
+    historical_row = next(
+        row for row in payload["rows"] if row["model"] == "quantum-bias"
+    )
+    assert historical_row["rerun_required"] is True
+    assert historical_row["metric_type"] == "teacher_forced_side_information"
+    assert payload["protocol_warnings"]
+    champion = next(
+        card for card in payload["summaries"]
+        if card["label"] == "Champion model overall"
+    )
+    assert champion["model"] == "classical-control"
+
+    explored = explore_payload(db)
+    dataset = next(row for row in explored["datasets"] if row["name"] == "default-text")
+    assert dataset["best_val_ppl"] == pytest.approx(2.2)
+
+    overview = lab_overview(db, {"gpu": {"ready": False}})
+    assert [row["variant"] for row in overview["leaderboard_highlights"]] == [
+        "classical-control"
+    ]
+
+
+def test_new_two_stream_dashboard_jobs_record_the_causal_protocol(tmp_path):
+    queue = ExperimentQueue(str(tmp_path / "results.db"), start_worker=False)
+    job = queue.submit(
+        "two-stream-classical-bias", "default-text", "causal", 0, 2, 1,
+    )
+    assert job["config"]["lab.two_stream_protocol"] == "causal_prefix_v2"
+
+
+def test_unmarked_historical_two_stream_comparison_cannot_gain_a_verdict(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    candidate = queue.submit(
+        "two-stream-quantum-bias", "default-text", "historical", 0, 2, 1,
+        queue_classical_comparison=True,
+    )
+    baseline = candidate["comparison_job"]
+    db = ResultsDB(db_path)
+
+    for job, ppl in ((candidate, 1.0), (baseline, 2.0)):
+        config = dict(job["config"])
+        config.pop("lab.two_stream_protocol")
+        db.update_lab_job(job["id"], status="done", config=config)
+        db.record(
+            "lab", job["preset_id"], "default-text", 0, 2,
+            10, ppl / 2, ppl, ppl / 3, 1.0,
+            config=config,
+        )
+
+    raw = comparison_payload(db, candidate["id"])
+    assert raw["metric_contract"]["rerun_required"] is True
+
+    payload = comparison_research_payload(db, candidate["id"])
+    assert payload["available"] is True
+    assert payload["deltas"]["val_ppl"] == pytest.approx(-1.0)
+    assert payload["metric_contract"]["rerun_required"] is True
+    assert payload["verdict"]["label"] == "rerun required"
+    assert payload["verdict"]["claim_level"] == "invalid"
+    assert payload["evidence_ladder"]["label"] == "rerun required"
+    assert next(
+        step for step in payload["evidence_ladder"]["steps"]
+        if step["key"] == "fair_protocol"
+    )["ok"] is False

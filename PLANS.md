@@ -32,7 +32,8 @@ Progress:
 
 - [x] M01 Agent system and workflow cleanup (`codex/m01-agent-workflow`),
   delivered to `main` in commit `98b91f7`.
-- [x] M02 Trust inputs and configuration (`codex/m02-inputs-config`).
+- [x] M02 Trust inputs and configuration (`codex/m02-inputs-config`),
+  delivered to `main` in commit `bb4a11e`.
 - [ ] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`).
 - [ ] M04 Trust claims (`codex/m04-claim-integrity`).
 - [ ] M05 Trust runs (`codex/m05-durable-runs`).
@@ -42,6 +43,86 @@ Progress:
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
 Current milestone: M03 causal two-stream replacement.
+
+M03 acceptance evidence:
+
+- Every encoder summary at position `t` is computed only from real-token
+  embeddings at positions `<= t`; classical and quantum encoders receive the
+  identical cumulative-prefix feature tensor.
+- FiLM and bias conditioning use per-position summaries. Token conditioning
+  interleaves each summary immediately before its corresponding real token and
+  still returns one logit row per real input token.
+- Shared validation and direct model guards reject an expanded token stream
+  that exceeds the configured positional capacity.
+- Deterministic leakage tests cover quantum and classical encoders under all
+  three conditioning modes, as well as the unconditioned control.
+- Historical `two-stream-v1` full-window results remain immutable, are marked
+  teacher-forced side-information and rerun-required, and cannot be selected as
+  a strict-autoregressive dashboard champion. New benchmark runs use a distinct
+  causal suite identifier. `RESULTS.md` remains human-gated and unchanged.
+- Focused two-stream/config/dashboard tests, change-aware and full CPU checks,
+  and a fresh verifier pass.
+
+M03 progress:
+
+- [x] Deliver M02 and create `codex/m03-causal-two-stream` from updated `main`.
+- [x] Define the causal prefix, token ordering, and sequence-capacity contract.
+- [x] Map all two-stream dispatch, evidence, and historical-result surfaces.
+- [x] Implement the causal model/config contract with leakage regressions.
+- [x] Add historical result protocol labeling without rewriting artifacts.
+- [x] Run focused, change-aware, and full verification.
+- [x] Obtain a fresh verifier pass; Git delivery follows under standing
+  approval.
+
+M03 design decisions:
+
+- Prefix summaries include the current input token, matching next-token LM
+  semantics: logit `t` may use tokens `<= t` but never a future token.
+- `model.max_seq_len` is the internal positional capacity. Active token
+  conditioning requires `2 * train.seq_len` positions; FiLM, bias, and the
+  unconditioned control require `train.seq_len`.
+- Quantum prefix evaluation stays vectorized through `QuantumCore` over the
+  same `(batch, time, d_model)` prefix features used by the classical control.
+- No historical experiment is rerun in this milestone and no GPU/QPU workload
+  is launched.
+
+M03 browser evidence:
+
+- The production dashboard was inspected against an isolated copy of the
+  authoritative SQLite database. The legacy suite card labels
+  `two-stream-v1` rerun-required without a best-perplexity promotion; suite and
+  run detail pages display the full protocol limitation; the suite chart and
+  best badge are absent; and the dataset evidence page selects current causal
+  candidates instead of historical two-stream rows.
+- Desktop and 390x844 checks covered the suite index, suite detail, run detail,
+  dataset evidence, overview highlights, and the dataset-filter interaction.
+  Both narrow pages stayed at 390px document width and browser console,
+  page-error, and failed-request collections were empty.
+- The in-app browser attempt first used the obsolete `/suites` route, which
+  correctly rendered no React route. After identifying the valid
+  `/results/legacy` entry route, the approved local Playwright fallback used
+  system Edge and completed the rendered QA matrix; no browser dependency was
+  installed.
+
+M03 validation results:
+
+- Focused causal/config/protocol/dashboard suite: `121 passed` with six known
+  JAX complex-precision warnings.
+- `python scripts/verify_changes.py --run`: PASS for agent setup/tests,
+  frontend tests/build, dashboard tests, benchmark tests, and the complete
+  Python suite. The corresponding plan fingerprint before this validation-note
+  update was
+  `3296dec0f26790cdec6a26cce118516c5080a87c9900336fcbd3a7de42646f5c`.
+- Independent full CPU suite with repository-local temporary storage:
+  `244 passed, 1 skipped`; the 41 warnings are the existing JAX complex128 to
+  complex64 precision notices.
+- `npm run build` PASS (857 modules; existing large-chunk advisory only) and
+  `git diff --check` PASS (Windows line-ending notices only).
+- Fresh read-only verifier: PASS. Independent checks covered 24 causal/model
+  cases, nine historical protocol/dashboard cases, a direct metric-contract
+  probe, research-map YAML parsing, and the complete M03 diff. The verifier
+  confirmed that `RESULTS.md` is unchanged and that the remaining uncertainty
+  is the intentionally rerun-required historical evidence itself.
 
 M02 acceptance evidence:
 

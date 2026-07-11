@@ -21,15 +21,17 @@ export default function Suite() {
 
   if (!data) return <div className="loading">Loading {name}...</div>
 
+  const rerunRequired = Boolean(data.metric_contract?.rerun_required)
   const metricCols = data.metric_names.map((m) => `metric_${m}`).filter((c) => lb.some((r) => r[c] != null))
-  const best = sorted.find((r) => r.val_ppl_mean != null)?.variant
-  const chartData = sorted.filter((r) => r.val_ppl_mean != null).map((r) => ({ variant: r.variant, ppl: r.val_ppl_mean, best: r.variant === best }))
+  const best = rerunRequired ? null : sorted.find((r) => r.val_ppl_mean != null)?.variant
+  const chartData = rerunRequired ? [] : sorted.filter((r) => r.val_ppl_mean != null).map((r) => ({ variant: r.variant, ppl: r.val_ppl_mean, best: r.variant === best }))
   const click = (k) => { if (sortKey === k) setAsc(!asc); else { setSortKey(k); setAsc(true) } }
 
   return (
     <div>
       <h1>{name}</h1>
       <h2>{lb.length} variants - {data.datasets.length} dataset(s)</h2>
+      {rerunRequired && <div className="alert error">{data.metric_contract.limitation}</div>}
 
       {data.datasets.length > 1 && (
         <div className="chips">

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
+from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
 from .datasets import get_dataset
@@ -115,6 +116,10 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         preset = preset_meta(job["preset_id"])
     except Exception:
         preset = _model_spec_meta(db, job["preset_id"], job.get("config") or {})
+    metric_contract = two_stream_metric_contract(
+        suite="lab",
+        config=job.get("config") or {},
+    )
     return {
         "job": job,
         "preset": preset,
@@ -122,7 +127,20 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         "live": _live(db, job.get("run_key")),
         "curve": _curve(db, job.get("run_key")),
         "final_run": _final_run(db, job),
+        "metric_contract": metric_contract,
     }
+
+
+def _comparison_metric_contract(*rows: dict | None) -> dict | None:
+    contracts = [
+        row.get("metric_contract")
+        for row in rows
+        if row and row.get("metric_contract")
+    ]
+    return next(
+        (contract for contract in contracts if contract["rerun_required"]),
+        contracts[0] if contracts else None,
+    )
 
 
 def comparison_payload(db: ResultsDB, job_id: int) -> dict:
@@ -131,12 +149,14 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         return {"available": False, "reason": "job not found"}
     other = _job(db, job.get("compare_to_job_id"))
     if not other:
+        candidate_payload = _job_payload(db, job)
         return {
             "available": False,
             "reason": "no linked classical comparison",
-            "candidate": _job_payload(db, job),
+            "candidate": candidate_payload,
             "baseline": None,
             "deltas": None,
+            "metric_contract": _comparison_metric_contract(candidate_payload),
         }
 
     if job.get("comparison_role") == "baseline":
@@ -161,6 +181,10 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         "candidate": candidate_payload,
         "baseline": baseline_payload,
         "deltas": deltas,
+        "metric_contract": _comparison_metric_contract(
+            candidate_payload,
+            baseline_payload,
+        ),
     }
 
 

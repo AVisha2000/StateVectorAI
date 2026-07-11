@@ -17,6 +17,7 @@ export default function Run() {
     <div>
       <h1>{run.run_name || `run ${run.id}`}</h1>
       <h2>{run.suite} - {run.variant} - {run.dataset} - seed {run.seed}</h2>
+      {run.metric_contract?.rerun_required && <div className="alert error">{run.metric_contract.limitation}</div>}
 
       <div className="panel">
         <p className="pill" style={{ marginTop: 0 }}>

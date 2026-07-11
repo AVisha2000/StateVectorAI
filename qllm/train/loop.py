@@ -18,7 +18,13 @@ import optax
 from flax import serialization, traverse_util
 from flax.training.train_state import TrainState
 
-from ..config import ExperimentConfig, TrainConfig, to_flat_dict, validate_config
+from ..config import (
+    ExperimentConfig,
+    TrainConfig,
+    to_flat_dict,
+    two_stream_position_count,
+    validate_config,
+)
 from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
@@ -188,6 +194,11 @@ def fit(
     # own-dashboard per-step logger (replaces MLflow when configured)
     dash = None
     dash_key = None
+    dash_config = to_flat_dict(cfg)
+    if model_cfg.arch == "two_stream":
+        from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL
+
+        dash_config["research.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
     if cfg.tracking.dashboard_db:
         from ..resultsdb import ResultsDB
 
@@ -204,7 +215,7 @@ def fit(
             dataset=cfg.tracking.dashboard_dataset or cfg.data.kind,
             seed=cfg.tracking.dashboard_seed
             if cfg.tracking.dashboard_seed is not None else cfg.train.seed,
-            total_steps=cfg.train.steps, config=to_flat_dict(cfg))
+            total_steps=cfg.train.steps, config=dash_config)
 
     tracker = ExperimentTracker(cfg.tracking)
     tracker.log_params(
@@ -304,7 +315,7 @@ def fit(
                 val_ppl=float(final.get("val_ppl", 0.0)),
                 val_bpc=float(final.get("val_bpc", 0.0)),
                 wall_seconds=wall,
-                config=to_flat_dict(cfg),
+                config=dash_config,
             )
         dash.finish_run(dash_key, status="cancelled" if cancelled else "done")
 
@@ -349,6 +360,15 @@ def generate(
 ) -> str:
     """Autoregressive sampling with a fixed-shape window (single jit trace)."""
     context_len = model.cfg.max_seq_len
+    if model.cfg.arch == "two_stream":
+        positions_per_token = two_stream_position_count(
+            1, model.cfg.encoder_kind, model.cfg.condition
+        )
+        context_len //= positions_per_token
+        if context_len < 1:
+            raise ValueError(
+                "two-stream conditioning has no usable real-token capacity"
+            )
     ids = [tokenizer.stoi[c] for c in prompt if c in tokenizer.stoi] or [0]
     key = jax.random.PRNGKey(seed)
 

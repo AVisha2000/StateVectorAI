@@ -207,6 +207,7 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
     deltas = []
     fair = 0
     complete = 0
+    rerun_required = 0
     for job in candidate_jobs:
         payload = comparison_research_payload(db, int(job["id"]))
         if not payload.get("available"):
@@ -228,7 +229,15 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
             "same_device_target", "same_training_budget", "same_preprocessing",
             "role_validation",
         ]
-        is_fair = bool(flags) and all(flags.get(key) for key in required)
+        metric_contract = payload.get("metric_contract") or {}
+        needs_rerun = bool(metric_contract.get("rerun_required"))
+        if needs_rerun:
+            rerun_required += 1
+        is_fair = (
+            bool(flags)
+            and not needs_rerun
+            and all(flags.get(key) for key in required)
+        )
         if is_fair:
             fair += 1
         if delta is not None and is_fair:
@@ -237,6 +246,8 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
             "job_id": job["id"],
             "available": True,
             "fair": is_fair,
+            "rerun_required": needs_rerun,
+            "metric_type": metric_contract.get("metric_type"),
             "delta_val_ppl": delta,
             "comparison_link": f"/comparisons/{job['id']}",
         })
@@ -263,6 +274,12 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
         wins = 0
         mean_delta = None
         std_delta = None
+        if rerun_required:
+            label = "rerun required"
+            reason = (
+                f"{rerun_required} completed comparison(s) use an obsolete "
+                "two-stream side-information metric contract"
+            )
 
     evidence = {
         "label": label,
@@ -270,6 +287,7 @@ def _evidence_for_jobs(db: ResultsDB, jobs: list[dict]) -> dict:
         "candidate_count": len(candidate_jobs),
         "complete_pairs": complete,
         "fair_pairs": fair,
+        "rerun_required_pairs": rerun_required,
         "wins": wins,
         "mean_delta_val_ppl": mean_delta,
         "std_delta_val_ppl": std_delta,
@@ -317,6 +335,11 @@ def _completed_role_summary(jobs: list[dict], role: str) -> dict:
 
 def _study_limitations(study: dict, jobs: list[dict], evidence: dict) -> list[str]:
     limitations: list[str] = []
+    if evidence.get("rerun_required_pairs"):
+        limitations.append(
+            f"{evidence['rerun_required_pairs']} comparison pair(s) use an "
+            "obsolete side-information metric and require a causal rerun."
+        )
     for step in evidence.get("ladder") or []:
         if not step.get("ok"):
             limitations.append(f"{step['label']}: {step['detail']}")
@@ -343,6 +366,7 @@ def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
         if job.get("study_role") != "candidate":
             continue
         payload = comparison_research_payload(db, int(job["id"]))
+        metric_contract = payload.get("metric_contract") or {}
         candidate = payload.get("candidate") or {}
         baseline = payload.get("baseline") or {}
         cjob = candidate.get("job") or {}
@@ -356,7 +380,14 @@ def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
             "seed": cjob.get("seed") or job.get("seed"),
             "grid": job.get("study_sweep") or {},
             "available": payload.get("available", False),
-            "fair": bool((payload.get("fairness") or {}).get("same_dataset")) and (payload.get("verdict") or {}).get("label") != "insufficient fairness",
+            "fair": (
+                bool((payload.get("fairness") or {}).get("same_dataset"))
+                and not metric_contract.get("rerun_required", False)
+                and (payload.get("verdict") or {}).get("label")
+                != "insufficient fairness"
+            ),
+            "rerun_required": bool(metric_contract.get("rerun_required")),
+            "metric_type": metric_contract.get("metric_type"),
             "verdict_label": (payload.get("verdict") or {}).get("label"),
             "delta_val_ppl": (payload.get("deltas") or {}).get("val_ppl"),
             "delta_wall_seconds": (payload.get("deltas") or {}).get("wall_seconds"),
@@ -381,6 +412,7 @@ def _report_markdown(report: dict) -> str:
         f"- Label: {verdict['label']}",
         f"- Reason: {verdict['reason']}",
         f"- Fair pairs: {stats['fair_pairs']}",
+        f"- Rerun-required pairs: {stats.get('rerun_required_pairs', 0)}",
         f"- Candidate wins: {stats['wins']}",
         f"- Mean delta val ppl: {stats['mean_delta_val_ppl'] if stats['mean_delta_val_ppl'] is not None else '-'}",
         f"- Std delta val ppl: {stats['std_delta_val_ppl'] if stats['std_delta_val_ppl'] is not None else '-'}",
@@ -458,6 +490,7 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "control_jobs": payload["role_counts"].get("control", 0),
         "fair_pairs": evidence.get("fair_pairs", 0),
         "complete_pairs": evidence.get("complete_pairs", 0),
+        "rerun_required_pairs": evidence.get("rerun_required_pairs", 0),
         "wins": evidence.get("wins", 0),
         "win_rate": (
             float(evidence.get("wins", 0)) / float(evidence.get("fair_pairs", 1))

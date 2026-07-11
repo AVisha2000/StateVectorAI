@@ -109,6 +109,7 @@ export default function Comparison() {
       <h2>Quantum/classical protocol, architecture, metric deltas, and run-level verdict.</h2>
       {error && <div className="alert error">{error}</div>}
       {notice && <div className="alert good">{notice}</div>}
+      {payload?.metric_contract?.rerun_required && <div className="alert error">{payload.metric_contract.limitation}</div>}
       {!payload?.available && (
         <div className="alert error">
           <b>{payload?.verdict?.label || 'incomplete'}</b>

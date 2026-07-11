@@ -20,7 +20,7 @@ function fmt(value, digits = 3) {
 
 function chartRows(points) {
   return points
-    .filter((p) => p.val_ppl != null || p.wall_seconds != null)
+    .filter((p) => !p.rerun_required && (p.val_ppl != null || p.wall_seconds != null))
     .map((p) => ({
       ...p,
       label: `q${p.n_qubits}/d${p.n_circuit_layers}`,
@@ -46,6 +46,7 @@ export default function ScalingTest() {
       <h1>Scaling Test</h1>
       <h2>Same preset across qubit and depth scales, grouped as one experiment.</h2>
       {error && <div className="alert error">{error}</div>}
+      {(payload?.protocol_warnings || []).map((warning) => <div className="alert error" key={warning}>{warning}</div>)}
 
       {payload?.available && (
         <>
@@ -125,7 +126,7 @@ export default function ScalingTest() {
                     <td className="num">{p.n_qubits}</td>
                     <td className="num">{p.n_circuit_layers}</td>
                     <td className="num">{p.scale}</td>
-                    <td className="num">{fmt(p.val_ppl)}</td>
+                    <td className="num">{p.rerun_required ? <><b>rerun required</b><div className="muted">historical {fmt(p.val_ppl)}</div></> : fmt(p.val_ppl)}</td>
                     <td className="num">{fmt(p.val_loss)}</td>
                     <td className="num">{p.wall_seconds == null ? '-' : `${fmt(p.wall_seconds, 2)}s`}</td>
                     <td className="num">{p.n_params?.toLocaleString?.() || '-'}</td>
