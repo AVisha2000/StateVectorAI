@@ -4,9 +4,11 @@ import { useQueryClient } from '@tanstack/react-query'
 
 // Live job updates over Server-Sent Events (GET /api/stream/jobs), replacing the
 // poll interval when the stream is connected. SQLite stays authoritative on the
-// backend; each event carries a bounded snapshot (not a delta), so we can push it
-// straight into the query cache. When SSE is unavailable or drops, the live hooks
-// fall back to interval polling — see useStreamActive() in hooks.js.
+// backend. Each event carries a *lean* content-addressed snapshot — bounded
+// lab_jobs/live_runs projections plus a `change_token` — NOT the full /jobs rows.
+// So we never overwrite the jobs cache with it; a changed token just tells us to
+// refetch the authoritative queries. When SSE is unavailable or drops, the live
+// hooks fall back to interval polling (see useStreamActive() in hooks.js).
 
 // --- tiny external store: is the stream currently connected? -----------------
 let active = false
@@ -27,18 +29,14 @@ export function useStreamActive() {
   return useSyncExternalStore(subscribe, () => active, () => false)
 }
 
-// Map a stream snapshot onto the query cache. The jobs stream carries the same
-// bounded job rows the /jobs list returns; a snapshot may also carry live_runs.
-// Accept the shapes the backend may use without guessing a single one.
-export function applyJobsSnapshot(queryClient, snapshot) {
-  if (!snapshot || typeof snapshot !== 'object') return
-  const jobs = Array.isArray(snapshot) ? snapshot : snapshot.jobs ?? snapshot.data ?? snapshot.lab_jobs
-  if (Array.isArray(jobs)) queryClient.setQueryData(['jobs'], jobs)
-  // A live_runs projection, if present, refreshes the overview counts cheaply.
-  if (snapshot.overview && typeof snapshot.overview === 'object') {
-    queryClient.setQueryData(['overview'], snapshot.overview)
-  }
+// The content-addressed token that changes whenever the projected content does.
+export function readChangeToken(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  return typeof snapshot.change_token === 'string' ? snapshot.change_token : null
 }
+
+// Authoritative queries to refetch when the stream reports a change.
+export const STREAM_REFRESH_KEYS = Object.freeze([['jobs'], ['overview'], ['workspace']])
 
 // Open the jobs stream for the lifetime of the app shell. Idempotent per mount.
 export function useJobsStream() {
@@ -51,18 +49,27 @@ export function useJobsStream() {
     } catch (_) {
       return undefined
     }
-    const onSnapshot = (event) => {
+    let lastToken = null
+    const onEvent = (event) => {
+      let snapshot
       try {
-        applyJobsSnapshot(queryClient, JSON.parse(event.data))
+        snapshot = JSON.parse(event.data)
       } catch (_) {
-        // ignore heartbeats / non-JSON keepalive comments
+        return // heartbeats are SSE comments, never delivered as data events
+      }
+      const token = readChangeToken(snapshot)
+      // Dedupe on the content-addressed token; only refetch on real changes.
+      if (token && token === lastToken) return
+      lastToken = token
+      for (const key of STREAM_REFRESH_KEYS) {
+        queryClient.invalidateQueries({ queryKey: key })
       }
     }
     es.onopen = () => setActive(true)
-    es.onmessage = onSnapshot
-    // Named events are also handled if the backend uses them.
-    es.addEventListener('snapshot', onSnapshot)
-    es.addEventListener('jobs', onSnapshot)
+    // Backend names every event `jobs`; keep onmessage as a fallback for
+    // deployments that emit the default (unnamed) event.
+    es.addEventListener('jobs', onEvent)
+    es.onmessage = onEvent
     es.onerror = () => {
       // The browser auto-reconnects; until it does, fall back to polling.
       setActive(false)

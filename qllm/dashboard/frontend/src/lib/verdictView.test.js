@@ -70,21 +70,31 @@ test('caveats surface backend interpretation warnings', () => {
   assert.deepEqual(caveats({}), [])
 })
 
-test('diagnosticValues prefers the diagnostics endpoint, falls back to summary, marks absents', () => {
-  const summary = {
-    grad_var_mean: 1.2e-3, meyer_wallach_q: 0.61, expressibility_kl: null,
-    availability: { expressibility_kl: { available: false, reason: 'MPS backend has no statevector' } },
+test('diagnosticValues reads the endpoint per-dimension shape (mappings + scalars)', () => {
+  const diagnostics = {
+    gradient_variance: { status: 'measured', value: { grad_var_first_param: 2e-3, grad_var_mean: 1.2e-3, grad_var_max: 3e-3 } },
+    parameter_shift_gradient_snr: { status: 'measured', value: { median_snr: 8.4, mean_snr: 9.1 } },
+    expressibility_kl: { status: 'measured', value: 0.18 },
+    meyer_wallach_q: { status: 'unavailable', value: null, reason: 'MPS backend has no statevector' },
   }
-  const values = diagnosticValues({ grad_snr: 8.4 }, summary)
-  assert.equal(values.grad_snr.value, 8.4) // from diagnostics endpoint
-  assert.equal(values.grad_var_mean.value, 1.2e-3) // from summary
-  assert.equal(values.expressibility_kl.available, false)
-  assert.match(values.expressibility_kl.reason, /MPS backend/)
+  const values = diagnosticValues(diagnostics, null)
+  assert.equal(values.grad_var_mean.value, 1.2e-3) // picked out of the mapping
+  assert.equal(values.grad_snr.value, 8.4) // median_snr
+  assert.equal(values.expressibility_kl.value, 0.18) // scalar
+  assert.equal(values.meyer_wallach_q.available, false)
+  assert.match(values.meyer_wallach_q.reason, /MPS backend/)
   assert.equal(hasAnyDiagnostic(values), true)
 })
 
-test('diagnosticValues reports grad_snr absent when nothing provides it', () => {
-  const values = diagnosticValues(null, { grad_var_mean: 1e-3 })
-  assert.equal(values.grad_snr.available, false)
+test('diagnosticValues falls back to the legacy summary when the endpoint is absent', () => {
+  const values = diagnosticValues(null, {
+    grad_var_mean: 1e-3, meyer_wallach_q: 0.61, expressibility_kl: null,
+    availability: { expressibility_kl: { reason: 'MPS backend has no statevector' } },
+  })
+  assert.equal(values.grad_var_mean.value, 1e-3)
+  assert.equal(values.meyer_wallach_q.value, 0.61)
+  assert.equal(values.expressibility_kl.available, false)
+  assert.match(values.expressibility_kl.reason, /MPS backend/)
+  assert.equal(values.grad_snr.available, false) // summary carries no SNR
   assert.match(values.grad_snr.reason, /not computed/)
 })

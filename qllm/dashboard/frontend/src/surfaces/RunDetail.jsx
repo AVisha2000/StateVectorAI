@@ -50,7 +50,7 @@ export default function RunDetail() {
   const trainRows = useMemo(() => (trainKey ? mergeCurve(curve, [trainKey]) : []), [curve, trainKey])
 
   const summaryDiag = tests?.summary?.quantum_diagnostics
-  const diagValues = useMemo(() => diagnosticValues(diag, summaryDiag), [diag, summaryDiag])
+  const diagValues = useMemo(() => diagnosticValues(diag?.diagnostics, summaryDiag), [diag, summaryDiag])
 
   if (isError) return <ErrorState error={error} label="Could not load this run." />
   if (isLoading) return <Loading label="Loading run…" />
