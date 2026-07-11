@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -10,7 +11,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from qllm.config import ExperimentConfig, ModelConfig, QuantumConfig, validate_config
+from qllm.config import (
+    BlockConfig,
+    ExperimentConfig,
+    ModelConfig,
+    QuantumConfig,
+    validate_config,
+)
 from qllm.quantum.backends import (
     PennyLaneBackend,
     TensorCircuitMPSBackend,
@@ -25,6 +32,10 @@ from qllm.quantum.capabilities import (
 )
 from qllm.quantum.circuits import weight_shape
 from qllm.tracking import log_quantum_diagnostics
+from qllm.train.loop import (
+    _collect_quantum_diagnostics,
+    _quantum_tracking_context,
+)
 
 
 def _mps_quantum_config(**changes) -> QuantumConfig:
@@ -38,6 +49,155 @@ def _mps_quantum_config(**changes) -> QuantumConfig:
         mps_max_bond_dimension=4,
     )
     return dataclasses.replace(config, **changes)
+
+
+def test_tracking_uses_active_per_block_mps_override(monkeypatch):
+    global_config = QuantumConfig()
+    mps_config = _mps_quantum_config()
+    model = ModelConfig(
+        n_blocks=1,
+        quantum=global_config,
+        blocks=(
+            BlockConfig(
+                attn_type="classical",
+                ffn_type="quantum",
+                quantum=mps_config,
+            ),
+        ),
+    )
+
+    context = _quantum_tracking_context(model)
+    assert context["tags"]["quantum_configuration_status"] == (
+        "single_configuration"
+    )
+    assert context["tags"]["backend"] == "tensorcircuit_mps"
+    assert context["tags"]["device"] == "mps"
+    assert context["diagnostic_config"] == mps_config
+    assert context["components"]["block_0.feed_forward"] == {
+        "implementation": "configured_circuit_backend",
+        "backend": "tensorcircuit_mps",
+        "device": "mps",
+        "configured_backend": "tensorcircuit_mps",
+        "configured_device": "mps",
+        "n_qubits": 4,
+        "ansatz": "reuploading",
+        "logical_instances_per_token": 1,
+    }
+
+    observed = {}
+
+    def fake_diagnostics(tracker, qcfg):
+        observed["tracker"] = tracker
+        observed["qcfg"] = qcfg
+        return {"status": "measured"}
+
+    monkeypatch.setattr("qllm.train.loop.log_quantum_diagnostics", fake_diagnostics)
+    tracker = object()
+    assert _collect_quantum_diagnostics(tracker, context) == {
+        "status": "measured"
+    }
+    assert observed == {"tracker": tracker, "qcfg": mps_config}
+
+
+def test_tracking_marks_mixed_quantum_configs_without_measuring_one(monkeypatch):
+    pennylane_config = QuantumConfig()
+    mps_config = _mps_quantum_config()
+    model = ModelConfig(
+        n_blocks=2,
+        quantum=pennylane_config,
+        blocks=(
+            BlockConfig(
+                attn_type="classical",
+                ffn_type="quantum",
+                quantum=pennylane_config,
+            ),
+            BlockConfig(
+                attn_type="classical",
+                ffn_type="quantum",
+                quantum=mps_config,
+            ),
+        ),
+    )
+
+    context = _quantum_tracking_context(model)
+    assert context["tags"]["quantum_configuration_status"] == (
+        "mixed_configuration"
+    )
+    assert context["tags"]["backend"] == "mixed"
+    assert context["diagnostic_config"] is None
+    assert {
+        component["backend"] for component in context["components"].values()
+    } == {"pennylane", "tensorcircuit_mps"}
+    assert len(context["tags"]["quantum_components_sha256"]) == 64
+    unavailable = context["diagnostic_unavailability"]
+    assert unavailable["status"] == "not_measured"
+    assert unavailable["reason"] == "mixed_quantum_configurations"
+    assert unavailable["semantics"] == "mixed_configuration"
+
+    monkeypatch.setattr(
+        "qllm.train.loop.log_quantum_diagnostics",
+        lambda *_args, **_kwargs: pytest.fail(
+            "mixed configurations must not select one diagnostic backend"
+        ),
+    )
+    assert _collect_quantum_diagnostics(object(), context) == unavailable
+
+
+def test_tracking_tags_remain_bounded_for_many_block_model():
+    quantum = _mps_quantum_config()
+    block = BlockConfig(
+        attn_type="quantum_qkv",
+        ffn_type="quantum",
+        quantum=quantum,
+    )
+    model = ModelConfig(
+        n_blocks=32,
+        quantum=QuantumConfig(),
+        blocks=(block,) * 32,
+    )
+    assert validate_config(ExperimentConfig(model=model)) == []
+
+    context = _quantum_tracking_context(model)
+    tags = context["tags"]
+    assert tags["quantum_component_count"] == 64
+    assert "quantum_components_json" not in tags
+    assert len(tags["quantum_components_sha256"]) == 64
+    canonical_components = json.dumps(
+        context["components"], sort_keys=True, separators=(",", ":")
+    )
+    assert tags["quantum_components_sha256"] == hashlib.sha256(
+        canonical_components.encode("utf-8")
+    ).hexdigest()
+    assert all(len(str(value)) <= 8000 for value in tags.values())
+
+
+def test_tracking_labels_native_jax_execution_without_pennylane_diagnostics(
+    monkeypatch,
+):
+    model = ModelConfig(
+        n_blocks=1,
+        ffn_type="quantum_linear",
+        quantum=QuantumConfig(),
+    )
+
+    context = _quantum_tracking_context(model)
+    assert context["tags"]["backend"] == "jax_native_statevector"
+    assert context["tags"]["device"] == "jax_runtime"
+    assert context["diagnostic_config"] is None
+    unavailable = context["diagnostic_unavailability"]
+    assert unavailable["status"] == "not_measured"
+    assert unavailable["reason"] == "native_jax_component_diagnostics_unsupported"
+    assert context["components"]["block_0.feed_forward"][
+        "configured_backend"
+    ] == "pennylane"
+
+    monkeypatch.setattr(
+        "qllm.train.loop.log_quantum_diagnostics",
+        lambda *_args, **_kwargs: pytest.fail(
+            "native JAX execution must not run configured PennyLane diagnostics"
+        ),
+    )
+    assert _collect_quantum_diagnostics(object(), context) == unavailable
 
 
 @pytest.mark.parametrize(

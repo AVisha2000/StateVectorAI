@@ -142,7 +142,8 @@ can be smoke-tested outside this restricted environment.
 
 Owner: parent agent
 Started: 2026-07-11
-Status: active; local implementation approved by the user on 2026-07-11
+Status: implementation complete except for the separately human-gated phase-3
+claim-text correction
 Objective: close the remaining acceptance gaps in the requested engineering
 backlog, in priority order, without reimplementing behavior that is already
 present and freshly verified.
@@ -153,13 +154,12 @@ statistics, dashboard safety, durable queue recovery, checkpoint/resume,
 idempotent logging, runtime/resource telemetry, the claim ledger and warnings,
 and dependency/backend scaling. Existing research artifacts and the active
 claim-guided continuation plan remain untouched. No experiment execution,
-remote dashboard exposure, claim promotion, artifact or database rewrite, or
-Git delivery is authorized. A CPU-only optional backend dependency may be
-installed only after the requested Sol technical gate confirms the exact
-package and verifies that it cannot replace JAX/JAXLIB or alter CUDA.
+remote dashboard exposure, claim promotion, artifact or database rewrite was
+part of this work. Sol approved the exact CPU-only optional dependency after a
+dry run proved that it would not replace JAX/JAXLIB or alter CUDA.
 
-Current phase: phase 12 dependency/backend scaling analysis while the phase-3
-claim-text correction awaits explicit semantic approval.
+Current phase: phase 12 is closed; the phase-3 claim-text correction awaits
+explicit semantic approval.
 
 Phase 1 progress:
 
@@ -177,16 +177,17 @@ Phase 1 progress:
 - [x] Correct the completion audit only after deterministic evidence proves the
   expanded acceptance criteria.
 
-Phase 12 implementation packet (awaiting Sol technical gate):
+Phase 12 implementation packet (Sol-approved and completed):
 
 - **Objective:** close the dependency/backend acceptance gap with one real,
   CPU-testable approximate execution path and clean-install evidence, while
   keeping approximate rows distinguishable from dense exact simulation.
 - **Backend scope:** add a distinct optional `tensorcircuit_mps` backend with
-  an explicit positive bond limit, optional truncation threshold, analytic
-  expectation readout, and no dense state access. Thread its settings through
-  validation, cached circuit factories, quantum layers, manifests, resource
-  estimates, and the local model builder.
+  an explicit positive fixed bond limit, analytic expectation readout, and no
+  dense state access. Recognize but fail closed on TensorCircuit-NG 1.7's
+  JIT-incompatible threshold/relative modes. Thread the supported setting
+  through validation, cached circuit factories, quantum layers, manifests,
+  resource estimates, and the local model builder.
 - **Dependency scope:** validate the existing CPU/WSL top-level pinned profiles,
   add a pinned optional MPS profile, make change-aware verification notice all
   profile files, and add clean Windows/Linux CPU installation CI. Describe
@@ -214,14 +215,36 @@ Phase 12 implementation packet (awaiting Sol technical gate):
   recognized but rejected before optional import; there is no eager-only or
   silent fallback mode.
 - **Gates:** no GPU/WSL/CUDA execution, JAX/JAXLIB replacement, long training,
-  artifact/database mutation, claim edit, or Git delivery. The exact optional
-  install and implementation packet must receive Sol PASS before code changes.
+  artifact/database mutation, or claim edit. Sol PASS was received before the
+  optional install and backend implementation.
+
+Phase 12 progress:
+
+- [x] Obtain Sol PASS for the architecture, dependency, diagnostics, resource,
+  and fixed-bond fail-closed contracts.
+- [x] Add the distinct approximate MPS backend, config/capability validation,
+  JIT/`vmap`/gradient support, and explicit statevector-diagnostic unavailability.
+- [x] Add logical-vs-storage resource evidence and conservative dashboard
+  estimates covering global and per-block quantum configs.
+- [x] Add CPU/WSL/MPS profile validation, clean-install CI, expanded manifest
+  versions, and the native-Windows Orbax compatibility pin discovered by clean
+  installation.
+- [x] Prove clean native-Windows CPU and MPS installs in isolated environments;
+  run the required MPS behavior suite with zero skips in both the active and
+  clean MPS environments.
+- [x] Browser-verify the model-builder MPS selection, bounded small-qubit bond
+  default, fixed-bond warning, resource band, and console/overlay health on an
+  isolated loopback dashboard.
+- [x] Make tracking tags and one-time diagnostics resolve active per-block
+  configs rather than the unused global default; fail closed for mixed/native
+  execution, retain full component evidence in run resources, and use bounded
+  count/status/SHA-256 MLflow tags instead of truncation-prone JSON.
 
 Audit baseline:
 
 | Requested item | Current classification | Acceptance gap or evidence |
 | --- | --- | --- |
-| 1. Boundary-safe synthetic sampling | Partial; audit status is stale | Canonical training/evaluation use 2-D trajectory-aware bundles, but `benchmarks/memory_sweep.py`, `planted_qrnn.py`, `resonance_search.py`, `seq_interference_probe.py`, `model_report.py`, and `qllm/dashboard/model_tests.py` still call the flattening compatibility loader. |
+| 1. Boundary-safe synthetic sampling | Complete | All identified benchmark/dashboard callers preserve bundles and shared evaluation is trajectory-aware; inventory and behavior regressions prevent flattening recurrence. |
 | 2. Comprehensive config validation | Complete; revalidate only | Registry-backed validation is shared by CLI, model-spec, queue, model, data, circuit, and backend paths. |
 | 3. Two-stream metric and causality honesty | Code/dashboard complete; claim-text gap is human-gated | The current model is causal and historical dashboard rows are side-information/rerun-required, but `RESULTS.md` section 20 does not carry that historical limitation. |
 | 4. Full fairness-field comparison | Complete; revalidate only | Claim-specific schemas compare the full normalized protocol and expose every allowed/disallowed mismatch through studies and UI payloads. |
@@ -232,7 +255,7 @@ Audit baseline:
 | 9. Idempotent per-step logging | Complete for UUID-backed runs | Canonical step rows use `(run_uuid, step, name)` uniqueness; same-value retry is idempotent and conflicting retry fails loudly. |
 | 10. Quantum runtime/resource telemetry | Complete for local execution | Compile/first-step, steady-state, state dimension, logical circuit-forward estimates, device, precision, and available memory are labeled; physical backend-call and GPU/QPU telemetry remain unavailable. |
 | 11. Claim ledger and dashboard warnings | Complete; revalidate only | `research/claims.yaml` is canonical and structured warnings reach API/UI with conservative status semantics. |
-| 12. Dependency matrix and backend scaling | Partial | CPU/WSL profiles and exact/sampled/unverified capability metadata exist. Clean-install/GPU compatibility is not freshly proven, and no real MPS/Lightning GPU/MPI/QPU scalable backend exists; those choices are a separate dependency/hardware gate. |
+| 12. Dependency matrix and backend scaling | Complete for local CPU scope | Validated CPU/WSL/MPS profiles, clean-install CI and native-Windows evidence, exact environment manifests, and a real fixed-bond approximate MPS backend are implemented; GPU/QPU/hardware validation remains separately gated. |
 
 Acceptance evidence:
 
@@ -296,21 +319,19 @@ Phased execution:
     conservative-classification, structured-warning, and frontend evidence
     tests; browser-inspect changed evidence surfaces if needed. Claim status
     changes remain out of scope.
-11. **Dependency matrix verification.** Add a clean CPU install/compatibility
-    check in an isolated environment if approved and document the unverified
-    WSL/CUDA boundary. Do not alter the active CUDA/JAX environment.
-12. **Scalable backend decision packet.** Before implementation, choose one
-    concrete target (for example MPS/tensor-network or Lightning), define exact
-    overlap/parity, approximation metadata, resource evidence, dependency and
-    hardware gates, and stopping criteria. This is deferred until the user
-    approves that architecture/dependency packet; it is not implied by the
-    local exact-backend capability work.
+11. **Dependency matrix verification (completed).** Validate the profiles,
+    prove clean CPU/MPS installs, add clean-install CI, and document the
+    unverified WSL/CUDA boundary without altering CUDA/JAX.
+12. **Scalable backend implementation (completed for local CPU scope).** Add
+    fixed-bond TensorCircuit MPS with exact-overlap, gradient/JIT parity,
+    approximation/resource evidence, fail-closed unsupported modes, and clear
+    hardware gates.
 
 Risks and decisions:
 
-- The completion audit overstates items 1 and 3 and must be corrected when the
-  corresponding approved phase lands; item 12 must stay explicitly split
-  between local metadata and real scaling.
+- The initial completion audit overstated items 1 and 3. Item 1 is now closed,
+  item 12 is closed for local CPU execution, and item 3 remains explicitly
+  partial until the claim-text gate is approved.
 - Passing existing tests did not expose the flat-loader callers, so phase 1
   requires an inventory-style regression in addition to behavior tests.
 - The working tree already contains user-owned agent/documentation changes,
@@ -319,11 +340,10 @@ Risks and decisions:
 - If approved, this engineering workstream takes execution priority without
   deleting the existing claim-guided continuation plan.
 
-Human gates: implementation has not started. Separate explicit approval is
-required for the phase-3 `RESULTS.md` correction, any dependency/CUDA/JAX
-environment change, scalable-backend dependency or hardware work, remote
-dashboard exposure, destructive database/artifact action, experiment run,
-commit, push, merge, or publication.
+Human gates: separate explicit semantic approval is still required for the
+phase-3 `RESULTS.md` correction. GPU/QPU/cluster runs, CUDA/JAX changes, remote
+dashboard exposure, destructive database/artifact action, claim promotion, and
+research experiments remain outside this completed local CPU implementation.
 
 Latest planning validation:
 
@@ -375,6 +395,65 @@ PASS: no whitespace errors; Windows line-ending notices only.
 fresh Sol verifier
 PASS: trajectory semantics, caller migration, regression coverage, and
 completion-audit correction are acceptance-ready; no claim was strengthened.
+```
+
+Phase 12 validation:
+
+```text
+.venv/Scripts/python.exe -m pip install --dry-run tensorcircuit-ng==1.7.0
+PASS: only tensorcircuit-ng 1.7.0, tensornetwork-ng 0.5.1, graphviz 0.21,
+and h5py 3.16.0 were proposed; JAX/JAXLIB/CUDA were unchanged.
+.venv/Scripts/python.exe -m pip check
+PASS: no broken requirements; JAX/JAXLIB remained 0.10.1.
+.venv/Scripts/python.exe scripts/check_dependency_profiles.py
+--runtime-profile mps
+PASS: CPU 20, WSL 18, and MPS 21 top-level pins are consistent; all 21 MPS
+runtime versions match.
+clean native-Windows installs at C:\q2 and C:\m2
+PASS: requirements-cpu.txt and requirements-mps.txt installed from scratch,
+editable QLLM installed without re-resolution, pip check passed, runtime
+profiles matched, and JAX reported CpuDevice(id=0). The clean-install audit
+discovered and fixed unbounded Orbax 0.12.1's native-Windows path failure by
+pinning the already-tested orbax-checkpoint 0.10.3 in CPU/WSL profiles.
+QLLM_REQUIRE_TENSORCIRCUIT_MPS=1 pytest -q -rs
+tests/test_tensorcircuit_mps.py
+PASS twice with zero skips: 8 passed in the active environment and 8 passed in
+the independently clean MPS environment; three existing JAX x64 warnings per
+run.
+focused backend/config/resource/dashboard/durability integration
+PASS: 225 passed with 12 existing JAX x64 warnings.
+complete Python suite
+PASS: 438 passed, 1 Windows symlink-environment skip, 48 existing
+dependency/JAX warnings in 344.53s.
+npm run test / npm run build --prefix qllm/dashboard/frontend
+PASS: 9 frontend behavior tests and production build; existing bundle-size
+advisory only.
+isolated loopback browser QA on 127.0.0.1:8011/models
+PASS: MPS selection exposed bond 4 for the 4-qubit preset, retained a low
+resource band, rendered fixed-bond/unmeasured-evidence warnings, and produced
+no console errors or framework overlay; the isolated server was stopped.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
+PASS: agent setup/tests and frontend tests/build.
+active-config tracking/resource/config regression suite
+PASS: 102 passed with two existing JAX x64 warnings; per-block MPS, mixed
+configured backends, native-JAX execution, and a valid 32-block/64-component
+model are covered. Canonical component evidence is represented in MLflow by a
+bounded SHA-256 tag and remains complete in the resource/diagnostic payload.
+training-loop integration and durable-run suite
+PASS: 41 passed with one existing JAX x64 warning.
+agent-workflow CI regression suite and setup check
+PASS: 34 passed; agent setup validation passed. The workflow now installs the
+exact PyYAML dependency required during pytest collection.
+remote dependency-matrix workflow 29160547587
+PASS: all six clean CPU/MPS Windows/Linux Python 3.11/3.12 jobs succeeded.
+fresh Sol final engineering verifier
+PASS: active configs drive tags/diagnostics, mixed/native cases fail closed,
+the canonical digest matches, all tag values are bounded, and no phase-12
+engineering blocker remains. `RESULTS.md` remains a separate semantic gate.
+.venv/Scripts/python.exe scripts/verify_changes.py --run --timeout 600
+PASS in 328.8s: agent setup, agent tests, dashboard frontend tests, production
+frontend build, and the complete Python suite all passed on the final
+engineering code fingerprint.
 ```
 
 Phase 3 claim-text gate:

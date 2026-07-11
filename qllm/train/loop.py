@@ -33,6 +33,7 @@ from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
 from ..research_protocol import normalize_seed_axes
 from ..resources import (
+    active_quantum_configs,
     resolve_execution_device,
     runtime_resource_ledger,
     static_resource_plan,
@@ -63,6 +64,124 @@ def _format_quantum_diagnostics_for_display(value):
     if isinstance(value, (int, float, np.number)) and not isinstance(value, bool):
         return f"{float(value):.3e}"
     return value
+
+
+def _quantum_tracking_context(model_cfg):
+    """Describe the quantum components that the finalized model will execute.
+
+    Per-block overrides are authoritative.  The model-level quantum config is
+    only a default and must never be reported as the executed backend when an
+    active component overrides it or uses a native JAX implementation.
+    """
+    active = active_quantum_configs(model_cfg)
+    components = {}
+    for name, qcfg, logical_instances, implementation in active:
+        configured_backend = qcfg.backend
+        configured_device = qcfg.device
+        if implementation == "configured_circuit_backend":
+            actual_backend = configured_backend
+            actual_device = configured_device
+        else:
+            actual_backend = "jax_native_statevector"
+            actual_device = "jax_runtime"
+        components[name] = {
+            "implementation": implementation,
+            "backend": actual_backend,
+            "device": actual_device,
+            "configured_backend": configured_backend,
+            "configured_device": configured_device,
+            "n_qubits": int(qcfg.n_qubits),
+            "ansatz": qcfg.ansatz,
+            "logical_instances_per_token": int(logical_instances),
+        }
+
+    components_json = json.dumps(
+        components, sort_keys=True, separators=(",", ":")
+    )
+    base_tags = {
+        "quantum_component_count": len(components),
+        "quantum_components_schema_version": 1,
+        "quantum_components_sha256": hashlib.sha256(
+            components_json.encode("utf-8")
+        ).hexdigest(),
+    }
+    if not active:
+        return {
+            "tags": base_tags
+            | {
+                "qubits": 0,
+                "ansatz": "none",
+                "backend": "none",
+                "device": "none",
+                "quantum_configuration_status": "classical",
+            },
+            "components": components,
+            "diagnostic_config": None,
+            "diagnostic_unavailability": None,
+        }
+
+    first_config = active[0][1]
+    first_implementation = active[0][3]
+    homogeneous = all(
+        qcfg == first_config and implementation == first_implementation
+        for _name, qcfg, _logical_instances, implementation in active[1:]
+    )
+    if homogeneous:
+        first_component = next(iter(components.values()))
+        tags = base_tags | {
+            "qubits": int(first_config.n_qubits),
+            "ansatz": first_config.ansatz,
+            "backend": first_component["backend"],
+            "device": first_component["device"],
+            "quantum_configuration_status": "single_configuration",
+        }
+        if first_implementation == "configured_circuit_backend":
+            return {
+                "tags": tags,
+                "components": components,
+                "diagnostic_config": first_config,
+                "diagnostic_unavailability": None,
+            }
+        diagnostic_unavailability = {
+            "status": "not_measured",
+            "reason": "native_jax_component_diagnostics_unsupported",
+            "semantics": "single_configuration",
+            "components": components,
+        }
+        return {
+            "tags": tags,
+            "components": components,
+            "diagnostic_config": None,
+            "diagnostic_unavailability": diagnostic_unavailability,
+        }
+
+    diagnostic_unavailability = {
+        "status": "not_measured",
+        "reason": "mixed_quantum_configurations",
+        "semantics": "mixed_configuration",
+        "components": components,
+    }
+    return {
+        "tags": base_tags
+        | {
+            "qubits": "mixed",
+            "ansatz": "mixed",
+            "backend": "mixed",
+            "device": "mixed",
+            "quantum_configuration_status": "mixed_configuration",
+        },
+        "components": components,
+        "diagnostic_config": None,
+        "diagnostic_unavailability": diagnostic_unavailability,
+    }
+
+
+def _collect_quantum_diagnostics(tracker, context):
+    """Measure one honest configuration or return explicit unavailability."""
+    qcfg = context["diagnostic_config"]
+    if qcfg is not None:
+        return log_quantum_diagnostics(tracker, qcfg)
+    return context["diagnostic_unavailability"]
 
 
 def make_train_step():
@@ -619,13 +738,8 @@ def _fit_on_device(
             "manifest_hash": manifest["manifest_hash"],
         }
     )
-    tracker.set_tags(
-        {
-            "qubits": model_cfg.quantum.n_qubits if uses_quantum(model_cfg) else 0,
-            "ansatz": model_cfg.quantum.ansatz if uses_quantum(model_cfg) else "none",
-            "backend": model_cfg.quantum.backend if uses_quantum(model_cfg) else "none",
-        }
-    )
+    quantum_tracking = _quantum_tracking_context(model_cfg)
+    tracker.set_tags(quantum_tracking["tags"])
 
     if verbose:
         print(
@@ -636,7 +750,7 @@ def _fit_on_device(
 
     diagnostics = None
     if uses_quantum(model_cfg) and cfg.tracking.log_quantum_diagnostics:
-        diagnostics = log_quantum_diagnostics(tracker, model_cfg.quantum)
+        diagnostics = _collect_quantum_diagnostics(tracker, quantum_tracking)
         if verbose:
             pretty = _format_quantum_diagnostics_for_display(diagnostics)
             print(f"[{run_name}] quantum diagnostics: {pretty}")

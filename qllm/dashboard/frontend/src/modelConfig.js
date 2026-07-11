@@ -50,9 +50,11 @@ export function changeQuantumBackend(quantum, backend) {
   next.shots = null
   if (backend === 'tensorcircuit_mps') {
     next.device = 'mps'
+    const qubits = Math.max(1, Number(next.n_qubits) || 1)
+    const boundedExactDefault = 2 ** Math.min(Math.floor(qubits / 2), 6)
     next.mps_max_bond_dimension = Number(next.mps_max_bond_dimension) > 0
       ? Number(next.mps_max_bond_dimension)
-      : 64
+      : boundedExactDefault
     next.mps_max_truncation_error = null
     next.mps_relative_truncation = false
   } else {

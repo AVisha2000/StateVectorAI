@@ -40,16 +40,17 @@ historical experiment artifacts were not rewritten or rerun.
 | 15 | Dataset import boundaries | Completed | revision/hash/size/provenance/truncation handling and path containment in `qllm/dashboard/datasets.py`, `security.py` |
 | 16 | Compile/runtime telemetry | Completed | measured runtime ledger in `qllm/resources.py`, collection/summaries in `qllm/train/loop.py` and `qllm/train/artifacts.py`, queue estimates in `qllm/dashboard/resources.py`, and dashboard ledgers |
 | 17 | Scan/vectorization cleanup | Completed | static-shape scan/vectorized recurrent, contextual, transplant, and causal-prefix paths with parity/gradient tests |
-| 18 | Scalable backend roadmap | Superseded for local scope; deferred/human-gated beyond it | canonical capability/exactness metadata and small exact overlap tests in `qllm/quantum/capabilities.py`, `qllm/quantum/backends.py`, `tests/test_backend_capabilities.py`; real MPS/Lightning/GPU/QPU scaling remains deferred |
+| 18 | Scalable backend roadmap | Completed for local CPU scope; hardware scaling remains human-gated | distinct fixed-bond `tensorcircuit_mps` execution in `qllm/quantum/backends.py`; approximate capability/resource metadata with dense-state access disabled; deterministic value/gradient/JIT/nested-`vmap`/low-bond overlap coverage in `tests/test_tensorcircuit_mps.py`; realized error, convergence, discarded weight, and peak memory remain explicitly unmeasured |
 | 19 | Component registries | Completed | centralized options in `qllm/registry.py` consumed by config, model, data, dashboard, circuit, backend, readout, and conditioning paths |
 | 20 | Dataset object contract | Completed | canonical `DatasetBundle` plus compatible flat adapter in `qllm/data/datasets.py`; contextual masks no longer depend on a module global |
-| 21 | Tested dependency matrix | Completed | pinned `requirements-cpu.txt`, compatibility alias, `requirements-gpu-wsl.txt`, `scripts/check_gpu.py`, `scripts/setup_wsl_gpu.sh`, and run environment manifests |
+| 21 | Tested dependency matrix | Completed | validated top-level CPU/WSL/MPS pinned profiles, Windows/Linux Python 3.11/3.12 clean-install CI in `.github/workflows/dependency-matrix.yml`, `scripts/check_dependency_profiles.py`, native-Windows clean CPU/MPS install evidence, GPU visibility tooling, and expanded run environment manifests |
 | 22 | Researcher onboarding | Completed | [`RESEARCHER_GUIDE.md`](RESEARCHER_GUIDE.md) and dashboard evidence vocabulary |
 | 23 | Engineer onboarding | Completed | [`DEVELOPMENT.md`](DEVELOPMENT.md), scoped `AGENTS.md`, project skills, and component map |
 
-The repeated GitHub issue backlog in `ENHANCEMENT_PLAN.md` maps to items 1-4,
-5-6, 9, 13, 10, and 21 above; it is therefore completed or superseded under the
-same evidence rather than a second independent backlog.
+The repeated GitHub issue backlog in `ENHANCEMENT_PLAN.md` maps to items 1-6,
+9-10, 13, and 21 above. It is completed or superseded under the same evidence
+except for the explicitly human-gated historical wording correction in item 3;
+it is not a second independent backlog.
 
 ## UI upgrade phases
 
@@ -71,10 +72,10 @@ These are not hidden incompleteness in the local platform:
 - **Human-gated:** GPU/cluster sweeps, CUDA/JAX environment changes, cloud or
   paid services, QPU execution, remote dashboard exposure, destructive
   artifact/database migrations, and any stronger `RESULTS.md` or claim status.
-- **Deferred:** real MPS/tensor-network and other approximate large-qubit
-  backends, broader Lightning/backend integrations, theorem-faithful contextual
-  constructions, stronger predictive-state/classical attacks, hard routing,
-  and the experiments in `GPU_QUEUE.md`.
+- **Deferred:** additional tensor-network/Lightning/backend integrations,
+  hardware or large-scale validation of the local MPS path, theorem-faithful
+  contextual constructions, stronger predictive-state/classical attacks, hard
+  routing, and the experiments in `GPU_QUEUE.md`.
 - **Research-dependent:** reruns of historical two-stream side-information
   studies and any confirmation study whose claim contract calls for more
   independent pairs or controls.

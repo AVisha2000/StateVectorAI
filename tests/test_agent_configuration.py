@@ -105,6 +105,13 @@ def test_repository_agent_configuration_is_valid() -> None:
     assert validate_repo(ROOT) == []
 
 
+def test_agent_configuration_ci_installs_collection_dependencies() -> None:
+    workflow = (ROOT / ".github/workflows/agent-configuration.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "python -m pip install pytest==9.0.3 PyYAML==6.0.3" in workflow
+
+
 def test_valid_minimal_configuration(tmp_path: Path) -> None:
     _valid_fixture(tmp_path)
     assert validate_repo(tmp_path) == []

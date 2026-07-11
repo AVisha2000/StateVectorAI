@@ -62,6 +62,7 @@ test('switching a quantum-free classical spec seeds server-provided quantum defa
 test('MPS selection applies an explicit fixed-bond approximate mode', () => {
   const changed = changeQuantumBackend({
     backend: 'pennylane',
+    n_qubits: 4,
     mps_max_truncation_error: 1e-6,
     mps_relative_truncation: true,
   }, 'tensorcircuit_mps')
@@ -69,9 +70,13 @@ test('MPS selection applies an explicit fixed-bond approximate mode', () => {
   assert.equal(changed.device, 'mps')
   assert.equal(changed.diff_method, 'backprop')
   assert.equal(changed.shots, null)
-  assert.equal(changed.mps_max_bond_dimension, 64)
+  assert.equal(changed.mps_max_bond_dimension, 4)
   assert.equal(changed.mps_max_truncation_error, null)
   assert.equal(changed.mps_relative_truncation, false)
+  assert.equal(
+    changeQuantumBackend({ n_qubits: 20 }, 'tensorcircuit_mps').mps_max_bond_dimension,
+    64,
+  )
 })
 
 test('leaving MPS clears approximation controls instead of ignoring them', () => {
