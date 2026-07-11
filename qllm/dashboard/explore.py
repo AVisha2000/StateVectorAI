@@ -258,6 +258,7 @@ def _lab_final_run(db: ResultsDB, job: dict) -> dict | None:
         job["dataset_name"],
         int(job["seed"]),
         int(job["steps"]),
+        run_uuid=job.get("run_uuid"),
     )
 
 

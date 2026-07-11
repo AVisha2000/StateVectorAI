@@ -31,6 +31,7 @@ from qllm.data.text import train_val_split  # noqa: E402
 from qllm.models.model import build_model  # noqa: E402
 from qllm.quantum.transplant import transplant_from_donor  # noqa: E402
 from qllm.resultsdb import ResultsDB  # noqa: E402
+from qllm.train.artifacts import RunOptions  # noqa: E402
 from qllm.train.loop import evaluate, fit, make_eval_step  # noqa: E402
 
 BASE = dict(d_model=64, n_heads=4, n_blocks=2, d_ff=256, max_seq_len=128)
@@ -77,13 +78,22 @@ def main() -> None:
                     run_name=f"{args.suite}-{name}-s{seed}",
                     log_quantum_diagnostics=False,
                     log_grad_norms=False))
-            res = fit(cfg, verbose=False, init_params=init_params)
+            res = fit(
+                cfg,
+                verbose=False,
+                init_params=init_params,
+                run_options=RunOptions(
+                    caller_metadata={
+                        "warm_start_source": f"weight_transplant:{name}"
+                    }
+                ),
+            )
             s = res["summary"]
             db.record(suite=args.suite, variant=name, dataset="text",
                       seed=seed, steps=steps_key, n_params=s["n_params"],
                       val_loss=s["val_loss"], val_ppl=s["val_ppl"],
                       val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
-                      config=to_flat_dict(cfg))
+                      config=to_flat_dict(cfg), manifest=res["manifest"])
             print(f"done {name:10s} s{seed} params={s['n_params']:7,d} "
                   f"ppl={s['val_ppl']:.3f} ({s['wall_seconds']:.0f}s)")
             return res

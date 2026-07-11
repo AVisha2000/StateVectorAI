@@ -6,6 +6,7 @@ pipeline runs with quantum blocks selected purely by config.
 from __future__ import annotations
 
 import numpy as np
+from pathlib import Path
 
 from qllm.train.loop import fit, generate
 
@@ -15,8 +16,9 @@ def test_fit_classical_end_to_end(tiny_classical_cfg, tmp_path):
     summary = result["summary"]
     assert np.isfinite(summary["val_loss"])
     assert summary["val_ppl"] > 1.0
-    assert (tmp_path / summary["run_name"] / "params.msgpack").exists()
-    assert (tmp_path / summary["run_name"] / "summary.json").exists()
+    artifact_dir = Path(summary["artifact_dir"])
+    assert (artifact_dir / "params.msgpack").exists()
+    assert (artifact_dir / "summary.json").exists()
 
 
 def test_fit_quantum_end_to_end(tiny_quantum_cfg, tmp_path):

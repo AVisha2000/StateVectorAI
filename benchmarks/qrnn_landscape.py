@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qllm.config import (DataConfig, ExperimentConfig, ModelConfig,  # noqa: E402
                          QuantumConfig, TrackingConfig, TrainConfig)
 from qllm.resultsdb import ResultsDB  # noqa: E402
+from qllm.train.artifacts import RunOptions  # noqa: E402
 from qllm.train.loop import fit  # noqa: E402
 from benchmarks.planted_qrnn import planted_params  # noqa: E402
 
@@ -71,12 +72,22 @@ def main() -> None:
                     init = {k: jnp.asarray(np.asarray(v) + scale *
                             rng.normal(size=np.shape(v)).astype(np.float32))
                             for k, v in init.items()}
-            res = fit(cfg, verbose=False, init_params=init)
+            res = fit(
+                cfg,
+                verbose=False,
+                init_params=init,
+                run_options=RunOptions(
+                    caller_metadata={
+                        "warm_start_source": f"qrnn_landscape:{name}"
+                    }
+                ),
+            )
             s = res["summary"]
             db.record(suite=args.suite, variant=name, dataset="ising",
                       seed=seed, steps=args.steps, n_params=s["n_params"],
                       val_loss=s["val_loss"], val_ppl=s["val_ppl"],
-                      val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"])
+                      val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
+                      manifest=res["manifest"])
             print(f"done {name:22s} s{seed} ppl={s['val_ppl']:.4f} "
                   f"({s['wall_seconds']:.0f}s)")
 

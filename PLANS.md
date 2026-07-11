@@ -36,14 +36,112 @@ Progress:
   delivered to `main` in commit `bb4a11e`.
 - [x] M03 Causal two-stream replacement (`codex/m03-causal-two-stream`),
   delivered to `main` in commit `e5e5230`.
-- [ ] M04 Trust claims (`codex/m04-claim-integrity`).
+- [x] M04 Trust claims (`codex/m04-claim-integrity`),
+  delivered to `main` in commit `2418d7b`.
 - [ ] M05 Trust runs (`codex/m05-durable-runs`).
 - [ ] M06 Local safety and resource reproducibility (`codex/m06-safety-resources`).
 - [ ] M07 Local scaling architecture (`codex/m07-local-scaling`).
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M04 trust claims.
+Current milestone: M05 trust runs.
+
+M05 acceptance evidence:
+
+- Every new experiment and execution has immutable UUID identity plus canonical
+  config, code, data, and environment hashes; legacy rows remain readable and
+  explicitly report unavailable identity fields.
+- Atomic latest/best checkpoints contain parameters, optimizer state,
+  completed step, RNG lineage, metric state, and resume metadata. A resumed
+  CPU run continues from the next step without replaying completed work.
+- Additive, repeatable SQLite migrations make step logging unique/idempotent
+  and preserve all existing databases, runs, jobs, studies, and artifacts.
+- Dashboard workers claim jobs transactionally in SQLite with worker IDs,
+  leases/heartbeats, deterministic restart recovery, stale-job handling, and
+  terminal GPU-reservation release; the in-memory queue is only a wake-up hint.
+- Generation is architecture-neutral at its public boundary and returns an
+  explicit supported or unsupported outcome rather than assuming one model
+  shape or silently falling back.
+- Focused checkpoint/resume, idempotent-step, transactional-claim,
+  restart/recovery, stale-job, terminal-release, manifest/hash, and generation
+  fixtures pass; one-step CPU queue smoke, change-aware/full verification, and
+  a fresh verifier return PASS.
+
+M05 progress:
+
+- [x] Deliver M04 and create `codex/m05-durable-runs` from updated `main`.
+- [x] Inventory persistence, schema, queue, artifact, RNG, resume, and
+  generation paths.
+- [x] Implement additive identity/manifest and atomic checkpoint/resume
+  contracts through CLI and dashboard jobs.
+- [x] Replace in-memory queue authority with transactional DB claims,
+  heartbeats, recovery, and idempotent logging.
+- [x] Make generation support explicit across architecture families.
+- [x] Run focused, queue-smoke, change-aware, frontend-compatibility, and full
+  CPU verification.
+- [x] Obtain a fresh verifier PASS; Git delivery follows under standing
+  approval.
+
+M05 design constraints:
+
+- Existing SQLite files and artifact directories are never deleted, renamed,
+  rewritten in place, or assigned fabricated hashes/UUIDs. Migrations are
+  additive and safe to run repeatedly.
+- Database transactions, not process-local memory, determine which worker owns
+  a queued job. A lease transition must be atomic and terminal transitions must
+  be idempotent.
+- Resume reproducibility includes optimizer state and the exact next RNG/step;
+  loading parameters alone is warm start, not resume, and must not be labeled
+  otherwise.
+- Latest and best checkpoint writes use a temporary sibling plus atomic
+  replacement so interruption cannot expose a partial checkpoint.
+- Code/data/environment hashes record what is knowable locally and use explicit
+  unavailable/dirty states rather than silently claiming a clean repository.
+- `experiment_uuid` groups a scientific submission or comparison while one
+  immutable `run_uuid` identifies each logical job/run. Process recovery keeps
+  that run identity; a deliberate resume fork records its parent and source
+  checkpoint instead of rewriting the original identity.
+- Historical `steps` rows remain untouched. New UUID-backed logging uses an
+  additive canonical table with a `(run_uuid, step, metric)` key, same-value
+  retries are idempotent, and conflicting retries fail loudly.
+- `RunOptions` carries operational identity, checkpoint, resume, and artifact
+  settings outside the scientific `ExperimentConfig`; CLI and dashboard jobs
+  translate to the same contract.
+- No GPU/QPU run, paid service, destructive artifact migration, claim
+  promotion, or `RESULTS.md` edit is part of M05.
+
+M05 validation evidence:
+
+```text
+.venv/Scripts/python.exe -m compileall -q qllm benchmarks scripts tests
+PASS.
+.venv/Scripts/python.exe -m pytest -q tests/test_durable_runs.py
+PASS: 38 passed, including exact resume, fork crash boundaries,
+generated-to-cache retry, legacy migration, result/manifest immutability,
+SQLite claims/recovery, one-step CPU queue execution, and generation families.
+.venv/Scripts/python.exe -m pytest -q tests/test_dashboard_lab.py
+tests/test_integration.py tests/test_research_protocol.py
+PASS: 95 passed; one existing JAX complex128-to-complex64 warning.
+npm.cmd run build  (qllm/dashboard/frontend)
+PASS: 857 modules transformed; existing bundle-size advisory only.
+python scripts/verify_changes.py --run
+PASS: agent-setup, 17 agent tests, frontend tests/build, 69 dashboard tests,
+67 benchmark tests, script syntax, 34 train/config tests, and the full CPU
+suite (306 passed, 1 skipped; 41 existing JAX precision warnings).
+desktop + 390px in-app browser inspection
+PASS: completed, loading, empty-curve, and error workspace states render;
+artifact paths use backend-provided persisted locations; narrow document width
+equals viewport width; warning/error console is clean. No job was created,
+cancelled, or modified during browser QA.
+compatibility/data-integrity auditor
+PASS: additive migrations, historical projections, snapshot authority,
+checkpoint integrity, queue fencing/recovery, and benchmark identity reviewed;
+38 durable tests and diff check independently passed.
+fresh verifier
+PASS: manifest-only fork recovery and generated-to-cache access-provenance
+transition preserve stable identity and lineage; 38 durable tests and diff
+check independently passed. No RESULTS.md change or artifact leak found.
+```
 
 M04 acceptance evidence:
 

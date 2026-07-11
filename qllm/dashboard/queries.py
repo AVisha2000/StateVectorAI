@@ -162,12 +162,12 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
     # per-step curve if logged under the canonical run_key
     run_key = (f"{run['suite']}/{run['variant']}/{run['dataset']}/"
                f"{run['seed']}/{run['steps']}")
-    run["steps_curve"] = _curve(db, run_key)
+    run["steps_curve"] = _curve(db, run_key, run.get("run_uuid"))
     return run
 
 
-def _curve(db: ResultsDB, run_key: str) -> dict:
-    steps = db.fetch_steps(run_key)
+def _curve(db: ResultsDB, run_key: str, run_uuid: str | None = None) -> dict:
+    steps = db.fetch_steps(run_key, run_uuid=run_uuid)
     series: dict[str, list] = defaultdict(list)
     for s in steps:
         series[s["name"]].append({"step": s["step"], "value": s["value"]})

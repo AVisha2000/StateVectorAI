@@ -7,8 +7,11 @@ the plugin architecture.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
+import math
 import time
+import uuid
 from pathlib import Path
 
 import jax
@@ -28,7 +31,21 @@ from ..config import (
 from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
+from ..research_protocol import normalize_seed_axes
 from ..tracking import ExperimentTracker, log_quantum_diagnostics
+from .artifacts import (
+    RunOptions,
+    atomic_write_bytes,
+    atomic_write_json,
+    build_run_manifest,
+    read_checkpoint,
+    resolve_run_options,
+    restore_checkpoint,
+    validate_checkpoint_manifest,
+    validate_manifest,
+    write_checkpoint,
+    write_immutable_manifest,
+)
 
 
 def make_train_step():
@@ -138,18 +155,38 @@ def make_optimizer(train_cfg: TrainConfig, params, freeze_circuit: bool = False)
     )
 
 
+def _retry_manifest_identity(manifest: dict) -> dict:
+    """Stable retry contract, excluding dataset access-path provenance only."""
+    body = {
+        key: value for key, value in manifest.items() if key != "manifest_hash"
+    }
+    data = dict(body.get("data") or {})
+    data.pop("provenance", None)
+    metadata = dict(data.get("metadata") or {})
+    metadata.pop("provenance", None)
+    data["metadata"] = metadata
+    body["data"] = data
+    return body
+
+
 def fit(
     cfg: ExperimentConfig,
     verbose: bool = True,
     out_dir: str | Path = "results",
     init_params=None,
     should_cancel=None,
+    run_options: RunOptions | None = None,
+    progress_callback=None,
+    publish_guard=None,
 ) -> dict:
     """Train a model end to end from an ExperimentConfig.
 
     Returns dict with the final TrainState, model, tokenizer, and a JSON-able
-    summary (also written to ``results/<run_name>/summary.json``).
+    summary (written under a UUID-scoped artifact directory by default).
     """
+    if init_params is not None and run_options is not None and run_options.resume_from:
+        raise ValueError("init_params and resume_from are mutually exclusive.")
+
     validation_errors = validate_config(cfg)
     if validation_errors:
         details = "\n- ".join(validation_errors)
@@ -172,6 +209,11 @@ def fit(
         runtime_cfg.model, vocab_size=tokenizer.vocab_size
     )
 
+    raw_options = (run_options or RunOptions()).normalized()
+
+    def require_publish_ownership() -> None:
+        if publish_guard is not None and not bool(publish_guard()):
+            raise RuntimeError("Run publication ownership was lost.")
     rng_np = np.random.default_rng(cfg.train.seed)
     init_key = jax.random.PRNGKey(cfg.train.seed)
     sample = jnp.asarray(
@@ -191,6 +233,280 @@ def fit(
     run_name = cfg.tracking.run_name or (
         f"{model_cfg.attn_type}-attn_{model_cfg.ffn_type}-ffn"
     )
+    source_payload = None
+    source_manifest = None
+    source_artifact_dir = None
+    if raw_options.resume_from:
+        source_path = Path(raw_options.resume_from).resolve()
+        state, source_payload = restore_checkpoint(source_path, state)
+        source_manifest = source_payload["manifest"]
+        source_artifact_dir = (
+            source_path.parent.parent
+            if source_path.parent.name == "checkpoints"
+            else source_path.parent
+        )
+        if raw_options.experiment_uuid is None:
+            raw_options = dataclasses.replace(
+                raw_options,
+                experiment_uuid=source_manifest.get("experiment_uuid"),
+            )
+        if raw_options.run_uuid is None:
+            raw_options = dataclasses.replace(
+                raw_options,
+                run_uuid=source_manifest.get("run_uuid"),
+            )
+        elif raw_options.run_uuid != source_manifest.get("run_uuid") and (
+            raw_options.artifact_dir is None
+        ):
+            raise ValueError(
+                "Forking a resumed checkpoint requires an explicit new "
+                "run_uuid and artifact_dir."
+            )
+        recovering_source = raw_options.run_uuid == source_manifest.get("run_uuid")
+        if recovering_source:
+            source_run_name = str(source_manifest.get("run_name") or "")
+            if source_run_name and run_name != source_run_name:
+                raise ValueError(
+                    "Recovery must retain the checkpoint run_name identity."
+                )
+            if raw_options.artifact_dir is not None and (
+                Path(raw_options.artifact_dir).resolve()
+                != source_artifact_dir.resolve()
+            ):
+                raise ValueError(
+                    "Recovery must retain the checkpoint artifact directory; "
+                    "use a new run_uuid for an explicit fork."
+                )
+            latest_path = source_artifact_dir / "checkpoints" / "latest.msgpack"
+            if latest_path.resolve() != source_path and latest_path.is_file():
+                try:
+                    latest_payload = read_checkpoint(latest_path)
+                except ValueError:
+                    latest_payload = None
+                if latest_payload is not None:
+                    latest_manifest = latest_payload["manifest"]
+                    if (
+                        latest_manifest.get("run_uuid")
+                        != source_manifest.get("run_uuid")
+                        or latest_manifest.get("experiment_uuid")
+                        != source_manifest.get("experiment_uuid")
+                    ):
+                        raise ValueError(
+                            "The artifact directory latest checkpoint belongs "
+                            "to a different immutable run."
+                        )
+                    if int(latest_payload["completed_step"]) > int(
+                        source_payload["completed_step"]
+                    ):
+                        raise ValueError(
+                            "Refusing to roll back the same run from an older "
+                            "checkpoint while a newer latest checkpoint exists; "
+                            "use a new run_uuid and artifact_dir to fork it."
+                        )
+        if raw_options.artifact_dir is None:
+            raw_options = dataclasses.replace(
+                raw_options, artifact_dir=str(source_artifact_dir)
+            )
+    options = resolve_run_options(raw_options)
+    artifact_dir = (
+        Path(raw_options.artifact_dir)
+        if raw_options.artifact_dir is not None
+        else Path(out_dir) / "runs" / str(options.run_uuid)
+    )
+    if artifact_dir.exists() and not artifact_dir.is_dir():
+        raise ValueError(f"Artifact path is not a directory: {artifact_dir}")
+    preexisting_artifacts = artifact_dir.exists() and any(artifact_dir.iterdir())
+    recovering_source = bool(
+        source_manifest is not None
+        and raw_options.run_uuid == source_manifest.get("run_uuid")
+    )
+    incomplete_identity_retry = False
+    retry_manifest = None
+    if (
+        not recovering_source
+        and options.run_uuid is not None
+        and preexisting_artifacts
+    ):
+        entries = {entry.name for entry in artifact_dir.iterdir()}
+        checkpoint_entries = (
+            list((artifact_dir / "checkpoints").iterdir())
+            if (artifact_dir / "checkpoints").is_dir()
+            else []
+        )
+        partial_checkpoint_temps_only = all(
+            entry.is_file()
+            and entry.name.endswith(".tmp")
+            and entry.name.startswith((".latest.msgpack.", ".best.msgpack."))
+            for entry in checkpoint_entries
+        )
+        manifest_only = (
+            "manifest.json" in entries
+            and entries <= {"manifest.json", "checkpoints"}
+            and (not checkpoint_entries or partial_checkpoint_temps_only)
+        )
+        if manifest_only:
+            try:
+                retry_manifest = validate_manifest(
+                    json.loads((artifact_dir / "manifest.json").read_text("utf-8"))
+                )
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                raise ValueError(
+                    f"Existing incomplete run manifest is invalid: {exc}"
+                ) from exc
+            incomplete_identity_retry = bool(
+                retry_manifest.get("run_uuid") == options.run_uuid
+                and retry_manifest.get("experiment_uuid")
+                == options.experiment_uuid
+                and retry_manifest.get("run_name") == run_name
+            )
+    if not recovering_source and preexisting_artifacts and not incomplete_identity_retry:
+        raise ValueError(
+            "Refusing to overwrite a non-empty artifact directory for a new run: "
+            f"{artifact_dir}. Use a unique run name/artifact_dir, or resume its "
+            "checkpoint explicitly."
+        )
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = artifact_dir / "checkpoints"
+    latest_checkpoint = checkpoint_dir / "latest.msgpack"
+    best_checkpoint = checkpoint_dir / "best.msgpack"
+
+    seed_axes = normalize_seed_axes(
+        cfg.train.seed,
+        generator_seed=cfg.data.gen_seed,
+        data_kind=cfg.data.kind,
+        circuit_applicable=uses_quantum(model_cfg),
+        explicit=raw_options.seed_axes,
+        reject_unsupported=True,
+    )
+    if source_manifest is not None:
+        seed_axes = dict(source_manifest.get("seed_axes") or seed_axes)
+        initialization = dict(source_manifest.get("initialization") or {})
+    else:
+        parameter_hash = hashlib.sha256(
+            serialization.to_bytes(params)
+        ).hexdigest()
+        if init_params is not None:
+            initialization = {
+                "mode": "warm_start",
+                "parameters_sha256": parameter_hash,
+                "source": str(
+                    raw_options.caller_metadata.get(
+                        "warm_start_source", "external_init_params"
+                    )
+                ),
+                "train_seed_controls_parameters": False,
+            }
+            sources = dict(seed_axes.get("sources") or {})
+            sources["initialization"] = "warm_start_params"
+            if uses_quantum(model_cfg):
+                sources["circuit"] = "warm_start_params"
+            seed_axes = {
+                **seed_axes,
+                "initialization": None,
+                "circuit": None if uses_quantum(model_cfg) else seed_axes.get("circuit"),
+                "sources": sources,
+                "coupled_axes": [
+                    axis
+                    for axis in seed_axes.get("coupled_axes", [])
+                    if axis not in {"initialization", "circuit"}
+                ],
+                "warm_start_parameters_sha256": parameter_hash,
+            }
+        else:
+            initialization = {
+                "mode": "seeded_random",
+                "parameters_sha256": parameter_hash,
+                "source": "train.seed",
+                "seed": int(cfg.train.seed),
+                "train_seed_controls_parameters": True,
+            }
+    retry_lineage = dict((retry_manifest or {}).get("resume_lineage") or {})
+    resume_lineage: dict = {}
+    if source_payload is not None:
+        resume_event_uuid = retry_lineage.get("resume_event_uuid")
+        if retry_manifest is not None and not resume_event_uuid:
+            raise ValueError(
+                "Existing incomplete fork manifest lacks resume event identity."
+            )
+        resume_lineage = {
+            "source_checkpoint": str(Path(raw_options.resume_from).resolve()),
+            "source_checkpoint_sha256": hashlib.sha256(
+                Path(raw_options.resume_from).read_bytes()
+            ).hexdigest(),
+            "source_run_uuid": source_manifest.get("run_uuid"),
+            "source_manifest_hash": source_manifest.get("manifest_hash"),
+            "source_completed_step": int(source_payload["completed_step"]),
+            "mode": (
+                "recovery"
+                if options.run_uuid == source_manifest.get("run_uuid")
+                else "fork"
+            ),
+            "resume_event_uuid": str(resume_event_uuid or uuid.uuid4()),
+        }
+        if options.parent_run_uuid is not None:
+            resume_lineage["parent_run_uuid"] = options.parent_run_uuid
+        elif resume_lineage["mode"] == "fork":
+            resume_lineage["parent_run_uuid"] = source_manifest.get("run_uuid")
+    elif retry_manifest is not None:
+        resume_lineage = retry_lineage
+    current_manifest = build_run_manifest(
+        runtime_cfg,
+        dataset,
+        options,
+        run_name=run_name,
+        seed_axes=seed_axes,
+        resume_lineage=resume_lineage,
+        initialization=initialization,
+    )
+    if source_manifest is not None:
+        validate_checkpoint_manifest(source_manifest, current_manifest)
+    if retry_manifest is not None:
+        if _retry_manifest_identity(retry_manifest) != _retry_manifest_identity(
+            current_manifest
+        ):
+            raise ValueError(
+                "Existing incomplete run manifest differs from the retried "
+                "configuration, source checkpoint, or environment."
+            )
+        manifest = retry_manifest
+    elif source_manifest is not None:
+        if resume_lineage["mode"] == "recovery":
+            if options.experiment_uuid != source_manifest.get("experiment_uuid"):
+                raise ValueError(
+                    "Recovery must retain the checkpoint experiment_uuid."
+                )
+            manifest = source_manifest
+        else:
+            manifest = current_manifest
+    else:
+        manifest = current_manifest
+    require_publish_ownership()
+    write_immutable_manifest(artifact_dir / "manifest.json", manifest)
+
+    history: list[dict] = []
+    completed_step = 0
+    best_metric: float | None = None
+    best_step: int | None = None
+    if source_payload is not None:
+        completed_step = int(source_payload["completed_step"])
+        state_step = int(np.asarray(state.step))
+        if state_step != completed_step:
+            raise ValueError(
+                "Checkpoint completed_step does not match TrainState.step: "
+                f"{completed_step} != {state_step}."
+            )
+        if completed_step < 0 or completed_step > cfg.train.steps:
+            raise ValueError(
+                "Checkpoint completed_step is outside the configured run: "
+                f"{completed_step} not in [0, {cfg.train.steps}]."
+            )
+        rng_np.bit_generator.state = source_payload["rng_state"]
+        history = list(source_payload["history"])
+        raw_best = source_payload.get("best_metric")
+        best_metric = float(raw_best) if raw_best is not None else None
+        raw_best_step = source_payload.get("best_step")
+        best_step = int(raw_best_step) if raw_best_step is not None else None
+
     # own-dashboard per-step logger (replaces MLflow when configured)
     dash = None
     dash_key = None
@@ -208,6 +524,7 @@ def fit(
             f"{cfg.tracking.dashboard_dataset}/{cfg.tracking.dashboard_seed}/"
             f"{cfg.train.steps}"
         )
+        require_publish_ownership()
         dash.start_run(
             run_key=dash_key, run_name=run_name,
             suite=cfg.tracking.dashboard_suite or "adhoc",
@@ -215,12 +532,21 @@ def fit(
             dataset=cfg.tracking.dashboard_dataset or cfg.data.kind,
             seed=cfg.tracking.dashboard_seed
             if cfg.tracking.dashboard_seed is not None else cfg.train.seed,
-            total_steps=cfg.train.steps, config=dash_config)
+            total_steps=cfg.train.steps, config=dash_config,
+            run_uuid=options.run_uuid,
+            experiment_uuid=options.experiment_uuid,
+            manifest=manifest)
 
     tracker = ExperimentTracker(cfg.tracking)
     tracker.log_params(
         to_flat_dict(cfg)
-        | {"n_params": n_params, "vocab_size": tokenizer.vocab_size}
+        | {
+            "n_params": n_params,
+            "vocab_size": tokenizer.vocab_size,
+            "experiment_uuid": options.experiment_uuid,
+            "run_uuid": options.run_uuid,
+            "manifest_hash": manifest["manifest_hash"],
+        }
     )
     tracker.set_tags(
         {
@@ -252,10 +578,45 @@ def fit(
         else None
     )
 
-    history: list[dict] = []
     t0 = time.time()
     cancelled = False
-    for step in range(1, cfg.train.steps + 1):
+    cadence = raw_options.checkpoint_every or cfg.train.eval_every
+
+    def save_checkpoint(path: Path) -> None:
+        require_publish_ownership()
+        write_checkpoint(
+            path,
+            state,
+            completed_step=completed_step,
+            rng_state=rng_np.bit_generator.state,
+            history=history,
+            best_metric=best_metric,
+            best_step=best_step,
+            manifest=manifest,
+            resume_lineage=resume_lineage,
+        )
+
+    def notify_progress() -> None:
+        if progress_callback is None:
+            return
+        progress_callback({
+            "completed_step": completed_step,
+            "checkpoint_path": str(latest_checkpoint.resolve()),
+            "best_checkpoint_path": (
+                str(best_checkpoint.resolve()) if best_checkpoint.exists() else None
+            ),
+            "artifact_dir": str(artifact_dir.resolve()),
+            "manifest": manifest,
+        })
+
+    # Establish a resumable step-zero/restored checkpoint before the first JIT
+    # or training batch. This closes the restart gap between manifest creation
+    # and the first periodic checkpoint, and lets the queue persist the exact
+    # artifact location immediately.
+    save_checkpoint(latest_checkpoint)
+    notify_progress()
+
+    for step in range(completed_step + 1, cfg.train.steps + 1):
         if should_cancel is not None and should_cancel():
             cancelled = True
             break
@@ -263,18 +624,21 @@ def fit(
             sample_batch(rng_np, train_ids, cfg.train.batch_size, cfg.train.seq_len)
         )
         state, loss = train_step(state, batch)
+        completed_step = step
 
         if step == 1 and verbose:
             print(f"[{run_name}] first step (incl. jit) {time.time() - t0:.1f}s")
         if step % 10 == 0 or step == 1:
             tracker.log_metrics({"train_loss": float(loss)}, step=step)
             if dash is not None:
+                require_publish_ownership()
                 dash.log_step(dash_key, step, {"train_loss": float(loss)},
-                              train_loss=float(loss))
+                              train_loss=float(loss), run_uuid=options.run_uuid)
             if verbose and step % 50 == 0:
                 print(f"[{run_name}] step {step:5d}  train_loss {float(loss):.4f}")
 
-        if step % cfg.train.eval_every == 0 or step == cfg.train.steps:
+        evaluated = step % cfg.train.eval_every == 0 or step == cfg.train.steps
+        if evaluated:
             ev = evaluate(eval_step, state, val_ids, cfg.train)
             if grad_norm_step is not None:
                 g_circ, g_other = grad_norm_step(state, batch)
@@ -283,10 +647,16 @@ def fit(
                 ev["grad_norm_ratio"] = float(g_circ) / (float(g_other) + 1e-12)
             tracker.log_metrics(ev, step=step)
             if dash is not None:
+                require_publish_ownership()
                 dash.log_step(dash_key, step,
                               {k: float(v) for k, v in ev.items()},
-                              val_ppl=float(ev.get("val_ppl", 0)) or None)
+                              val_ppl=float(ev.get("val_ppl", 0)) or None,
+                              run_uuid=options.run_uuid)
             history.append({"step": step, **ev})
+            if best_metric is None or float(ev["val_loss"]) < best_metric:
+                best_metric = float(ev["val_loss"])
+                best_step = step
+                save_checkpoint(best_checkpoint)
             if verbose:
                 extra = (
                     f"  g_circ/g_cls {ev['grad_norm_ratio']:.3e}"
@@ -299,10 +669,20 @@ def fit(
                     + extra
                 )
 
+        if step % cadence == 0 or evaluated or step == cfg.train.steps:
+            save_checkpoint(latest_checkpoint)
+        notify_progress()
+
+    # Cancellation can arrive between periodic checkpoints.  Always leave a
+    # complete latest checkpoint for deterministic recovery, including step 0.
+    if cancelled or not latest_checkpoint.exists():
+        save_checkpoint(latest_checkpoint)
+
     wall = time.time() - t0
     final = history[-1] if history else {}
     if dash is not None:
-        if final:
+        if final and not cancelled:
+            require_publish_ownership()
             dash.record(
                 suite=cfg.tracking.dashboard_suite or "adhoc",
                 variant=cfg.tracking.dashboard_variant or run_name,
@@ -316,24 +696,51 @@ def fit(
                 val_bpc=float(final.get("val_bpc", 0.0)),
                 wall_seconds=wall,
                 config=dash_config,
+                run_uuid=options.run_uuid,
+                experiment_uuid=options.experiment_uuid,
+                manifest_hash=manifest["manifest_hash"],
+                manifest=manifest,
+                finalize_manifest=False,
             )
-        dash.finish_run(dash_key, status="cancelled" if cancelled else "done")
+        if not options.defer_dashboard_terminal:
+            dash.finish_run(
+                dash_key,
+                status="cancelled" if cancelled else "done",
+                run_uuid=options.run_uuid,
+            )
 
-    out = Path(out_dir) / run_name
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "params.msgpack").write_bytes(serialization.to_bytes(state.params))
+    out = artifact_dir
+    if not cancelled:
+        require_publish_ownership()
+        atomic_write_bytes(
+            out / "params.msgpack", serialization.to_bytes(state.params)
+        )
     summary = {
         "run_name": run_name,
+        "artifact_dir": str(out.resolve()),
+        "experiment_uuid": options.experiment_uuid,
+        "run_uuid": options.run_uuid,
+        "manifest_hash": manifest["manifest_hash"],
         "n_params": n_params,
         "vocab_size": tokenizer.vocab_size,
         "wall_seconds": round(wall, 2),
         "steps": cfg.train.steps,
+        "completed_step": completed_step,
         "cancelled": cancelled,
+        "resumed": source_payload is not None,
+        "resumed_from": raw_options.resume_from,
+        "resume_lineage": resume_lineage,
+        "checkpoint_path": str(latest_checkpoint.resolve()),
+        "best_checkpoint_path": (
+            str(best_checkpoint.resolve()) if best_checkpoint.exists() else None
+        ),
+        "best_step": best_step,
         "quantum_diagnostics": diagnostics,
         "history": history,
         **final,
     }
-    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    require_publish_ownership()
+    atomic_write_json(out / "summary.json", summary)
 
     tracker.log_metrics({"wall_seconds": wall})
     tracker.log_artifact(out / "summary.json")
@@ -346,6 +753,143 @@ def fit(
         "dataset": dataset,
         "tokenizer": tokenizer,
         "summary": summary,
+        "manifest": manifest,
+        "run_options": options,
+    }
+
+
+def generation_capability(
+    model_cfg,
+    tokenizer,
+    *,
+    prompt: str = "\n",
+    max_new_tokens: int = 200,
+    temperature: float = 0.8,
+) -> dict:
+    """Return an explicit architecture/tokenizer/context generation contract."""
+    arch = str(getattr(model_cfg, "arch", "unknown"))
+    capacity = int(getattr(model_cfg, "max_seq_len", 0) or 0)
+    if arch == "two_stream":
+        positions_per_token = two_stream_position_count(
+            1, model_cfg.encoder_kind, model_cfg.condition
+        )
+        capacity //= positions_per_token
+    reason = None
+    try:
+        token_count = int(max_new_tokens)
+    except (TypeError, ValueError, OverflowError):
+        token_count = None
+    try:
+        numeric_temperature = float(temperature)
+    except (TypeError, ValueError, OverflowError):
+        numeric_temperature = None
+    if not isinstance(tokenizer, CharTokenizer):
+        reason = "character generation requires a CharTokenizer"
+    elif not hasattr(tokenizer, "stoi") or not hasattr(tokenizer, "decode"):
+        reason = "tokenizer does not expose stoi/decode"
+    elif capacity < 1:
+        reason = "model has no usable real-token context capacity"
+    elif int(getattr(model_cfg, "vocab_size", 0) or 0) != tokenizer.vocab_size:
+        reason = "model/tokenizer vocabulary sizes do not match"
+    elif token_count is None or token_count < 1:
+        reason = "max_new_tokens must be a positive integer"
+    elif (
+        numeric_temperature is None
+        or not math.isfinite(numeric_temperature)
+        or numeric_temperature <= 0
+    ):
+        reason = "temperature must be finite and positive"
+    elif not isinstance(prompt, str):
+        reason = "prompt must be a string"
+    return {
+        "supported": reason is None,
+        "status": "supported" if reason is None else "unsupported",
+        "reason": reason,
+        "architecture": arch,
+        "context_capacity": capacity,
+        "settings": {
+            "max_new_tokens": token_count,
+            "temperature": numeric_temperature,
+            "vocab_size": getattr(tokenizer, "vocab_size", None),
+        },
+    }
+
+
+def generate_outcome(
+    model,
+    params,
+    tokenizer,
+    *,
+    model_cfg,
+    prompt: str = "\n",
+    max_new_tokens: int = 200,
+    temperature: float = 0.8,
+    seed: int = 0,
+) -> dict:
+    """Architecture-neutral generation with explicit unsupported outcomes."""
+    capability = generation_capability(
+        model_cfg,
+        tokenizer,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+    )
+    try:
+        numeric_seed = int(seed)
+    except (TypeError, ValueError, OverflowError):
+        numeric_seed = None
+        capability = {
+            **capability,
+            "supported": False,
+            "status": "unsupported",
+            "reason": "seed must be an integer",
+        }
+    base = {
+        "ok": False,
+        "supported": capability["supported"],
+        "status": capability["status"],
+        "kind": "prompt_generation",
+        "reason": capability["reason"],
+        "generated_text": None,
+        "architecture": capability["architecture"],
+        "context_capacity": capability["context_capacity"],
+        "settings": {**capability["settings"], "seed": numeric_seed},
+        "capability": capability,
+    }
+    if not capability["supported"]:
+        return base
+
+    context_len = capability["context_capacity"]
+    ids = [tokenizer.stoi[c] for c in prompt if c in tokenizer.stoi] or [0]
+    max_new_tokens = int(capability["settings"]["max_new_tokens"])
+    temperature = float(capability["settings"]["temperature"])
+    key = jax.random.PRNGKey(numeric_seed)
+
+    @jax.jit
+    def step_fn(window, t_index, sample_key):
+        logits = model.apply({"params": params}, window[None])[0]
+        sample_key, sub = jax.random.split(sample_key)
+        next_id = jax.random.categorical(
+            sub, logits[t_index] / float(temperature)
+        )
+        return next_id, sample_key
+
+    for _ in range(max_new_tokens):
+        window = ids[-context_len:]
+        padded = np.zeros(context_len, dtype=np.int32)
+        padded[: len(window)] = window
+        next_id, key = step_fn(
+            jnp.asarray(padded), jnp.asarray(len(window) - 1), key
+        )
+        ids.append(int(next_id))
+
+    return {
+        **base,
+        "ok": True,
+        "supported": True,
+        "status": "supported",
+        "reason": None,
+        "generated_text": tokenizer.decode(ids),
     }
 
 
@@ -357,35 +901,22 @@ def generate(
     max_new_tokens: int = 200,
     temperature: float = 0.8,
     seed: int = 0,
+    model_cfg=None,
 ) -> str:
-    """Autoregressive sampling with a fixed-shape window (single jit trace)."""
-    context_len = model.cfg.max_seq_len
-    if model.cfg.arch == "two_stream":
-        positions_per_token = two_stream_position_count(
-            1, model.cfg.encoder_kind, model.cfg.condition
-        )
-        context_len //= positions_per_token
-        if context_len < 1:
-            raise ValueError(
-                "two-stream conditioning has no usable real-token capacity"
-            )
-    ids = [tokenizer.stoi[c] for c in prompt if c in tokenizer.stoi] or [0]
-    key = jax.random.PRNGKey(seed)
-
-    @jax.jit
-    def step_fn(window, t_index, key):
-        logits = model.apply({"params": params}, window[None])[0]
-        key, sub = jax.random.split(key)
-        next_id = jax.random.categorical(sub, logits[t_index] / temperature)
-        return next_id, key
-
-    for _ in range(max_new_tokens):
-        window = ids[-context_len:]
-        padded = np.zeros(context_len, dtype=np.int32)
-        padded[: len(window)] = window
-        next_id, key = step_fn(
-            jnp.asarray(padded), jnp.asarray(len(window) - 1), key
-        )
-        ids.append(int(next_id))
-
-    return tokenizer.decode(ids)
+    """String compatibility wrapper over :func:`generate_outcome`."""
+    finalized = model_cfg or getattr(model, "cfg", None)
+    if finalized is None:
+        raise ValueError("generate requires the finalized ModelConfig.")
+    outcome = generate_outcome(
+        model,
+        params,
+        tokenizer,
+        model_cfg=finalized,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        seed=seed,
+    )
+    if not outcome["ok"]:
+        raise ValueError(outcome["reason"] or "generation is unsupported")
+    return str(outcome["generated_text"])

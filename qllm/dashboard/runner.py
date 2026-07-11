@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import queue
+import math
+import os
+import socket
 import threading
+import time
 import traceback
 import uuid
+from pathlib import Path
 
 from ..config import (
     DataConfig,
@@ -18,6 +22,7 @@ from ..config import (
 from ..claims import METRIC_TYPES, get_claim, infer_claim_id
 from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL, normalize_seed_axes
 from ..resultsdb import ResultsDB
+from ..train.artifacts import RunOptions, read_checkpoint, validate_manifest
 from . import with_dashboard
 from .analogues import (
     AnalogueSpec,
@@ -50,18 +55,54 @@ def _compatible_seed_request(snapshot: dict | None, cfg) -> dict | None:
 
 
 class ExperimentQueue:
-    def __init__(self, db_path: str = "results/qllm_results.db", start_worker: bool = True):
+    def __init__(
+        self,
+        db_path: str = "results/qllm_results.db",
+        start_worker: bool = True,
+        *,
+        lease_seconds: float = 300.0,
+        poll_seconds: float = 0.5,
+        worker_id: str | None = None,
+        results_dir: str | Path | None = None,
+    ):
         self.db_path = db_path
-        self._q: queue.Queue[int] = queue.Queue()
-        self._cancel: set[int] = set()
-        self._lock = threading.Lock()
+        self.results_dir = Path(
+            results_dir
+            if results_dir is not None
+            else os.environ.get("QLLM_RESULTS", "results")
+        )
+        self.lease_seconds = float(lease_seconds)
+        self.poll_seconds = float(poll_seconds)
+        if (
+            not math.isfinite(self.lease_seconds)
+            or not math.isfinite(self.poll_seconds)
+            or self.lease_seconds <= 0
+            or self.poll_seconds <= 0
+        ):
+            raise ValueError(
+                "lease_seconds and poll_seconds must be finite and positive."
+            )
+        self.worker_id = worker_id or (
+            f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
+        )
+        self._wake = threading.Event()
+        self._stop = threading.Event()
         self._worker = None
+        self.db().recover_stale_lab_jobs(
+            checkpoint_resolver=self._recoverable_checkpoint
+        )
         if start_worker:
             self._worker = threading.Thread(target=self._run, daemon=True)
             self._worker.start()
 
     def db(self) -> ResultsDB:
         return ResultsDB(self.db_path)
+
+    def close(self, timeout: float = 5.0) -> None:
+        self._stop.set()
+        self._wake.set()
+        if self._worker is not None:
+            self._worker.join(timeout=timeout)
 
     def submit(
         self, preset_id: str, dataset_name: str, run_name: str | None,
@@ -75,6 +116,11 @@ class ExperimentQueue:
         claim_id: str | None = None,
         seed_axes: dict | None = None,
         metric_type: str | None = None,
+        resume_from: str | None = None,
+        checkpoint_every: int = 0,
+        experiment_uuid: str | None = None,
+        run_uuid: str | None = None,
+        artifact_dir: str | None = None,
     ) -> dict:
         db = self.db()
         dataset = get_dataset(db, dataset_name)
@@ -89,6 +135,7 @@ class ExperimentQueue:
                 "Open the GPU page and follow the CUDA/JAX setup guidance."
             )
         allow_gpu_scale = device_target == "gpu"
+        explicit_run_name = run_name is not None
         cfg = self._config_for_source(preset_id)
         cfg = apply_quantum_overrides(
             preset_id, cfg, quantum_overrides, allow_gpu_scale=allow_gpu_scale
@@ -107,6 +154,47 @@ class ExperimentQueue:
         seed = int(seed)
         analogue = self._analogue_for_source(preset_id, cfg)
         wants_comparison = bool(queue_classical_comparison and analogue)
+        checkpoint_every = int(checkpoint_every or 0)
+        if checkpoint_every < 0:
+            raise ValueError("Checkpoint interval must be non-negative.")
+        if resume_from and wants_comparison:
+            raise ValueError(
+                "A checkpoint resumes one logical model run; queue its matched "
+                "comparison separately."
+            )
+        parent_run_uuid = None
+        if resume_from:
+            resume_payload = read_checkpoint(resume_from)
+            source_manifest = resume_payload["manifest"]
+            source_run_uuid = source_manifest.get("run_uuid")
+            source_experiment_uuid = source_manifest.get("experiment_uuid")
+            if not source_run_uuid or not source_experiment_uuid:
+                raise ValueError("Resume checkpoint is missing run identity.")
+            if run_uuid is None:
+                run_uuid = source_run_uuid
+            if experiment_uuid is None:
+                experiment_uuid = source_experiment_uuid
+            if run_uuid != source_run_uuid:
+                if not artifact_dir:
+                    raise ValueError(
+                        "Forking a checkpoint requires an explicit new run_uuid "
+                        "and artifact_dir."
+                    )
+                parent_run_uuid = source_run_uuid
+            elif artifact_dir is None:
+                source_path = Path(resume_from).resolve()
+                artifact_dir = str(
+                    source_path.parent.parent
+                    if source_path.parent.name == "checkpoints"
+                    else source_path.parent
+                )
+            source_name = str(source_manifest.get("run_name") or "")
+            if source_name and not explicit_run_name:
+                run_name = source_name
+            elif source_name and run_name != source_name and run_uuid == source_run_uuid:
+                raise ValueError(
+                    "Recovery must retain the checkpoint run_name/artifact identity."
+                )
         cfg = self._config_for_job(
             cfg, dataset["corpus_path"], run_name,
             seed, steps, eval_every, batch_size, seq_len,
@@ -164,6 +252,12 @@ class ExperimentQueue:
         job_config["research.claim_id"] = resolved_claim_id
         job_config["research.metric_type"] = resolved_metric_type
         job_config["research.seed_axes"] = axes
+        job_config["lab.config_snapshot_version"] = 1
+        job_config["lab.checkpoint_every"] = checkpoint_every
+        if resume_from:
+            job_config["lab.resume_from"] = str(resume_from)
+        if artifact_dir:
+            job_config["lab.artifact_dir"] = str(artifact_dir)
         if cfg.model.arch == "two_stream":
             job_config["lab.two_stream_protocol"] = TWO_STREAM_CAUSAL_PROTOCOL
         if quantum_overrides:
@@ -193,7 +287,12 @@ class ExperimentQueue:
             )
         )
         group_id = group_id or uuid.uuid4().hex
-        job_id = db.create_lab_job({
+        experiment_uuid = str(uuid.UUID(str(experiment_uuid or uuid.uuid4())))
+        run_uuid = str(uuid.UUID(str(run_uuid or uuid.uuid4())))
+        if artifact_dir is None:
+            artifact_dir = str((self.results_dir / "runs" / run_uuid).resolve())
+            job_config["lab.artifact_dir"] = artifact_dir
+        primary_job = {
             "status": "queued",
             "preset_id": preset_id,
             "dataset_name": dataset_name,
@@ -205,11 +304,16 @@ class ExperimentQueue:
             "group_id": group_id,
             "device_target": device_target,
             "comparison_role": "candidate" if wants_comparison else "primary",
-        })
+            "experiment_uuid": experiment_uuid,
+            "run_uuid": run_uuid,
+            "parent_run_uuid": parent_run_uuid,
+            "resume_from": str(resume_from) if resume_from else None,
+            "artifact_dir": str(artifact_dir) if artifact_dir else None,
+        }
         comparison_job = None
         if wants_comparison and analogue:
             analogue_source_id, _, analogue = self._source_for_analogue(
-                db, analogue, run_name, preset_id, job_id
+                db, analogue, run_name, preset_id, 0
             )
             twin_name = f"{run_name}-classical"
             if prepared_twin_cfg is None:  # defensive; guarded above
@@ -218,6 +322,8 @@ class ExperimentQueue:
             twin_config = to_flat_dict(twin_cfg)
             twin_config["research.claim_id"] = resolved_claim_id
             twin_config["research.metric_type"] = resolved_metric_type
+            twin_config["lab.config_snapshot_version"] = 1
+            twin_config["lab.checkpoint_every"] = checkpoint_every
             twin_config["research.seed_axes"] = normalize_seed_axes(
                 seed,
                 generator_seed=twin_cfg.data.gen_seed,
@@ -245,10 +351,14 @@ class ExperimentQueue:
                     analogue,
                     state="baseline",
                     role="baseline",
-                    analogue_job_id=job_id,
                 )
             )
-            twin_job_id = db.create_lab_job({
+            twin_run_uuid = str(uuid.uuid4())
+            twin_artifact_dir = str(
+                (self.results_dir / "runs" / twin_run_uuid).resolve()
+            )
+            twin_config["lab.artifact_dir"] = twin_artifact_dir
+            twin_job = {
                 "status": "queued",
                 "preset_id": analogue_source_id,
                 "dataset_name": dataset_name,
@@ -258,24 +368,46 @@ class ExperimentQueue:
                 "eval_every": eval_every,
                 "config": twin_config,
                 "group_id": group_id,
-                "parent_job_id": job_id,
-                "compare_to_job_id": job_id,
                 "device_target": device_target,
                 "comparison_role": "baseline",
-            })
-            job_config.update(
-                analogue_config_fields(
-                    analogue,
-                    state="queued",
-                    role="candidate",
-                    analogue_job_id=twin_job_id,
-                )
-            )
-            db.update_lab_job(job_id, compare_to_job_id=twin_job_id, config=job_config)
+                "experiment_uuid": experiment_uuid,
+                "run_uuid": twin_run_uuid,
+                "artifact_dir": twin_artifact_dir,
+            }
+            job_id, twin_job_id = db.create_lab_job_pair(primary_job, twin_job)
             comparison_job = self.get(twin_job_id)
-        self._q.put(job_id)
-        if comparison_job is not None:
-            self._q.put(comparison_job["id"])
+        else:
+            existing = db.get_lab_job_by_run_uuid(run_uuid)
+            if existing is not None:
+                expected = (
+                    preset_id,
+                    dataset_name,
+                    seed,
+                    steps,
+                )
+                actual = (
+                    existing["preset_id"],
+                    existing["dataset_name"],
+                    int(existing["seed"]),
+                    int(existing["steps"]),
+                )
+                if actual != expected:
+                    raise ValueError(
+                        "Existing dashboard job conflicts with resumed run_uuid."
+                    )
+                if existing["status"] in ("error", "cancelled") and resume_from:
+                    db.requeue_lab_job_from_checkpoint(
+                        int(existing["id"]),
+                        resume_from=str(resume_from),
+                        checkpoint_path=str(resume_from),
+                        completed_step=int(resume_payload["completed_step"]),
+                        config=job_config,
+                        artifact_dir=str(artifact_dir) if artifact_dir else None,
+                    )
+                    self._wake.set()
+                return self.get(int(existing["id"])) or {}
+            job_id = db.create_lab_job(primary_job)
+        self._wake.set()
         out = self.get(job_id) or {}
         if comparison_job is not None:
             out["comparison_job"] = comparison_job
@@ -291,6 +423,8 @@ class ExperimentQueue:
         claim_id: str | None = None,
         seed_axes: dict | None = None,
         metric_type: str | None = None,
+        checkpoint_every: int = 0,
+        experiment_uuid: str | None = None,
     ) -> dict:
         if not qubits:
             raise ValueError("At least one qubit count is required.")
@@ -299,6 +433,7 @@ class ExperimentQueue:
         if len(qubits) * len(depths) > 64:
             raise ValueError("Scaling sweeps are capped at 64 jobs per batch.")
         group_id = uuid.uuid4().hex
+        experiment_uuid = experiment_uuid or str(uuid.uuid4())
         label = (run_name or preset_id).strip() or preset_id
         jobs = []
         for qbits in qubits:
@@ -323,6 +458,8 @@ class ExperimentQueue:
                         claim_id=claim_id,
                         seed_axes=seed_axes,
                         metric_type=metric_type,
+                        checkpoint_every=checkpoint_every,
+                        experiment_uuid=experiment_uuid,
                     )
                 )
         return {"group_id": group_id, "count": len(jobs), "jobs": jobs}
@@ -337,6 +474,11 @@ class ExperimentQueue:
         claim_id: str | None = None,
         seed_axes: dict | None = None,
         metric_type: str | None = None,
+        resume_from: str | None = None,
+        checkpoint_every: int = 0,
+        experiment_uuid: str | None = None,
+        run_uuid: str | None = None,
+        artifact_dir: str | None = None,
     ) -> dict:
         spec = self.db().get_model_spec(spec_id)
         if spec is None:
@@ -344,7 +486,7 @@ class ExperimentQueue:
         return self.submit(
             preset_id=f"model-spec:{spec_id}",
             dataset_name=dataset_name,
-            run_name=run_name or spec["name"],
+            run_name=(run_name if resume_from else (run_name or spec["name"])),
             seed=seed,
             steps=steps,
             eval_every=eval_every,
@@ -355,6 +497,11 @@ class ExperimentQueue:
             claim_id=claim_id,
             seed_axes=seed_axes,
             metric_type=metric_type,
+            resume_from=resume_from,
+            checkpoint_every=checkpoint_every,
+            experiment_uuid=experiment_uuid,
+            run_uuid=run_uuid,
+            artifact_dir=artifact_dir,
         )
 
     def classical_analogue_for_job(self, job_id: int) -> dict:
@@ -413,10 +560,12 @@ class ExperimentQueue:
             db, analogue, job["run_name"], job["preset_id"], int(job["id"])
         )
         twin_config = to_flat_dict(twin_cfg)
+        twin_config["lab.config_snapshot_version"] = 1
         twin_config.update({
             key: value
             for key, value in (job.get("config") or {}).items()
             if str(key).startswith("research.")
+            or key == "lab.checkpoint_every"
         })
         source_overrides = self._quantum_overrides_from_decoded_job(job) or {}
         if {"n_qubits", "n_circuit_layers"} <= set(source_overrides):
@@ -449,22 +598,6 @@ class ExperimentQueue:
                 analogue_job_id=int(job["id"]),
             )
         )
-        twin_job_id = db.create_lab_job({
-            "status": "queued",
-            "preset_id": analogue_source_id,
-            "dataset_name": job["dataset_name"],
-            "run_name": twin_name,
-            "seed": int(job["seed"]),
-            "steps": int(job["steps"]),
-            "eval_every": int(job["eval_every"]),
-            "config": twin_config,
-            "group_id": group_id,
-            "parent_job_id": int(job["id"]),
-            "compare_to_job_id": int(job["id"]),
-            "device_target": job.get("device_target") or "auto",
-            "comparison_role": "baseline",
-        })
-
         candidate_config = dict(job.get("config") or {})
         if {"n_qubits", "n_circuit_layers"} <= set(source_overrides):
             candidate_config["lab.study_cell.n_qubits"] = source_overrides[
@@ -478,18 +611,33 @@ class ExperimentQueue:
                 analogue,
                 state="queued",
                 role="candidate",
-                analogue_job_id=twin_job_id,
             )
         )
-        db.update_lab_job(
-            int(job["id"]),
-            group_id=group_id,
-            compare_to_job_id=twin_job_id,
-            comparison_role="candidate",
-            config=candidate_config,
+        twin_run_uuid = str(uuid.uuid4())
+        twin_artifact_dir = str(
+            (self.results_dir / "runs" / twin_run_uuid).resolve()
         )
+        twin_config["lab.artifact_dir"] = twin_artifact_dir
+        twin_job_id = db.create_linked_lab_job(int(job["id"]), {
+            "status": "queued",
+            "preset_id": analogue_source_id,
+            "dataset_name": job["dataset_name"],
+            "run_name": twin_name,
+            "seed": int(job["seed"]),
+            "steps": int(job["steps"]),
+            "eval_every": int(job["eval_every"]),
+            "config": twin_config,
+            "group_id": group_id,
+            "parent_job_id": int(job["id"]),
+            "compare_to_job_id": int(job["id"]),
+            "device_target": job.get("device_target") or "auto",
+            "comparison_role": "baseline",
+            "experiment_uuid": job.get("experiment_uuid"),
+            "run_uuid": twin_run_uuid,
+            "artifact_dir": twin_artifact_dir,
+        }, primary_config=candidate_config, group_id=group_id)
         comparison_job = self.get(twin_job_id)
-        self._q.put(twin_job_id)
+        self._wake.set()
         out = self.get(int(job["id"])) or {}
         if comparison_job is not None:
             out["comparison_job"] = comparison_job
@@ -574,53 +722,266 @@ class ExperimentQueue:
 
     def cancel(self, job_id: int) -> dict:
         db = self.db()
-        job = db.get_lab_job(job_id)
+        job = db.request_cancel_lab_job(job_id)
         if job is None:
             raise ValueError(f"Unknown job {job_id}")
-        if job["status"] in ("done", "error", "cancelled"):
-            return self._decode(job)
-        with self._lock:
-            self._cancel.add(job_id)
-        if job["status"] == "queued":
-            db.update_lab_job(job_id, status="cancelled", error="Cancelled before start.")
+        self._wake.set()
         return self.get(job_id) or {}
 
     def should_cancel(self, job_id: int) -> bool:
-        with self._lock:
-            return job_id in self._cancel
+        return self.db().lab_job_cancel_requested(job_id)
 
     def _run(self) -> None:
-        while True:
-            job_id = self._q.get()
+        while not self._stop.is_set():
+            db = self.db()
+            db.recover_stale_lab_jobs(
+                checkpoint_resolver=self._recoverable_checkpoint
+            )
+            job = db.claim_next_lab_job(
+                self.worker_id, lease_seconds=self.lease_seconds
+            )
+            if job is None:
+                self._wake.wait(self.poll_seconds)
+                self._wake.clear()
+                continue
+            self._run_claimed(job)
+
+    @staticmethod
+    def _recoverable_checkpoint(job: dict) -> dict | None:
+        """Resolve only artifacts whose immutable identity matches the job."""
+        fresh_allowed = bool(
+            int(job.get("completed_step") or 0) == 0
+            and not job.get("manifest_hash")
+            and not job.get("manifest_json")
+            and not job.get("checkpoint_path")
+            and not job.get("resume_from")
+        )
+        artifact_dir = (
+            Path(str(job["artifact_dir"])) if job.get("artifact_dir") else None
+        )
+        candidates: list[Path] = []
+        if artifact_dir is not None:
+            latest = artifact_dir / "checkpoints" / "latest.msgpack"
+            candidates.append(latest)
+            best = artifact_dir / "checkpoints" / "best.msgpack"
+            if best not in candidates:
+                candidates.append(best)
+        if job.get("checkpoint_path"):
+            checkpoint = Path(str(job["checkpoint_path"]))
+            if checkpoint not in candidates:
+                candidates.append(checkpoint)
+        if job.get("best_checkpoint_path"):
+            best_checkpoint = Path(str(job["best_checkpoint_path"]))
+            if best_checkpoint not in candidates:
+                candidates.append(best_checkpoint)
+        own_checkpoints: list[tuple[int, Path]] = []
+        for candidate in candidates:
             try:
-                self._run_one(job_id)
-            finally:
-                self._q.task_done()
+                payload = read_checkpoint(candidate)
+            except ValueError:
+                continue
+            manifest = payload["manifest"]
+            if manifest.get("run_uuid") != job.get("run_uuid"):
+                continue
+            if manifest.get("experiment_uuid") != job.get("experiment_uuid"):
+                continue
+            completed_step = int(payload["completed_step"])
+            if completed_step < 0 or completed_step > int(job["steps"]):
+                continue
+            own_checkpoints.append((completed_step, candidate))
+        if own_checkpoints:
+            completed_step, candidate = max(
+                own_checkpoints, key=lambda item: item[0]
+            )
+            return {
+                "path": str(candidate.resolve()),
+                "completed_step": completed_step,
+                "fresh": False,
+            }
+        if job.get("resume_from"):
+            bootstrap = Path(str(job["resume_from"]))
+            try:
+                payload = read_checkpoint(bootstrap)
+            except ValueError:
+                payload = None
+            if payload is not None:
+                manifest = payload["manifest"]
+                source_run_uuid = manifest.get("run_uuid")
+                same_run = (
+                    source_run_uuid == job.get("run_uuid")
+                    and manifest.get("experiment_uuid")
+                    == job.get("experiment_uuid")
+                )
+                fork_source = bool(
+                    job.get("parent_run_uuid")
+                    and source_run_uuid == job.get("parent_run_uuid")
+                )
+                completed_step = int(payload["completed_step"])
+                if (
+                    (same_run or fork_source)
+                    and 0 <= completed_step <= int(job["steps"])
+                ):
+                    return {
+                        "path": str(bootstrap.resolve()),
+                        "completed_step": completed_step,
+                        "fresh": False,
+                    }
+            # A persisted resume contract must never degrade silently to a
+            # fresh random initialization when its bootstrap is unavailable,
+            # corrupt, or bound to another run.
+            return None
+        if artifact_dir is None or not artifact_dir.exists():
+            return (
+                {"path": None, "completed_step": 0, "fresh": True}
+                if fresh_allowed
+                else None
+            )
+        if not artifact_dir.is_dir():
+            return None
+        entries = {entry.name for entry in artifact_dir.iterdir()}
+        checkpoint_entries = (
+            list((artifact_dir / "checkpoints").iterdir())
+            if (artifact_dir / "checkpoints").is_dir()
+            else []
+        )
+        partial_checkpoint_temps_only = all(
+            entry.is_file()
+            and entry.name.endswith(".tmp")
+            and entry.name.startswith((".latest.msgpack.", ".best.msgpack."))
+            for entry in checkpoint_entries
+        )
+        if not entries:
+            return (
+                {"path": None, "completed_step": 0, "fresh": True}
+                if fresh_allowed
+                else None
+            )
+        if (
+            entries <= {"manifest.json", "checkpoints"}
+            and "manifest.json" in entries
+            and (not checkpoint_entries or partial_checkpoint_temps_only)
+        ):
+            try:
+                manifest = validate_manifest(
+                    json.loads((artifact_dir / "manifest.json").read_text("utf-8"))
+                )
+            except (OSError, json.JSONDecodeError, ValueError):
+                return None
+            if (
+                manifest.get("run_uuid") == job.get("run_uuid")
+                and manifest.get("experiment_uuid") == job.get("experiment_uuid")
+                and int(job.get("completed_step") or 0) == 0
+                and not job.get("manifest_hash")
+            ):
+                return {"path": None, "completed_step": 0, "fresh": True}
+        return None
 
     def _run_one(self, job_id: int) -> None:
+        """Claim and run one job synchronously (tests and local tooling)."""
         db = self.db()
         job = db.get_lab_job(job_id)
-        if job is None or job["status"] == "cancelled":
+        if job is None or job["status"] in ("cancelled", "done", "error"):
             return
-        try:
-            dataset = get_dataset(db, job["dataset_name"])
-            if dataset is None:
-                raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
-            cfg = self._config_for_source(job["preset_id"])
-            device_target = job.get("device_target") or "auto"
-            cfg = apply_quantum_overrides(
-                job["preset_id"], cfg, self._quantum_overrides_from_job(job),
-                allow_gpu_scale=device_target == "gpu",
+        if job["status"] == "queued":
+            job = db.claim_lab_job(
+                job_id, self.worker_id, lease_seconds=self.lease_seconds
             )
+        elif job.get("worker_id") != self.worker_id:
+            return
+        if job is not None:
+            self._run_claimed(job)
+
+    def _run_claimed(self, job: dict) -> None:
+        db = self.db()
+        job_id = int(job["id"])
+        heartbeat_stop = threading.Event()
+        ownership_lost = threading.Event()
+
+        def heartbeat_loop() -> None:
+            interval = max(0.05, min(self.lease_seconds / 3.0, 30.0))
+            while not heartbeat_stop.wait(interval):
+                if not db.heartbeat_lab_job(
+                    job_id,
+                    self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                ):
+                    ownership_lost.set()
+                    return
+
+        heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        heartbeat_thread.start()
+        try:
+            try:
+                existing_config = json.loads(job.get("config_json") or "{}")
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "Job config_json is malformed; refusing to replace the raw "
+                    "evidence."
+                ) from exc
+            if not isinstance(existing_config, dict):
+                raise ValueError(
+                    "Job config_json must decode to an object; raw evidence was preserved."
+                )
+            required_snapshot_keys = {
+                "model.arch",
+                "train.seed",
+                "train.steps",
+                "train.eval_every",
+                "data.kind",
+                "tracking.run_name",
+            }
+            has_snapshot = bool(
+                existing_config.get("lab.config_snapshot_version")
+                or required_snapshot_keys <= set(existing_config)
+            )
+            device_target = job.get("device_target") or "auto"
+            if has_snapshot:
+                cfg = config_from_flat_payload(existing_config)
+                snapshot_mismatches = []
+                for label, snapshot_value, job_value in (
+                    ("train.seed", cfg.train.seed, int(job["seed"])),
+                    ("train.steps", cfg.train.steps, int(job["steps"])),
+                    (
+                        "train.eval_every",
+                        cfg.train.eval_every,
+                        int(job["eval_every"]),
+                    ),
+                    ("tracking.run_name", cfg.tracking.run_name, job["run_name"]),
+                ):
+                    if snapshot_value != job_value:
+                        snapshot_mismatches.append(
+                            f"{label}: snapshot={snapshot_value!r}, job={job_value!r}"
+                        )
+                if snapshot_mismatches:
+                    raise ValueError(
+                        "Persisted job config conflicts with immutable queue fields: "
+                        + "; ".join(snapshot_mismatches)
+                    )
+            else:
+                dataset = get_dataset(db, job["dataset_name"])
+                if dataset is None:
+                    raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
+                cfg = self._config_for_source(job["preset_id"])
+                cfg = apply_quantum_overrides(
+                    job["preset_id"],
+                    cfg,
+                    self._quantum_overrides_from_job(job),
+                    allow_gpu_scale=device_target == "gpu",
+                )
+                cfg = self._config_for_job(
+                    cfg,
+                    dataset["corpus_path"],
+                    job["run_name"],
+                    int(job["seed"]),
+                    int(job["steps"]),
+                    int(job["eval_every"]),
+                    *self._train_overrides_from_job(job),
+                )
+            self._require_valid_config(cfg, "persisted job")
             if device_target == "gpu" and not self.gpu_ready():
                 raise ValueError(
                     "GPU was requested, but JAX does not currently see a GPU."
                 )
-            cfg = self._config_for_job(
-                cfg, dataset["corpus_path"], job["run_name"],
-                int(job["seed"]), int(job["steps"]), int(job["eval_every"]),
-                *self._train_overrides_from_job(job),
-            )
             variant = self._variant_for_job(job)
             cfg = with_dashboard(
                 cfg,
@@ -634,49 +995,136 @@ class ExperimentQueue:
                 f"lab/{variant}/{job['dataset_name']}/"
                 f"{job['seed']}/{job['steps']}"
             )
-            try:
-                existing_config = json.loads(job.get("config_json") or "{}")
-            except json.JSONDecodeError:
-                existing_config = {}
-            running_config = {
-                **existing_config,
-                **to_flat_dict(cfg),
-            }
+            runtime_config = to_flat_dict(cfg)
+            if has_snapshot:
+                runtime_config = {
+                    key: value
+                    for key, value in runtime_config.items()
+                    if key.startswith("tracking.")
+                }
+            running_config = {**existing_config, **runtime_config}
+            if not job.get("run_uuid") or not job.get("experiment_uuid"):
+                raise ValueError("Claimed job is missing durable UUID identity.")
+            artifact_dir = str(
+                Path(
+                    job.get("artifact_dir")
+                    or self.results_dir / "runs" / str(job["run_uuid"])
+                ).resolve()
+            )
+            running_config["lab.artifact_dir"] = artifact_dir
             running_config = update_reservation_state(
                 running_config, "active", job_id
             )
-            db.update_lab_job(job_id, status="running", run_key=run_key,
-                              config=running_config, error=None)
+            if not db.prepare_claimed_lab_job(
+                job_id,
+                self.worker_id,
+                run_key=run_key,
+                config=running_config,
+                artifact_dir=artifact_dir,
+            ):
+                ownership_lost.set()
+                return
+            job = {**job, "artifact_dir": artifact_dir}
             from ..train.loop import fit
+
+            def on_progress(progress: dict) -> None:
+                checkpoint_path = progress.get("checkpoint_path")
+                artifact_dir = (
+                    str(Path(checkpoint_path).parent.parent)
+                    if checkpoint_path
+                    else None
+                )
+                if not db.heartbeat_lab_job(
+                    job_id,
+                    self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                    completed_step=progress.get("completed_step"),
+                    checkpoint_path=checkpoint_path,
+                    best_checkpoint_path=progress.get("best_checkpoint_path"),
+                    artifact_dir=artifact_dir,
+                    manifest=progress.get("manifest"),
+                ):
+                    ownership_lost.set()
 
             result = fit(
                 cfg,
                 verbose=False,
-                should_cancel=lambda: self.should_cancel(job_id),
+                should_cancel=lambda: (
+                    ownership_lost.is_set() or self.should_cancel(job_id)
+                ),
+                run_options=RunOptions(
+                    experiment_uuid=job.get("experiment_uuid"),
+                    run_uuid=job.get("run_uuid"),
+                    resume_from=job.get("resume_from"),
+                    checkpoint_every=self._checkpoint_every_from_job(job),
+                    artifact_dir=job.get("artifact_dir"),
+                    caller_metadata={
+                        "source": "dashboard",
+                        "job_id": job_id,
+                    },
+                    parent_run_uuid=job.get("parent_run_uuid"),
+                    seed_axes=self._seed_axes_from_job(job),
+                    defer_dashboard_terminal=True,
+                ),
+                progress_callback=on_progress,
+                publish_guard=lambda: db.heartbeat_lab_job(
+                    job_id,
+                    self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                ),
             )
+            if ownership_lost.is_set():
+                return
             status = "cancelled" if result["summary"].get("cancelled") else "done"
             done_config = update_reservation_state(running_config, "released")
-            db.update_lab_job(job_id, status=status, config=done_config)
+            finished = db.finish_claimed_lab_job(
+                job_id,
+                self.worker_id,
+                status=status,
+                config=done_config,
+                completed_step=result["summary"].get("completed_step"),
+                checkpoint_path=result["summary"].get("checkpoint_path"),
+                best_checkpoint_path=result["summary"].get("best_checkpoint_path"),
+                artifact_dir=result["summary"].get("artifact_dir"),
+                manifest=result.get("manifest"),
+            )
+            if not finished:
+                ownership_lost.set()
+            else:
+                db.finish_run(
+                    run_key,
+                    status=status,
+                    run_uuid=job.get("run_uuid"),
+                )
         except Exception as exc:  # pragma: no cover - defensive worker boundary
             latest = db.get_lab_job(job_id)
-            if latest and latest.get("run_key"):
-                try:
-                    db.finish_run(latest["run_key"], status="error")
-                except Exception:
-                    pass
             try:
-                error_config = update_reservation_state(
-                    json.loads((latest or job).get("config_json") or "{}"),
-                    "released",
+                decoded_error_config = json.loads(
+                    (latest or job).get("config_json") or "{}"
                 )
-            except json.JSONDecodeError:
-                error_config = {}
-            db.update_lab_job(
+                error_config = (
+                    update_reservation_state(decoded_error_config, "released")
+                    if isinstance(decoded_error_config, dict)
+                    else None
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                error_config = None
+            finished = db.finish_claimed_lab_job(
                 job_id,
+                self.worker_id,
                 status="error",
                 config=error_config,
                 error=f"{exc}\n{traceback.format_exc(limit=6)}",
             )
+            if finished and latest and latest.get("run_key"):
+                db.finish_run(
+                    latest["run_key"],
+                    status="error",
+                    run_uuid=latest.get("run_uuid"),
+                )
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=max(0.1, min(self.lease_seconds, 1.0)))
 
     def _decode(self, job: dict) -> dict:
         out = dict(job)
@@ -797,6 +1245,23 @@ class ExperimentQueue:
             int(batch_size) if batch_size is not None else None,
             int(seq_len) if seq_len is not None else None,
         )
+
+    @staticmethod
+    def _checkpoint_every_from_job(job: dict) -> int:
+        try:
+            config = json.loads(job.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            return 0
+        return int(config.get("lab.checkpoint_every") or 0)
+
+    @staticmethod
+    def _seed_axes_from_job(job: dict) -> dict | None:
+        try:
+            config = json.loads(job.get("config_json") or "{}")
+        except json.JSONDecodeError:
+            return None
+        axes = config.get("research.seed_axes") or config.get("lab.seed_axes")
+        return dict(axes) if isinstance(axes, dict) else None
 
     @staticmethod
     def _train_overrides_from_decoded_job(job: dict) -> tuple[int | None, int | None]:

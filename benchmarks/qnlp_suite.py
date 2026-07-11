@@ -144,6 +144,7 @@ def main() -> None:
                 val_bpc=s["val_bpc"],
                 wall_seconds=s["wall_seconds"],
                 config=to_flat_dict(cfg),
+                manifest=res["manifest"],
             )
             ran += 1
             print(

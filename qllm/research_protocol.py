@@ -549,6 +549,8 @@ _MISSING = object()
 _OPERATIONAL_PATTERNS = (
     "tracking.*",
     "lab.analogue.*",
+    "lab.artifact_dir",
+    "lab.config_snapshot_version",
     "lab.quantum_override.*",
     "lab.resource.*",
     "lab.reservation.*",

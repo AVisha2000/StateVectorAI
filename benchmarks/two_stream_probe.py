@@ -110,7 +110,7 @@ def main() -> None:
                       config={
                           **to_flat_dict(cfg),
                           "research.two_stream_protocol": TWO_STREAM_CAUSAL_PROTOCOL,
-                      })
+                      }, manifest=res["manifest"])
             print(f"done {name:16s} s{seed} params={s['n_params']:6,d} "
                   f"ppl={s['val_ppl']:.4f} ({s['wall_seconds']:.0f}s)")
 

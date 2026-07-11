@@ -79,7 +79,7 @@ def test_full_quantum_model_causality_and_training_step():
 def test_resultsdb_roundtrip(tmp_path):
     db = ResultsDB(tmp_path / "r.db")
     assert not db.exists("s", "v", "d", 0, 100)
-    db.record(
+    first = db.record(
         suite="s", variant="v", dataset="d", seed=0, steps=100,
         n_params=42, val_loss=1.0, val_ppl=2.7, val_bpc=1.44,
         wall_seconds=3.2, config={"model.arch": "transformer"},
@@ -88,14 +88,20 @@ def test_resultsdb_roundtrip(tmp_path):
     rows = db.fetch("s")
     assert len(rows) == 1 and rows[0]["val_ppl"] == 2.7
 
-    # unique key -> replace, not duplicate
-    db.record(
+    # The legacy composite projection remains first-write stable, while each
+    # UUID-backed attempt is retained canonically without rewriting evidence.
+    second = db.record(
         suite="s", variant="v", dataset="d", seed=0, steps=100,
         n_params=42, val_loss=0.9, val_ppl=2.5, val_bpc=1.3,
         wall_seconds=3.0,
     )
     rows = db.fetch("s")
-    assert len(rows) == 1 and rows[0]["val_ppl"] == 2.5
+    assert len(rows) == 1 and rows[0]["val_ppl"] == 2.7
+    assert first["run_uuid"] != second["run_uuid"]
+    second_row = db.get_run(
+        "s", "v", "d", 0, 100, run_uuid=second["run_uuid"]
+    )
+    assert second_row["val_ppl"] == 2.5
 
     assert db.delete("s") == 1
     assert db.fetch("s") == []

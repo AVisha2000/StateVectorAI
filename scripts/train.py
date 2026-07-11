@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qllm.config import load_yaml, validate_config  # noqa: E402
 from qllm.train.loop import fit, generate  # noqa: E402
+from qllm.train.artifacts import RunOptions  # noqa: E402
 
 
 def main() -> None:
@@ -28,6 +29,17 @@ def main() -> None:
         "--sample", type=int, default=200, help="Chars to sample after training (0=off)"
     )
     parser.add_argument("--prompt", default="ROMEO:", help="Generation prompt")
+    parser.add_argument("--resume-from", default=None, help="Resume a latest checkpoint")
+    parser.add_argument(
+        "--checkpoint-every", type=int, default=0,
+        help="Write latest checkpoint every N steps (0=eval cadence)",
+    )
+    parser.add_argument("--experiment-uuid", default=None)
+    parser.add_argument("--run-uuid", default=None)
+    parser.add_argument(
+        "--artifact-dir", default=None,
+        help="Exact artifact directory (required when forking a resumed run)",
+    )
     args = parser.parse_args()
 
     try:
@@ -51,7 +63,17 @@ def main() -> None:
     if validation_errors:
         parser.error("Invalid config:\n- " + "\n- ".join(validation_errors))
 
-    result = fit(cfg)
+    result = fit(
+        cfg,
+        run_options=RunOptions(
+            experiment_uuid=args.experiment_uuid,
+            run_uuid=args.run_uuid,
+            resume_from=args.resume_from,
+            checkpoint_every=args.checkpoint_every,
+            artifact_dir=args.artifact_dir,
+            caller_metadata={"source": "cli", "config_path": str(args.config)},
+        ),
+    )
 
     if args.sample > 0:
         text = generate(
@@ -60,6 +82,7 @@ def main() -> None:
             result["tokenizer"],
             prompt=args.prompt,
             max_new_tokens=args.sample,
+            model_cfg=result["model_cfg"],
         )
         print("\n--- sample ---")
         print(text)

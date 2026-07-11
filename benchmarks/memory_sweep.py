@@ -132,7 +132,8 @@ def main() -> None:
                 db.record(suite=args.suite, variant=name, dataset=dataset,
                           seed=seed, steps=steps, n_params=s["n_params"],
                           val_loss=s["val_loss"], val_ppl=s["val_ppl"],
-                          val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"])
+                          val_bpc=s["val_bpc"], wall_seconds=s["wall_seconds"],
+                          manifest=res["manifest"])
                 db.record_metrics(args.suite, name, dataset, seed,
                                   {"memory_gain": floor3 - s["val_ppl"]})
                 print(f"done {name:6s} m={m} s{seed} params={s['n_params']:6,d} "

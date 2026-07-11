@@ -213,6 +213,11 @@ def api_create_model_spec_job(spec_id: int, payload: dict) -> dict:
             claim_id=payload.get("claim_id") or None,
             seed_axes=payload.get("seed_axes") or None,
             metric_type=payload.get("metric_type") or None,
+            resume_from=payload.get("resume_from") or None,
+            checkpoint_every=int(payload.get("checkpoint_every") or 0),
+            experiment_uuid=payload.get("experiment_uuid") or None,
+            run_uuid=payload.get("run_uuid") or None,
+            artifact_dir=payload.get("artifact_dir") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc
@@ -367,6 +372,11 @@ def api_create_job(payload: dict) -> dict:
             claim_id=payload.get("claim_id") or None,
             seed_axes=payload.get("seed_axes") or None,
             metric_type=payload.get("metric_type") or None,
+            resume_from=payload.get("resume_from") or None,
+            checkpoint_every=int(payload.get("checkpoint_every") or 0),
+            experiment_uuid=payload.get("experiment_uuid") or None,
+            run_uuid=payload.get("run_uuid") or None,
+            artifact_dir=payload.get("artifact_dir") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc
@@ -397,6 +407,8 @@ def api_create_scaling_sweep(payload: dict) -> dict:
             claim_id=payload.get("claim_id") or None,
             seed_axes=payload.get("seed_axes") or None,
             metric_type=payload.get("metric_type") or None,
+            checkpoint_every=int(payload.get("checkpoint_every") or 0),
+            experiment_uuid=payload.get("experiment_uuid") or None,
         )
     except Exception as exc:
         raise _payload_error(exc) from exc

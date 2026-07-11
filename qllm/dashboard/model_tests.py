@@ -10,10 +10,10 @@ import numpy as np
 from flax import serialization
 
 from ..data.datasets import load_dataset
-from ..data.text import CharTokenizer, sample_batch
+from ..data.text import sample_batch
 from ..models.model import build_model
 from ..resultsdb import ResultsDB
-from ..train.loop import generate
+from ..train.loop import generate_outcome
 from .analogues import config_from_flat_payload
 
 
@@ -27,8 +27,17 @@ def _decode_config(job: dict) -> dict:
         return {}
 
 
-def _artifact_dir(results_dir: str | Path, run_name: str) -> Path:
-    return Path(results_dir) / run_name
+def _artifact_dir(results_dir: str | Path, job: dict) -> Path:
+    trusted = job.get("artifact_dir")
+    if trusted:
+        return Path(trusted)
+    checkpoint = job.get("checkpoint_path")
+    if checkpoint:
+        candidate = Path(checkpoint).resolve().parent.parent
+        root = Path(results_dir).resolve()
+        if candidate == root or root in candidate.parents:
+            return candidate
+    return Path(results_dir) / job["run_name"]
 
 
 def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "results") -> dict:
@@ -36,7 +45,7 @@ def model_test_payload(db: ResultsDB, job_id: int, results_dir: str | Path = "re
     if job is None:
         raise KeyError(f"Unknown job {job_id}")
     config = _decode_config(job)
-    out_dir = _artifact_dir(results_dir, job["run_name"])
+    out_dir = _artifact_dir(results_dir, job)
     summary_path = out_dir / "summary.json"
     params_path = out_dir / "params.msgpack"
     summary = None
@@ -88,8 +97,11 @@ def run_model_test(
     if not info["supported_tests"]["prompt_generation"]:
         return {
             "ok": False,
+            "supported": False,
+            "status": "unsupported",
             "kind": "prompt_generation",
             "reason": "; ".join(info["unsupported_reasons"]) or "prompt generation is unavailable",
+            "generated_text": None,
             "capabilities": info,
         }
 
@@ -97,14 +109,6 @@ def run_model_test(
     config = _decode_config(job)
     cfg = config_from_flat_payload(config)
     ids, tokenizer = load_dataset(cfg.data)
-    if not isinstance(tokenizer, CharTokenizer):
-        return {
-            "ok": False,
-            "kind": "prompt_generation",
-            "reason": "manual text generation requires a character tokenizer",
-            "capabilities": info,
-        }
-
     model, model_cfg = build_model(cfg.model, vocab_size=tokenizer.vocab_size)
     rng = np.random.default_rng(cfg.train.seed)
     sample = jnp.asarray(
@@ -114,28 +118,35 @@ def run_model_test(
     params_path = Path(info["artifacts"]["params_path"])
     params = serialization.from_bytes(init_params, params_path.read_bytes())
     prompt = str(payload.get("prompt") or "\n")
-    max_new_tokens = max(1, min(int(payload.get("max_new_tokens") or 120), 240))
-    temperature = float(payload.get("temperature") or 0.8)
-    seed = int(payload.get("seed") or cfg.train.seed)
-    text = generate(
+    try:
+        max_new_tokens = max(
+            1, min(int(payload.get("max_new_tokens") or 120), 240)
+        )
+        temperature = float(payload.get("temperature") or 0.8)
+        seed = int(payload.get("seed") or cfg.train.seed)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {
+            "ok": False,
+            "supported": False,
+            "status": "unsupported",
+            "kind": "prompt_generation",
+            "reason": f"invalid generation setting: {exc}",
+            "generated_text": None,
+            "capabilities": info,
+        }
+    outcome = generate_outcome(
         model,
         params,
         tokenizer,
+        model_cfg=model_cfg,
         prompt=prompt,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
         seed=seed,
     )
     return {
-        "ok": True,
-        "kind": "prompt_generation",
+        **outcome,
         "prompt": prompt,
-        "generated_text": text,
-        "settings": {
-            "max_new_tokens": max_new_tokens,
-            "temperature": temperature,
-            "seed": seed,
-            "vocab_size": tokenizer.vocab_size,
-            "arch": model_cfg.arch,
-        },
+        "settings": {**outcome["settings"], "arch": model_cfg.arch},
+        "capabilities": info,
     }

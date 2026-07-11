@@ -96,6 +96,7 @@ def _study_protocol(payload: dict) -> dict:
         "seeds": seeds,
         "steps": int(payload.get("steps") or 50),
         "eval_every": int(payload.get("eval_every") or 10),
+        "checkpoint_every": int(payload.get("checkpoint_every") or 0),
         "batch_size": (
             int(payload["batch_size"]) if payload.get("batch_size") not in (None, "") else None
         ),
@@ -207,6 +208,7 @@ def queue_study(db: ResultsDB, queue: ExperimentQueue, study_id: int) -> dict:
                     claim_id=protocol.get("claim_id"),
                     seed_axes=protocol.get("seed_axes"),
                     metric_type=protocol.get("metric_type"),
+                    checkpoint_every=int(protocol.get("checkpoint_every") or 0),
                 )
                 db.add_study_job(study_id, job["id"], "candidate", point)
                 queued += 1
@@ -228,6 +230,8 @@ def queue_study(db: ResultsDB, queue: ExperimentQueue, study_id: int) -> dict:
                         claim_id=protocol.get("claim_id"),
                         seed_axes=protocol.get("seed_axes"),
                         metric_type=protocol.get("metric_type"),
+                        checkpoint_every=int(protocol.get("checkpoint_every") or 0),
+                        experiment_uuid=job.get("experiment_uuid"),
                     )
                     db.update_lab_job(control["id"], comparison_role="control")
                     db.add_study_job(study_id, control["id"], "control", point)
@@ -250,7 +254,14 @@ def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
         parts = str(job["run_key"]).split("/")
         if len(parts) >= 2:
             variant = parts[1]
-    return db.get_run("lab", variant, job["dataset_name"], int(job["seed"]), int(job["steps"]))
+    return db.get_run(
+        "lab",
+        variant,
+        job["dataset_name"],
+        int(job["seed"]),
+        int(job["steps"]),
+        run_uuid=job.get("run_uuid"),
+    )
 
 
 def _matched_controls_for_observation(

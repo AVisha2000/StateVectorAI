@@ -104,6 +104,7 @@ def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
         job["dataset_name"],
         int(job["seed"]),
         int(job["steps"]),
+        run_uuid=job.get("run_uuid"),
     )
 
 

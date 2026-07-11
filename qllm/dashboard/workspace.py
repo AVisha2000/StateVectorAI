@@ -23,22 +23,31 @@ def _decode_config(row: dict | None) -> dict:
         return {}
 
 
-def _curve(db: ResultsDB, run_key: str | None) -> dict:
+def _curve(db: ResultsDB, run_key: str | None, run_uuid: str | None = None) -> dict:
     if not run_key:
         return {}
     series: dict[str, list] = defaultdict(list)
-    for step in db.fetch_steps(run_key):
+    for step in db.fetch_steps(run_key, run_uuid=run_uuid):
         series[step["name"]].append({"step": step["step"], "value": step["value"]})
     return dict(series)
 
 
-def _live(db: ResultsDB, run_key: str | None) -> dict | None:
+def _live(
+    db: ResultsDB, run_key: str | None, run_uuid: str | None = None
+) -> dict | None:
     if not run_key:
         return None
     with db._conn() as con:
-        row = con.execute(
-            "SELECT * FROM live_runs WHERE run_key=?", (run_key,)
-        ).fetchone()
+        if run_uuid is None:
+            row = con.execute(
+                "SELECT * FROM live_runs WHERE run_key=? AND run_uuid IS NULL",
+                (run_key,),
+            ).fetchone()
+        else:
+            row = con.execute(
+                "SELECT * FROM live_runs WHERE run_key=? AND run_uuid=?",
+                (run_key, run_uuid),
+            ).fetchone()
     return dict(row) if row is not None else None
 
 
@@ -58,6 +67,7 @@ def _final_run(db: ResultsDB, job: dict | None) -> dict | None:
         job["dataset_name"],
         int(job["seed"]),
         int(job["steps"]),
+        run_uuid=job.get("run_uuid"),
     )
     if run:
         run["config"] = _decode_config(run)
@@ -140,8 +150,8 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         "job": job,
         "preset": preset,
         "dataset": get_dataset(db, job["dataset_name"]),
-        "live": _live(db, job.get("run_key")),
-        "curve": _curve(db, job.get("run_key")),
+        "live": _live(db, job.get("run_key"), job.get("run_uuid")),
+        "curve": _curve(db, job.get("run_key"), job.get("run_uuid")),
         "final_run": _final_run(db, job),
         "metric_contract": metric_contract,
         "claim_id": claim_id,

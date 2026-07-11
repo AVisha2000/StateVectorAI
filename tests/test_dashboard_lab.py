@@ -684,12 +684,14 @@ def test_queue_can_run_saved_model_spec(tmp_path):
 
 def test_model_test_payload_reports_artifact_capabilities(tmp_path):
     db_path = tmp_path / "results.db"
-    q = ExperimentQueue(str(db_path), start_worker=False)
+    q = ExperimentQueue(
+        str(db_path), start_worker=False, results_dir=tmp_path / "artifacts"
+    )
     job = q.submit("classical-small", "default-text", "testable", 0, 2, 1)
     db = ResultsDB(db_path)
     db.update_lab_job(job["id"], status="done")
 
-    out_dir = tmp_path / "results" / job["run_name"]
+    out_dir = Path(job["artifact_dir"])
     out_dir.mkdir(parents=True)
     (out_dir / "summary.json").write_text(
         '{"val_ppl": 2.5, "steps": 2, "n_params": 128, "wall_seconds": 1.2}'
@@ -748,10 +750,12 @@ def test_queue_generates_classical_analogue_for_quantum_model_spec(tmp_path):
     db.record(
         "lab", job["preset_id"], "default-text", 3, 4,
         101, 1.0, 2.0, 1.2, 2.0, config=job["config"],
+        run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
     )
     db.record(
         "lab", twin["preset_id"], "default-text", 3, 4,
         100, 1.1, 2.2, 1.3, 1.0, config=twin["config"],
+        run_uuid=twin["run_uuid"], experiment_uuid=twin["experiment_uuid"],
     )
     comparison = comparison_research_payload(db, job["id"])
     assert comparison["claim_id"] is None
@@ -924,6 +928,7 @@ def test_scaling_test_payload_collects_scale_results(monkeypatch, tmp_path):
     db.record(
         "lab", "quantum-ffn-4q-q4-d2", "default-text", 3, 2,
         20, 1.1, 3.0, 1.5, 12.0,
+        run_uuid=first["run_uuid"], experiment_uuid=first["experiment_uuid"],
     )
 
     overview = scaling_tests_overview(db)
@@ -957,6 +962,7 @@ def test_scaling_test_does_not_select_historical_two_stream_points(tmp_path):
     db.record(
         "lab", variant, "default-text", 0, 2,
         20, 0.5, 1.0, 0.7, 1.0, config=config,
+        run_uuid=first["run_uuid"], experiment_uuid=first["experiment_uuid"],
     )
 
     payload = scaling_test_payload(db, sweep["group_id"])
@@ -1018,8 +1024,10 @@ def test_study_payload_summarizes_multiseed_evidence(tmp_path):
             1.0,
             val_ppl,
             1.2,
-            5.0 if row["role"] == "candidate" else 3.0,
-            config=row.get("config") or {},
+                5.0 if row["role"] == "candidate" else 3.0,
+                config=row.get("config") or {},
+                run_uuid=row["run_uuid"],
+                experiment_uuid=row["experiment_uuid"],
         )
 
     payload = study_payload(db, study["id"])
@@ -1064,8 +1072,10 @@ def test_study_report_payload_surfaces_verdict_cost_and_limitations(tmp_path):
             1.0,
             val_ppl,
             1.2,
-            wall,
-            config=row.get("config") or {},
+                wall,
+                config=row.get("config") or {},
+                run_uuid=row["run_uuid"],
+                experiment_uuid=row["experiment_uuid"],
         )
 
     report = study_report_payload(db, study["id"])
@@ -1103,6 +1113,7 @@ def test_study_excludes_historical_two_stream_pairs_from_evidence(tmp_path):
             "lab", row["preset_id"], row["dataset_name"],
             int(row["seed"]), int(row["steps"]), 100, 0.5,
             val_ppl, 0.7, 1.0, config=config,
+            run_uuid=row["run_uuid"], experiment_uuid=row["experiment_uuid"],
         )
 
     payload = study_payload(db, study["id"])
@@ -1151,11 +1162,22 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
 
     db.update_lab_job(job["id"], status="done")
     db.update_lab_job(twin["id"], status="done")
-    db.record("lab", "quantum-ffn-4q", "default-text", 5, 2, 10, 1.0, 2.5, 1.4, 4.0)
-    db.record("lab", "classical-small", "default-text", 5, 2, 12, 1.2, 3.0, 1.7, 2.5)
+    db.record(
+        "lab", "quantum-ffn-4q", "default-text", 5, 2,
+        10, 1.0, 2.5, 1.4, 4.0,
+        run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
+    )
+    db.record(
+        "lab", "classical-small", "default-text", 5, 2,
+        12, 1.2, 3.0, 1.7, 2.5,
+        run_uuid=twin["run_uuid"], experiment_uuid=twin["experiment_uuid"],
+    )
 
     done = workspace_payload(db, job["id"])
     assert done["final_run"]["val_ppl"] == pytest.approx(2.5)
+    assert "id" in done["final_run"]
+    assert "id" in done["comparison"]["candidate"]["final_run"]
+    assert "id" in done["comparison"]["baseline"]["final_run"]
     assert done["comparison"]["deltas"]["val_ppl"] == pytest.approx(-0.5)
     assert done["comparison"]["deltas"]["wall_seconds"] == pytest.approx(1.5)
 
@@ -1257,8 +1279,16 @@ def test_result_dashboard_payload_surfaces_cards_cost_and_verdicts(tmp_path):
     twin = job["comparison_job"]
     db.update_lab_job(job["id"], status="done")
     db.update_lab_job(twin["id"], status="done")
-    db.record("lab", "quantum-ffn-4q", "default-text", 8, 2, 100, 1.0, 2.2, 1.2, 5.0, config=job["config"])
-    db.record("lab", "classical-small", "default-text", 8, 2, 120, 1.1, 2.6, 1.4, 3.0, config=twin["config"])
+    db.record(
+        "lab", "quantum-ffn-4q", "default-text", 8, 2,
+        100, 1.0, 2.2, 1.2, 5.0, config=job["config"],
+        run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
+    )
+    db.record(
+        "lab", "classical-small", "default-text", 8, 2,
+        120, 1.1, 2.6, 1.4, 3.0, config=twin["config"],
+        run_uuid=twin["run_uuid"], experiment_uuid=twin["experiment_uuid"],
+    )
 
     payload = result_dashboard_payload(db, dataset="default-text")
     assert payload["available"] is True
@@ -1353,6 +1383,7 @@ def test_unmarked_historical_two_stream_comparison_cannot_gain_a_verdict(tmp_pat
             "lab", job["preset_id"], "default-text", 0, 2,
             10, ppl / 2, ppl, ppl / 3, 1.0,
             config=config,
+            run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
         )
 
     raw = comparison_payload(db, candidate["id"])
@@ -1385,6 +1416,7 @@ def _complete_study_jobs(db: ResultsDB, study_id: int) -> None:
             "lab", variant, row["dataset_name"], int(row["seed"]),
             int(row["steps"]), 100, 1.0, val_ppl, 1.2, wall,
             config=row.get("config") or {},
+            run_uuid=row["run_uuid"], experiment_uuid=row["experiment_uuid"],
         )
 
 
@@ -1496,6 +1528,7 @@ def test_supported_explicit_seed_request_keeps_pair_fair(tmp_path):
         db.record(
             "lab", job["preset_id"], "default-text", 5, 2,
             100, 1.0, ppl, 1.2, 2.0, config=job["config"],
+            run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
         )
     payload = comparison_research_payload(db, candidate["id"])
     assert payload["fairness"]["valid"] is True
@@ -1529,6 +1562,7 @@ def test_unsupported_claim_metric_is_never_relabelled_as_perplexity(tmp_path):
         db.record(
             "lab", job["preset_id"], "default-text", 0, 2,
             100, 1.0, ppl, 1.2, 2.0, config=job["config"],
+            run_uuid=job["run_uuid"], experiment_uuid=job["experiment_uuid"],
         )
     payload = comparison_research_payload(db, candidate["id"])
     assert payload["metric_type"] == "time_to_target"

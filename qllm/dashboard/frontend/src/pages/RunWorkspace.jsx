@@ -136,6 +136,9 @@ export default function RunWorkspace() {
   const dataset = payload?.dataset
   const comparison = payload?.comparison
   const analogue = job?.analogue
+  const artifactDir = testInfo?.artifacts?.directory || job?.artifact_dir || `results/${job?.run_name || '-'}`
+  const summaryPath = testInfo?.artifacts?.summary_path || `${artifactDir}/summary.json`
+  const paramsPath = testInfo?.artifacts?.params_path || `${artifactDir}/params.msgpack`
   const series = useMemo(() => mergeCurve(payload?.curve), [payload])
   const comparisonMetric = comparison?.candidate?.curve?.val_ppl?.length || comparison?.baseline?.curve?.val_ppl?.length
     ? 'val_ppl'
@@ -368,8 +371,8 @@ export default function RunWorkspace() {
             <section className="panel">
               <h3>Artifacts</h3>
               <div className="kv">
-                <div className="k">summary</div><div className="v">results/{job.run_name}/summary.json</div>
-                <div className="k">params</div><div className="v">results/{job.run_name}/params.msgpack</div>
+                <div className="k">summary</div><div className="v mono">{summaryPath}</div>
+                <div className="k">params</div><div className="v mono">{paramsPath}</div>
                 <div className="k">run key</div><div className="v">{job.run_key || '-'}</div>
               </div>
             </section>
