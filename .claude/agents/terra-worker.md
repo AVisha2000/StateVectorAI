@@ -1,6 +1,7 @@
 ---
 name: terra-worker
 description: Implement one coherent, bounded QLLM change with exclusive file ownership and named tests.
+model: claude-sonnet-5
 tools: Read, Edit, Write, Glob, Grep, Bash
 permissionMode: default
 maxTurns: 60

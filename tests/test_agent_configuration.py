@@ -4,6 +4,7 @@ from pathlib import Path
 
 from scripts.check_agent_setup import (
     EXPECTED_AGENT_MODELS,
+    EXPECTED_CLAUDE_AGENT_MODELS,
     READ_ONLY_CODEX_AGENTS,
     READ_ONLY_CLAUDE_AGENTS,
     REQUIRED_AGENT_GUIDES,
@@ -41,7 +42,7 @@ def _valid_fixture(root: Path) -> None:
     )
     _write(
         root / ".agents/skills/example-skill/agents/openai.yaml",
-        'interface:\n  display_name: "Example"\n  short_description: "Example workflow"\n'
+        'interface:\n  display_name: "Example"\n  short_description: "Example repository workflow"\n'
         '  default_prompt: "Use $example-skill to handle this task."\n',
     )
     _write(
@@ -92,6 +93,7 @@ def _valid_fixture(root: Path) -> None:
             "---\n"
             f"name: {name}\n"
             "description: Handle one focused repository role with explicit scope and evidence.\n"
+            f"model: {EXPECTED_CLAUDE_AGENT_MODELS[name]}\n"
             f"tools: {tools}\n"
             f"permissionMode: {permission_mode}\n"
             "---\n\n"
@@ -118,6 +120,19 @@ def test_qllm_skill_catalog_covers_dashboard_research_and_issue_closeout() -> No
     closeout = (ROOT / ".agents/skills/qllm-issue-closure/SKILL.md").read_text(
         encoding="utf-8"
     )
+    closeout_checklist = (
+        ROOT
+        / ".agents/skills/qllm-issue-closure/references/issue-closure-checklist.md"
+    ).read_text(encoding="utf-8")
+    model = (ROOT / ".agents/skills/qllm-model-development/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    experiment = (ROOT / ".agents/skills/qllm-experiment-runner/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    experiment_ui = (
+        ROOT / ".agents/skills/qllm-experiment-runner/agents/openai.yaml"
+    ).read_text(encoding="utf-8")
 
     assert "npm test" in dashboard
     assert "both themes at desktop and narrow" in dashboard
@@ -125,7 +140,15 @@ def test_qllm_skill_catalog_covers_dashboard_research_and_issue_closeout() -> No
     assert "rerun_required" in research
     assert "npm test" in verification
     assert "require explicit user" in closeout
-    assert "gh issue view" in closeout
+    assert "gh issue view" in closeout_checklist
+    assert "`DatasetBundle`" in model
+    assert "flattening compatibility-only" in model
+    assert "explicit user approval" in experiment
+    assert "conflicting values" in experiment
+    assert "remote action only with explicit authorization" in (
+        ROOT / ".agents/skills/qllm-issue-closure/agents/openai.yaml"
+    ).read_text(encoding="utf-8")
+    assert "$qllm-experiment-runner" in experiment_ui
 
 
 def test_agent_configuration_ci_installs_collection_dependencies() -> None:
@@ -202,6 +225,41 @@ def test_rejects_root_or_agent_model_substitution(tmp_path: Path) -> None:
     assert any("luna_explorer.toml: model must be gpt-5.6-luna" in error for error in errors)
 
 
+def test_claude_agent_triage_puts_opus_at_the_top() -> None:
+    assert EXPECTED_CLAUDE_AGENT_MODELS["planner"] == "claude-opus-4-8"
+    assert EXPECTED_CLAUDE_AGENT_MODELS["verifier"] == "claude-opus-4-8"
+    # Every required Claude role has an assigned model tier.
+    for filename in REQUIRED_CLAUDE_AGENTS:
+        assert Path(filename).stem in EXPECTED_CLAUDE_AGENT_MODELS
+
+
+def test_rejects_missing_or_substituted_claude_agent_model(tmp_path: Path) -> None:
+    _valid_fixture(tmp_path)
+    planner = tmp_path / ".claude/agents/planner.md"
+    planner.write_text(
+        planner.read_text(encoding="utf-8").replace(
+            "model: claude-opus-4-8\n", ""
+        ),
+        encoding="utf-8",
+    )
+    terra = tmp_path / ".claude/agents/terra-worker.md"
+    terra.write_text(
+        terra.read_text(encoding="utf-8").replace(
+            "model: claude-sonnet-5", "model: claude-opus-4-8"
+        ),
+        encoding="utf-8",
+    )
+
+    errors = validate_repo(tmp_path)
+    assert any(
+        "planner.md: model is required and must be claude-opus-4-8" in error
+        for error in errors
+    )
+    assert any(
+        "terra-worker.md: model must be claude-sonnet-5" in error for error in errors
+    )
+
+
 def test_skill_prompt_must_name_its_skill(tmp_path: Path) -> None:
     _valid_fixture(tmp_path)
     _write(
@@ -209,6 +267,34 @@ def test_skill_prompt_must_name_its_skill(tmp_path: Path) -> None:
         'interface:\n  default_prompt: "Handle this task safely."\n',
     )
     assert any("must mention $example-skill" in error for error in validate_repo(tmp_path))
+
+
+def test_skill_metadata_and_direct_references_are_validated(tmp_path: Path) -> None:
+    _valid_fixture(tmp_path)
+    skill = tmp_path / ".agents/skills/example-skill/SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8")
+        + "\nRead `references/missing.md` and `references/unlinked.md`.\n",
+        encoding="utf-8",
+    )
+    _write(
+        tmp_path / ".agents/skills/example-skill/references/unlinked.md",
+        "# Linked after all\n",
+    )
+    _write(
+        tmp_path / ".agents/skills/example-skill/references/orphan.md",
+        "# Orphan\n",
+    )
+    _write(
+        tmp_path / ".agents/skills/example-skill/agents/openai.yaml",
+        'interface:\n  default_prompt: "Use $example-skill for this task."\n',
+    )
+
+    errors = validate_repo(tmp_path)
+    assert any("display_name is required" in error for error in errors)
+    assert any("short_description must be 25-64" in error for error in errors)
+    assert any("referenced resource references/missing.md is missing" in error for error in errors)
+    assert any("bundled reference references/orphan.md is not linked" in error for error in errors)
 
 
 def test_requires_import_only_claude_bridges_and_configs_guide(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 ---
 name: luna-explorer
 description: Perform small read-only QLLM inventories, usage traces, test-gap checks, and documentation maps.
+model: claude-haiku-4-5-20251001
 tools: Read, Glob, Grep
 permissionMode: plan
 maxTurns: 20

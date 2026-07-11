@@ -44,6 +44,19 @@ EXPECTED_AGENT_MODELS = {
     "mini_worker": "gpt-5.4-mini",
     "spark_helper": "gpt-5.3-codex-spark",
 }
+# Claude Code model triage, keyed by kebab-case agent stem. Opus 4.8 sits at the
+# top for planning and verification; Sonnet handles discovery and implementation;
+# Haiku handles small inventories, mechanical edits, and text-only helpers. This
+# mirrors the Codex tiering in EXPECTED_AGENT_MODELS.
+EXPECTED_CLAUDE_AGENT_MODELS = {
+    "planner": "claude-opus-4-8",
+    "verifier": "claude-opus-4-8",
+    "explorer": "claude-sonnet-5",
+    "terra-worker": "claude-sonnet-5",
+    "luna-explorer": "claude-haiku-4-5-20251001",
+    "mini-worker": "claude-haiku-4-5-20251001",
+    "spark-helper": "claude-haiku-4-5-20251001",
+}
 IGNORED_PARTS = {
     ".git",
     ".tmp",
@@ -139,6 +152,19 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
         values[key] = raw_value
         index += 1
     return values
+
+
+def _yaml_scalar(text: str, key: str) -> str:
+    """Read one quoted or unquoted scalar from the small openai.yaml subset."""
+    match = re.search(
+        rf"(?m)^\s*{re.escape(key)}:\s*(?P<value>[^#\r\n]+?)\s*$", text
+    )
+    if match is None:
+        return ""
+    value = match.group("value").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    return value.strip()
 
 
 def render_claude_skill_bridge(name: str, description: str) -> str:
@@ -298,13 +324,40 @@ def _validate_skills(root: Path, errors: list[str]) -> None:
         yaml_text = _read_text(yaml_path, errors, root)
         if yaml_text is None:
             continue
+        display_name = _yaml_scalar(yaml_text, "display_name")
+        short_description = _yaml_scalar(yaml_text, "short_description")
         prompt = _extract_default_prompt(yaml_text)
+        if not display_name:
+            errors.append(f"{_relative(yaml_path, root)}: display_name is required")
+        if not 25 <= len(short_description) <= 64:
+            errors.append(
+                f"{_relative(yaml_path, root)}: short_description must be 25-64 characters"
+            )
         if not prompt:
             errors.append(f"{_relative(yaml_path, root)}: default_prompt is required")
         elif name and f"${name}" not in prompt:
             errors.append(
                 f"{_relative(yaml_path, root)}: default_prompt must mention ${name}"
             )
+
+        referenced = set(
+            re.findall(
+                r"`((?:references|scripts|assets)/[A-Za-z0-9_.\-/]+)`", text
+            )
+        )
+        for resource in sorted(referenced):
+            resource_path = skill_file.parent / Path(resource)
+            if not resource_path.is_file():
+                errors.append(f"{relative}: referenced resource {resource} is missing")
+        references_dir = skill_file.parent / "references"
+        if references_dir.is_dir():
+            for resource_path in sorted(references_dir.iterdir()):
+                if resource_path.is_file():
+                    resource = resource_path.relative_to(skill_file.parent).as_posix()
+                    if resource not in text:
+                        errors.append(
+                            f"{relative}: bundled reference {resource} is not linked directly"
+                        )
 
 
 def _validate_claude_skill_bridges(root: Path, errors: list[str]) -> None:
@@ -552,8 +605,15 @@ def _validate_claude_agents(root: Path, errors: list[str]) -> None:
             errors.append(f"{relative}: name must be lowercase kebab-case")
         if len(description) < 20:
             errors.append(f"{relative}: description must be informative")
-        if "model" in metadata:
-            errors.append(f"{relative}: omit model so the role inherits the active Claude model")
+        expected_model = EXPECTED_CLAUDE_AGENT_MODELS.get(name)
+        if expected_model is not None:
+            actual_model = metadata.get("model", "").strip()
+            if not actual_model:
+                errors.append(
+                    f"{relative}: model is required and must be {expected_model}"
+                )
+            elif actual_model != expected_model:
+                errors.append(f"{relative}: model must be {expected_model}")
         if len(text.strip()) < 160:
             errors.append(f"{relative}: role instructions are too short to be actionable")
         if _has_placeholder(text):

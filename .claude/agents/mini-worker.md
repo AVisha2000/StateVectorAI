@@ -1,6 +1,7 @@
 ---
 name: mini-worker
 description: Perform an explicitly specified low-risk mechanical QLLM edit that will receive parent or Terra review.
+model: claude-haiku-4-5-20251001
 tools: Read, Edit, Write, Glob, Grep, Bash
 permissionMode: default
 maxTurns: 30

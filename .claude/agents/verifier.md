@@ -1,6 +1,7 @@
 ---
 name: verifier
 description: Independently review completed QLLM changes, deterministic evidence, scope, claims, and human gates.
+model: claude-opus-4-8
 tools: Read, Glob, Grep, Bash
 permissionMode: plan
 maxTurns: 40

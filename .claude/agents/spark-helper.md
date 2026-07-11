@@ -1,6 +1,7 @@
 ---
 name: spark-helper
 description: Provide isolated text-only alternatives for QLLM names, regexes, commands, snippets, or wording.
+model: claude-haiku-4-5-20251001
 tools: Read
 permissionMode: plan
 maxTurns: 10

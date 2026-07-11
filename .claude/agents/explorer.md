@@ -1,6 +1,7 @@
 ---
 name: explorer
 description: Perform bounded read-only QLLM codebase, documentation, dependency, log, or primary-source discovery.
+model: claude-sonnet-5
 tools: Read, Glob, Grep, WebSearch, WebFetch
 permissionMode: plan
 maxTurns: 30

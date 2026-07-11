@@ -1,6 +1,7 @@
 ---
 name: planner
 description: Plan ambiguous, cross-subsystem, research-sensitive, or multi-stage QLLM work before implementation.
+model: claude-opus-4-8
 tools: Read, Glob, Grep
 permissionMode: plan
 maxTurns: 30
