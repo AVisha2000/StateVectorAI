@@ -22,31 +22,40 @@ Read this together with [UI_REDESIGN_PLAN.md](UI_REDESIGN_PLAN.md),
 the frontend. If a change is needed across the line, request it in your log —
 do not reach across.
 
-## Protocol — how to talk without merge conflicts
+## Protocol — one doc on `main`
 
-1. Each agent edits **only its own section** of this file (Backend edits the API
-   contract + Backend log; UI edits the UI log). Never edit the other's section.
-2. To read the other agent's latest messages without merging their code:
-   ```
-   git fetch origin
-   git show origin/backend-enhancements:docs/BUILD_COORDINATION.md   # UI reads backend
-   git show origin/ui-redesign:docs/BUILD_COORDINATION.md            # backend reads UI
-   ```
-3. Append log entries **newest last**, each prefixed with a date and author, e.g.
-   `2026-07-12 · backend:`. Keep entries short and actionable.
-4. The **API contract** is backend-owned and is the single source of truth for
-   endpoints. The frontend builds to it. If the frontend needs a new endpoint or
-   a shape change, it writes a request in the UI log; backend answers by updating
-   the contract and noting it in the Backend log.
-5. Sync cadence: both tracks rebase onto `origin/main` at least at the start of
-   each work session so the contract and this protocol stay current.
-6. Human gates are unchanged (GPU/QPU, spend, claim promotion, paid providers,
-   consequential Git). Neither agent merges to `main` or promotes a claim without
-   the user.
+This file lives on `main` and is the single shared channel. `main` is
+**integration-only for code**: both tracks build on their own branches and never
+commit work-in-progress code to `main`. This coordination doc is the deliberate
+exception — both agents may commit **this file only** to `main`.
+
+1. **Read** — at the start of each session, on your branch run
+   `git fetch origin && git rebase origin/main`. That pulls the latest contract,
+   logs, and protocol. No cross-branch reads needed.
+2. **Write** — to post a message or update the contract, edit **only your own
+   section**, then commit **just this file** to `main` and push:
+   `git add docs/BUILD_COORDINATION.md && git commit -m "docs(coordination): …" && git push origin main`.
+   A one-file doc commit is safe and low-collision; if the push is rejected,
+   `git pull --rebase origin main` and push again.
+3. Append log entries **newest last**, each prefixed with date + author
+   (`2026-07-12 · backend:`). Keep them short and actionable.
+4. **Edit only your own section.** Backend owns the API contract + Backend log;
+   UI owns the UI log; the apex owns this protocol + the decisions table.
+5. Human gates are unchanged (GPU/QPU, spend, claim promotion, paid providers,
+   consequential Git). Neither agent merges a code branch to `main` or promotes a
+   claim without the user.
 
 ---
 
 ## API contract (backend-owned)
+
+**The authoritative contract is the FastAPI-generated OpenAPI spec.** Backend
+commits it as `qllm/dashboard/openapi.json` (via a small
+`scripts/dump_openapi.py` that dumps `app.openapi()`) and **regenerates it on
+every endpoint change**. The frontend generates/validates its API types from that
+JSON (e.g. `openapi-typescript`), so the interface is machine-truth, not
+hand-typed prose. The tables below are a **human summary for planning**; the JSON
+wins on any conflict. `proposed` endpoints live here until they exist in the spec.
 
 All routes are under `/api`. Status: `stable` (exists today), `proposed`
 (frontend needs it), `building`, `shipped`. The frontend currently consumes the
@@ -98,3 +107,5 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
 | D2 | Live updates transport: SSE vs WebSocket | backend | open |
 | D3 | Persistent verdict store schema | backend | open |
 | D4 | Research-service LLM/embedding provider + per-day cost budget (**human-gated**) | user | open |
+| D5 | Adopt OpenAPI snapshot as the contract — backend adds `qllm/dashboard/openapi.json` + `scripts/dump_openapi.py`; frontend codegen/validates from it | backend | proposed |
+| D6 | Backend test suite requires a built frontend (`dist/assets`); make `test_dashboard_security.py` skip gracefully or build `dist` in a fixture | backend | open |
