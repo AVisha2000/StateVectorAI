@@ -3,6 +3,8 @@
 ## Files To Check
 
 - `qllm/research_protocol.py`: paired stats, fairness checks, claim classification, resource ledger.
+- `research/claims.yaml` and `qllm/claims.py`: canonical claim identity,
+  claim-specific fairness schema, evidence thresholds, and limitations.
 - `qllm/dashboard/evidence.py`: dashboard evidence payloads.
 - `qllm/dashboard/analogues.py`: classical analogue definitions.
 - `qllm/models/model.py`: parameter counting and matched classical FFN logic.
@@ -20,6 +22,19 @@
 - Same device target.
 - Parameter count difference recorded.
 - Same preprocessing/data generator settings.
+- Every schema-required field present; allowed and disallowed differences both
+  retained with explicit reasons.
+
+## Paired Inference
+
+- Three or fewer fair pairs remain pilot-only regardless of nominal p-values.
+- Use deterministic paired bootstrap and sign-flip outputs from
+  `qllm/research_protocol.py`; do not substitute an unpaired test.
+- Report practical-equivalence results when the claim defines a margin.
+- Report power planning as a next-study design aid, never as evidence that the
+  current result is positive.
+- Exclude or separately label rerun-required pairs rather than mixing them into
+  strict-protocol evidence.
 
 ## Controls By Family
 
@@ -64,4 +79,6 @@ Next check: <smallest decisive run/control>
 - Frozen circuit performs the same as trained circuit.
 - Full classical model wins but only a tiny classical control is discussed.
 - GPU/CPU wall time is omitted for expensive quantum simulations.
+- Configured or estimated resources are presented as measured, or unsupported
+  MPS diagnostics are inferred from a successful local run.
 - Result is from teacher-forced side-information models but described as strict autoregressive performance.

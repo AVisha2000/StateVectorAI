@@ -1,4 +1,4 @@
 interface:
   display_name: "QLLM Experiment Runner"
-  short_description: "Run and compare QLLM experiments"
-  default_prompt: "Use $qllm-experiment-runner to run and compare the next QLLM experiment."
+  short_description: "Run, resume, and compare durable experiments"
+  default_prompt: "Use $qllm-experiment-runner to run or resume this QLLM experiment with durable evidence."

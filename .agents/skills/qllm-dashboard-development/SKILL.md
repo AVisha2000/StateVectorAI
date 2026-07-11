@@ -19,6 +19,12 @@ Use this skill for QLLM Lab work. The dashboard is an experiment console, not a 
 - Keep `server.py` thin: route handlers should delegate payload construction to focused modules.
 - Store durable job/run state in `ResultsDB`; avoid parallel ad hoc stores.
 - Use `ExperimentQueue` for anything that starts, cancels, or compares runs.
+- Keep SQLite authoritative for queue state: preserve transactional claims,
+  single-owner fencing, lease heartbeats, identity-matched checkpoint recovery,
+  restart discovery, cancellation semantics, and reservation release on every
+  terminal outcome.
+- Keep loopback-only defaults and route every persisted or user-supplied path
+  through `resolve_within`. Remote binding/CORS remains an explicit human gate.
 - Return JSON shapes that are easy for pages to render directly; preserve existing keys when possible.
 - Convert user-facing exceptions to HTTP 400/404 with clear `detail` messages.
 
@@ -27,11 +33,15 @@ Use this skill for QLLM Lab work. The dashboard is an experiment console, not a 
 - Keep the operational cockpit feel: compact headings, tables, filters, badges, and direct actions.
 - Add API functions in `src/api.js` before wiring pages to new endpoints.
 - Preserve existing route/navigation patterns in `App.jsx` and `main.jsx`.
+  Verify both the API route/helper and the browser route before linking a
+  payload ID; do not infer either registry from the other.
 - Show loading, empty, and error states for new data surfaces.
-- Treat backend payloads as the source of truth: do not invent inferred route
-  shapes or study/detail endpoints without first locating the owning API.
+- Treat backend payloads as the source of truth: do not invent endpoints or
+  browser links from payload IDs without locating both route owners.
 - Use shared CSS custom-property tokens for both themes. Centralize chart and
   tooltip styling rather than introducing hard-coded per-page colors.
+- Render backend-produced `interpretation_warnings`; do not reproduce research
+  thresholds or claim classification in React.
 - Avoid decorative landing-page patterns; this UI is for repeated research operations.
 
 ## Verification

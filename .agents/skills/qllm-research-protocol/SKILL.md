@@ -11,7 +11,10 @@ Use this skill to keep QLLM research claims honest. The project is explicitly de
 
 1. Locate the repo root by finding `pyproject.toml` with project name `qllm`.
 2. Read `qllm/research_protocol.py` before classifying a claim.
-3. Read `RESULTS.md`, the relevant area in `docs/RESEARCH_MAP.yaml`, and `references/evidence-checklist.md`. Treat `docs/RESEARCH_PROGRAM.md` as a plan, not evidence.
+3. Resolve the canonical claim in `research/claims.yaml` through
+   `qllm/claims.py`, then read `RESULTS.md`, the relevant area in
+   `docs/RESEARCH_MAP.yaml`, and `references/evidence-checklist.md`. Treat
+   `docs/RESEARCH_PROGRAM.md` as a plan, not evidence.
 4. If the result comes from the dashboard, inspect linked candidate/baseline jobs and final run records before summarizing.
 5. For a correction to a historical result, inspect the canonical contract in
    `qllm/research_protocol.py`, `research/claims.yaml`, and
@@ -21,9 +24,19 @@ Use this skill to keep QLLM research claims honest. The project is explicitly de
 
 - Prefer paired candidate-vs-baseline comparisons with matched dataset, seed, steps, eval interval, and device target.
 - Treat one fair pair as smoke evidence only.
+- Apply the claim-specific fairness schema. Retain allowed and disallowed
+  mismatches with their reasons, and fail closed when a required field is
+  absent rather than silently treating it as matched.
+- Treat three or fewer pairs as pilot evidence. Use deterministic paired
+  bootstrap and sign-flip outputs for larger studies, report practical
+  equivalence where defined, and keep power planning separate from observed
+  result evidence.
 - Require parameter matching or an explicitly justified resource mismatch before discussing model quality.
 - Separate trainability observations from architecture observations: frozen/random-circuit controls matter.
 - Include wall time and state dimension when quantum components are more expensive.
+- Distinguish configured, derived, measured, unsupported, and unmeasured
+  resource fields. Simulator timing is not hardware timing, and queue estimates
+  are not realized cost.
 - Check whether an architecture-aware classical surrogate, matched GRU, low-rank FFN, or Markov control explains the result.
 
 ## Claim Language

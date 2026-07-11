@@ -5,13 +5,14 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
-## Active workstream: QLLM skill catalog refresh
+## Completed workstream: QLLM skill catalog refresh and forward-test
 
 Owner: parent agent
 Started: 2026-07-11
 Objective: refresh reusable QLLM skill guidance after the engineering backlog
 closeout, and add a narrowly scoped issue-closeout skill where the catalog has
-a durable workflow gap.
+a durable workflow gap. Re-audit the published catalog against real routes,
+completed durability/resource contracts, and a fresh issue-closeout exercise.
 
 Scope: strengthen the dashboard, research-protocol, and code-verification
 skills; add `qllm-issue-closure` with its required Claude discovery bridge;
@@ -28,6 +29,10 @@ Acceptance evidence:
 - Verification routing covers frontend tests and evidence-sensitive review.
 - A discoverable issue-closeout workflow reconciles acceptance criteria,
   current repository evidence, and external-state gates before closure.
+- Model and experiment workflows cover the now-canonical dataset/config,
+  checkpoint/resume, queue, idempotence, telemetry, and backend contracts.
+- A forward-test can apply issue closeout without mutating local or remote
+  state, and its default prompt does not imply automatic closure authority.
 
 Risks and gates: skill prose must not silently grant GitHub closure or
 claim-edit authority; no issue, commit, push, or research claim is changed by
@@ -40,6 +45,26 @@ Progress:
 
 - [x] Update canonical skills, references, catalog routing, and bridge.
 - [x] Add regression coverage and run deterministic validation.
+- [x] Integrate the post-publish catalog audit and issue forward-test findings.
+- [x] Revalidate every changed skill and the repository agent contract.
+
+Post-publish decisions:
+
+- Do not add another skill: the existing model, experiment, dashboard,
+  research, verification, issue-closeout, orchestration, and loop domains cover
+  the reusable workflows without a new ownership boundary.
+- Keep the issue-closeout skill, but move its detailed evidence matrix into the
+  bundled checklist and make the default prompt explicitly non-mutating.
+- The read-only issue-#1 forward-test found its final run/comparison/task report
+  acceptance criterion unmet even though the issue is closed. Treat that as a
+  separate product/remote-state follow-up; this skill refresh did not reopen,
+  comment on, or modify the issue.
+- Preserve concurrent Claude role model-pin edits as separately owned work;
+  local agent validation passes, but this skill audit does not claim runtime
+  availability of those Claude model identifiers.
+- Concurrent Claude role model-pin edits and their setup-validator/test support
+  remain separate uncommitted work. Do not stage, rewrite, or publish that
+  mixed-ownership packet with this skill refresh.
 
 Latest validation:
 
@@ -52,6 +77,10 @@ Latest validation:
 - `python scripts/verify_changes.py --run` with `TMP`/`TEMP` set to the
   writable workspace temp root: passed (agent setup and agent tests).
 - `git diff --check`: passed.
+- Post-publish review: all eight skills passed `quick_validate.py`;
+  `python scripts/check_agent_setup.py` passed; focused agent tests reported
+  38 passed; `verify_changes.py --plan` selected agent setup/tests and
+  `--run` passed; the fresh read-only verifier returned `PASS`.
 
 ## Completed workstream: Codex idea-to-implementation playbook
 

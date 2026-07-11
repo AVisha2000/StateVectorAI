@@ -1,4 +1,4 @@
 interface:
   display_name: "QLLM Issue Closure"
   short_description: "Verify QLLM issue acceptance before closeout"
-  default_prompt: "Use $qllm-issue-closure to audit and close this QLLM issue with current evidence."
+  default_prompt: "Use $qllm-issue-closure to audit whether this QLLM issue is ready; take remote action only with explicit authorization."

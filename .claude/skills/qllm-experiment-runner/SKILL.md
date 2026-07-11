@@ -1,6 +1,6 @@
 ---
 name: qllm-experiment-runner
-description: Run, queue, debug, and compare QLLM experiments and artifacts. Use for training, benchmarks, dashboard jobs, GPU requests, quantum/classical comparisons, or experiment run documentation; hardware and spend remain human-gated.
+description: Run, queue, resume, debug, and compare QLLM experiments and artifacts with durable identity, checkpoints, telemetry, and fair controls. Use for training, benchmarks, dashboard jobs, queue recovery, checkpoint/resume, GPU requests, quantum/classical comparisons, or experiment documentation; hardware and spend remain human-gated.
 ---
 
 # Canonical QLLM skill bridge

@@ -113,6 +113,7 @@ Dashboard frontend:
 
 ```powershell
 Push-Location qllm/dashboard/frontend
+npm test
 npm run build
 Pop-Location
 ```

@@ -29,10 +29,11 @@ Backend and API behavior:
 pytest -q tests/test_dashboard_lab.py
 ```
 
-Frontend production build:
+Frontend behavior and production build:
 
 ```powershell
 Push-Location qllm/dashboard/frontend
+npm test
 npm run build
 Pop-Location
 ```

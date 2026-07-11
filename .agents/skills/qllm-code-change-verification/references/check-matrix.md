@@ -7,6 +7,11 @@ The selector in `scripts/verify_changes.py` is the executable source of truth. T
 | `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`, `CLAUDE.md`, `PLANS.md` | `python scripts/check_agent_setup.py` and agent-configuration tests |
 | `qllm/dashboard/frontend/` | `npm test` and `npm run build` from the frontend directory; for visual/theme/interaction changes, browser QA in both themes at desktop and narrow widths |
 | `qllm/dashboard/` backend or API | `pytest -q tests/test_dashboard_lab.py`; queue smoke when queue/API behavior changes |
+| Dashboard access/path security | `pytest -q tests/test_dashboard_security.py`; keep all live checks loopback-only and use temporary roots |
+| Checkpoints, run identity, step logging, queue claims/recovery | focused cases from `tests/test_durable_runs.py`; do not mutate persistent databases or artifacts as verification |
+| Runtime/resource ledgers | `pytest -q tests/test_resource_accounting.py`; verify measured/estimated/unsupported fields remain distinct |
+| Backend capability or local MPS behavior | `pytest -q tests/test_backend_capabilities.py tests/test_tensorcircuit_mps.py`; hardware scaling remains gated |
+| Dependency profiles or matrix workflow | `python scripts/check_dependency_profiles.py --repo .` and `pytest -q tests/test_dependency_profiles.py tests/test_verify_changes.py`; no environment installation is implied |
 | `qllm/`, `benchmarks/`, `scripts/`, `configs/`, or `tests/` Python behavior | focused tests first; full `pytest -q` for shared contracts or broad blast radius |
 | docs only | static agent/setup validation; no runtime test unless docs encode behavior |
 | `RESULTS.md`, claim/evidence docs, studies reports, evidence code | research-protocol review plus human gate; after approval, static/provenance diff, regression coverage, and focused protocol/dashboard checks |

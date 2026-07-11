@@ -14,6 +14,8 @@
 - `qllm/dashboard/status.py`: environment and frontend build status.
 - `qllm/dashboard/gpu_reservation.py`: GPU lane status.
 - `qllm/dashboard/evidence.py`: evidence summaries.
+- `qllm/dashboard/security.py`: loopback access and confined path resolution.
+- `qllm/dashboard/resources.py`: queue estimates and resource-ledger views.
 - `qllm/dashboard/explore.py`: research-cockpit exploration payloads.
 
 ## Frontend Files
@@ -36,12 +38,15 @@
 - `qllm/dashboard/frontend/src/appShell.js`: shell navigation and page metadata.
 - `qllm/dashboard/frontend/src/chartTheme.js`: shared Recharts theme tokens.
 - `qllm/dashboard/frontend/src/exploreView.js`: exploration view-model helpers.
+- `qllm/dashboard/frontend/src/components/EvidenceWarnings.jsx`: canonical
+  rendering for backend-produced interpretation warnings.
 
 ## Common Commands
 
 ```powershell
 pip install -e ".[dashboard,hf]"
 python -m qllm.dashboard.run --port 8000
+python -m qllm.dashboard.run --db .tmp/dashboard-qa.db --results .tmp/dashboard-qa-results --data .tmp/dashboard-qa-data --port 8000
 python scripts/queue_smoke.py --steps 1 --eval-every 1 --device-target cpu
 ```
 
@@ -63,9 +68,13 @@ npm run build
 - `GET /api/jobs/{id}/workspace`: run workspace.
 - `GET /api/jobs/{id}/comparison`: comparison payload.
 - `POST /api/model-specs/{id}/jobs`: queue editable model spec.
+- `GET /api/studies/{id}` and `GET /api/studies/{id}/report`: study detail
+  payloads; their browser peers are registered separately in `main.jsx`.
 - `POST /api/studies/{id}/queue`: queue study.
-- `GET /api/explore/*`: research-cockpit payloads; inspect the mounted routes
-  rather than assuming a resource detail endpoint exists.
+- `GET /api/explore`, `/api/explore/domain/{domain_slug}`,
+  `/api/explore/dataset/{dataset_name}`, and `/api/explore/task/{task_slug}`:
+  research-cockpit payloads. Confirm the corresponding browser route before
+  creating links.
 
 ## Common Pitfalls
 
@@ -78,3 +87,15 @@ npm run build
   part of browser QA.
 - Fixing a chart in one theme while hard-coded tooltip or grid colors regress
   the other theme.
+- Reimplementing warning thresholds in React instead of rendering structured
+  `interpretation_warnings` from the backend.
+- Manually rewriting queue rows or accepting a checkpoint whose run/data
+  identity does not match the persisted job.
+
+## Focused Durability And Safety Tests
+
+- `tests/test_durable_runs.py`: claims, leases, recovery, checkpoint identity,
+  cancellation, and reservation release.
+- `tests/test_dashboard_security.py`: loopback/CORS gates and path containment.
+- `tests/test_dashboard_lab.py`: API payloads, warning contracts, studies, and
+  queue-facing behavior.

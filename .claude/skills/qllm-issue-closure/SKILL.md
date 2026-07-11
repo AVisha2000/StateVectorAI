@@ -1,6 +1,6 @@
 ---
 name: qllm-issue-closure
-description: Audit, verify, and close QLLM backlog or GitHub issues only after reconciling acceptance criteria with current code, documentation, tests, UI evidence, and human gates. Use when asked to resolve, validate, close, or publish a QLLM issue.
+description: Audit and close QLLM backlog or GitHub issues only after reconciling acceptance criteria with current code, documentation, tests, UI evidence, and human gates. Use when asked to assess issue readiness, resolve a backlog item, prepare closeout evidence, comment on, close, or reopen a QLLM issue.
 ---
 
 # Canonical QLLM skill bridge
