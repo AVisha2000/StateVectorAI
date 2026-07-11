@@ -285,6 +285,290 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerdictSnapshotDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Level"
+          },
+          "assessment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Status"
+          },
+          "caveats": {
+            "items": {},
+            "title": "Caveats",
+            "type": "array"
+          },
+          "claim_id": {
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "claim_level": {
+            "title": "Claim Level",
+            "type": "string"
+          },
+          "claim_status": {
+            "title": "Claim Status",
+            "type": "string"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "controls": {
+            "additionalProperties": true,
+            "title": "Controls",
+            "type": "object"
+          },
+          "created_ts": {
+            "title": "Created Ts",
+            "type": "string"
+          },
+          "diagnostics": {
+            "additionalProperties": true,
+            "title": "Diagnostics",
+            "type": "object"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "fairness": {
+            "additionalProperties": true,
+            "title": "Fairness",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "replication_status": {
+            "title": "Replication Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "scorecard": {
+            "additionalProperties": true,
+            "title": "Scorecard",
+            "type": "object"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Job Id"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "source_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Run Id"
+          },
+          "source_study_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Study Id"
+          },
+          "verdict_key": {
+            "title": "Verdict Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "verdict_key",
+          "revision",
+          "content_hash",
+          "source_kind",
+          "source_id",
+          "claim_id",
+          "claim_level",
+          "claim_status",
+          "replication_status",
+          "created_ts",
+          "scorecard",
+          "fairness",
+          "controls",
+          "caveats",
+          "evidence",
+          "diagnostics",
+          "schema_version"
+        ],
+        "title": "VerdictSnapshotDetail",
+        "type": "object"
+      },
+      "VerdictSnapshotHistoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictSnapshotSummary"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/VerdictSnapshotDetail"
+          }
+        },
+        "required": [
+          "snapshot",
+          "history"
+        ],
+        "title": "VerdictSnapshotHistoryResponse",
+        "type": "object"
+      },
+      "VerdictSnapshotListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictSnapshotSummary"
+            },
+            "title": "Snapshots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshots"
+        ],
+        "title": "VerdictSnapshotListResponse",
+        "type": "object"
+      },
+      "VerdictSnapshotSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Level"
+          },
+          "assessment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Status"
+          },
+          "claim_id": {
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "claim_level": {
+            "title": "Claim Level",
+            "type": "string"
+          },
+          "claim_status": {
+            "title": "Claim Status",
+            "type": "string"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "created_ts": {
+            "title": "Created Ts",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "replication_status": {
+            "title": "Replication Status",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "verdict_key": {
+            "title": "Verdict Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "verdict_key",
+          "revision",
+          "content_hash",
+          "source_kind",
+          "source_id",
+          "claim_id",
+          "claim_level",
+          "claim_status",
+          "replication_status",
+          "created_ts"
+        ],
+        "title": "VerdictSnapshotSummary",
+        "type": "object"
       }
     }
   },
@@ -2254,6 +2538,87 @@
           }
         },
         "summary": "Api Suites"
+      }
+    },
+    "/api/verdicts": {
+      "get": {
+        "operationId": "api_verdicts_api_verdicts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerdictSnapshotListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Verdicts"
+      }
+    },
+    "/api/verdicts/{verdict_id}": {
+      "get": {
+        "operationId": "api_verdict_api_verdicts__verdict_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "verdict_id",
+            "required": true,
+            "schema": {
+              "title": "Verdict Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerdictSnapshotHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Verdict"
       }
     }
   }

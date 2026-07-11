@@ -13,7 +13,7 @@ import dataclasses
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -70,6 +70,12 @@ from .studies import (
     study_payload,
     study_report_payload,
 )
+from .verdicts import (
+    VerdictSnapshotHistoryResponse,
+    VerdictSnapshotListResponse,
+    verdict_snapshot_detail_response,
+    verdict_snapshot_list_response,
+)
 from .workspace import comparison_payload, workspace_payload
 
 DB_PATH = os.environ.get("QLLM_DB", "results/qllm_results.db")
@@ -103,7 +109,13 @@ def db() -> ResultsDB:
     return ResultsDB(DB_PATH)
 
 
-QUEUE = ExperimentQueue(DB_PATH, results_dir=RESULTS_DIR, data_dir=DATA_DIR)
+QUEUE = ExperimentQueue(
+    DB_PATH,
+    start_worker=os.environ.get("QLLM_DISABLE_WORKER", "0").lower()
+    not in {"1", "true", "yes", "on"},
+    results_dir=RESULTS_DIR,
+    data_dir=DATA_DIR,
+)
 
 
 def _payload_error(exc: Exception) -> HTTPException:
@@ -177,6 +189,24 @@ def api_claim(claim_id: str) -> dict:
         return get_claim(claim_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/verdicts", response_model=VerdictSnapshotListResponse)
+def api_verdicts(
+    limit: int = Query(default=100, ge=1, le=100),
+) -> VerdictSnapshotListResponse:
+    return verdict_snapshot_list_response(db(), limit=limit)
+
+
+@app.get(
+    "/api/verdicts/{verdict_id}",
+    response_model=VerdictSnapshotHistoryResponse,
+)
+def api_verdict(verdict_id: int) -> VerdictSnapshotHistoryResponse:
+    payload = verdict_snapshot_detail_response(db(), verdict_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="verdict snapshot not found")
+    return payload
 
 
 @app.get("/api/presets/{preset_id}/model-graph")

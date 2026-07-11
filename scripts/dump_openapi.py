@@ -20,6 +20,7 @@ def _openapi_document() -> dict:
         os.environ["QLLM_DB"] = str(temp / "openapi.db")
         os.environ["QLLM_RESULTS"] = str(temp / "results")
         os.environ["QLLM_DATA"] = str(temp / "data")
+        os.environ["QLLM_DISABLE_WORKER"] = "1"
         sys.path.insert(0, str(ROOT))
 
         from qllm.dashboard import server

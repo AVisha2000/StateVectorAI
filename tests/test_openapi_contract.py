@@ -11,20 +11,23 @@ SNAPSHOT = ROOT / "qllm" / "dashboard" / "openapi.json"
 
 
 def test_openapi_snapshot_is_current_and_contains_core_api():
-    completed = subprocess.run(
-        [sys.executable, "scripts/dump_openapi.py", "--check"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+    for _ in range(2):
+        completed = subprocess.run(
+            [sys.executable, "scripts/dump_openapi.py", "--check"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
 
     document = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     assert document["info"]["title"] == "QLLM Dashboard"
     assert "/api/status" in document["paths"]
     assert "/api/stream/jobs" in document["paths"]
     assert "/api/jobs/{job_id}/diagnostics" in document["paths"]
+    assert "/api/verdicts" in document["paths"]
+    assert "/api/verdicts/{verdict_id}" in document["paths"]
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
 
@@ -54,3 +57,13 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
         "meyer_wallach_q",
         "scaling_fit",
     }
+
+    verdict = document["components"]["schemas"]["VerdictSnapshotSummary"]
+    assert verdict["additionalProperties"] is False
+    assert {
+        "claim_level",
+        "claim_status",
+        "replication_status",
+        "assessment_level",
+        "assessment_status",
+    }.issubset(verdict["properties"])

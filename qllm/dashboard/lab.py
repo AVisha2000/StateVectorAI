@@ -24,6 +24,7 @@ from .evidence import (
 from .gpu_reservation import gpu_reservation_status, job_reservation
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
+from .verdicts import comparison_verdict_snapshot
 from .workspace import comparison_payload
 
 
@@ -318,6 +319,16 @@ def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
         metric_type=effective_metric_type,
         fairness=payload.get("fairness"),
         assessment_status=payload.get("assessment_status"),
+    )
+    snapshot = comparison_verdict_snapshot(db, payload)
+    payload["verdict_snapshot"] = (
+        {
+            "id": snapshot["id"],
+            "verdict_key": snapshot["verdict_key"],
+            "revision": snapshot["revision"],
+        }
+        if snapshot is not None
+        else None
     )
     return payload
 

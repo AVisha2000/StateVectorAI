@@ -885,7 +885,7 @@ Progress:
 - [x] Pin `/api/status` and ship localhost-only SQLite-authoritative SSE updates;
   record D1 and D2.
 - [x] Ship capability-aware diagnostics and focused regressions.
-- [ ] Ship the additive verdict store/API; record D3.
+- [x] Ship the additive verdict store/API; record D3.
 - [ ] Ship the bounded research-service scaffold and stop at D4.
 - [ ] Regenerate the final OpenAPI snapshot and update only the backend-owned API
   contract and Backend log in `docs/BUILD_COORDINATION.md`.
@@ -937,6 +937,14 @@ python -m pytest -q tests/test_metrics.py tests/test_backend_capabilities.py --b
 PASS: 58 passed; six existing JAX complex128-to-complex64 warnings.
 python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-diagnostics
 PASS: 1 passed; the five diagnostics dimensions are explicit in OpenAPI.
+python -m pytest -q tests/test_dashboard_verdicts.py tests/test_advantage.py tests/test_research_protocol.py --basetemp .tmp/pytest-verdicts-parent
+PASS: 47 passed; 13 existing JAX complex128-to-complex64 warnings.
+python -m pytest -q tests/test_dashboard_lab.py --basetemp .tmp/pytest-dashboard-verdicts
+PASS: 74 passed with idempotent comparison snapshot materialization.
+python -m pytest -q tests/test_durable_runs.py --basetemp .tmp/pytest-durable-verdicts
+PASS: 38 passed; additive verdict migrations preserve durable-run behavior.
+python -m pytest -q tests/test_openapi_contract.py --basetemp .tmp/pytest-openapi-verdicts-final
+PASS: 1 passed; two subprocess checks prove worker-free OpenAPI cleanup on Windows.
 git diff --check
 PASS: no whitespace errors; Windows line-ending notices only.
 ```

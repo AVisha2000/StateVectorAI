@@ -8,6 +8,7 @@ sweep continues where it stopped — on this machine or on a GPU box later.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import sqlite3
@@ -210,6 +211,39 @@ CREATE TABLE IF NOT EXISTS study_jobs (
     sweep_json TEXT,
     PRIMARY KEY(study_id, job_id)
 );
+-- Immutable, content-addressed dashboard evidence projections.  Revisions
+-- are append-only so historical verdicts remain auditable.
+CREATE TABLE IF NOT EXISTS verdict_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    verdict_key TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    claim_id TEXT NOT NULL,
+    claim_level TEXT NOT NULL,
+    claim_status TEXT NOT NULL,
+    replication_status TEXT NOT NULL,
+    assessment_level TEXT,
+    assessment_status TEXT,
+    source_job_id INTEGER,
+    source_study_id INTEGER,
+    source_run_id TEXT,
+    scorecard_json TEXT NOT NULL,
+    fairness_json TEXT NOT NULL,
+    controls_json TEXT NOT NULL,
+    caveats_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    diagnostics_json TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    created_ts TEXT NOT NULL,
+    UNIQUE(verdict_key, revision),
+    UNIQUE(verdict_key, content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_latest
+    ON verdict_snapshots(verdict_key, revision DESC);
+CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_created
+    ON verdict_snapshots(created_ts DESC, id DESC);
 """
 
 
@@ -561,6 +595,109 @@ class ResultsDB:
         except (json.JSONDecodeError, TypeError):
             row["resources"] = None
         return row
+
+    # ---- append-only dashboard verdict snapshots ----
+    @staticmethod
+    def _canonical_json(value: object) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+    @staticmethod
+    def _decode_verdict_snapshot(row: dict) -> dict:
+        """Decode optional snapshot JSON defensively for dashboard readers."""
+        for column, key, default in (
+            ("scorecard_json", "scorecard", {}),
+            ("fairness_json", "fairness", {}),
+            ("controls_json", "controls", {}),
+            ("caveats_json", "caveats", []),
+            ("evidence_json", "evidence", {}),
+            ("diagnostics_json", "diagnostics", {}),
+        ):
+            try:
+                decoded = json.loads(row.get(column) or "null")
+            except (json.JSONDecodeError, TypeError):
+                decoded = default
+            row[key] = decoded if isinstance(decoded, type(default)) else default
+        return row
+
+    def append_verdict_snapshot(self, snapshot: dict) -> dict:
+        """Atomically append changed snapshot content or return its prior revision.
+
+        The digest deliberately excludes persistence-generated fields, making
+        retries idempotent while preserving every semantically changed revision.
+        """
+        required = {
+            "verdict_key", "source_kind", "source_id", "claim_id", "claim_level",
+            "claim_status", "replication_status", "scorecard", "fairness", "controls",
+            "caveats", "evidence", "diagnostics", "schema_version",
+        }
+        missing = sorted(required - set(snapshot))
+        if missing:
+            raise ValueError(f"Verdict snapshot is missing required fields: {missing}")
+        content = {key: snapshot[key] for key in sorted(required)}
+        for key in ("assessment_level", "assessment_status", "source_job_id", "source_study_id", "source_run_id"):
+            if key in snapshot:
+                content[key] = snapshot[key]
+        content_hash = hashlib.sha256(self._canonical_json(content).encode("utf-8")).hexdigest()
+        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        json_columns = {
+            name: self._canonical_json(snapshot[name])
+            for name in ("scorecard", "fairness", "controls", "caveats", "evidence", "diagnostics")
+        }
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            existing = con.execute(
+                "SELECT * FROM verdict_snapshots WHERE verdict_key=? AND content_hash=?",
+                (str(snapshot["verdict_key"]), content_hash),
+            ).fetchone()
+            if existing is not None:
+                return self._decode_verdict_snapshot(dict(existing))
+            revision = int(con.execute(
+                "SELECT COALESCE(MAX(revision), 0) FROM verdict_snapshots WHERE verdict_key=?",
+                (str(snapshot["verdict_key"]),),
+            ).fetchone()[0]) + 1
+            cur = con.execute(
+                "INSERT INTO verdict_snapshots (verdict_key, revision, content_hash, source_kind, source_id, "
+                "claim_id, claim_level, claim_status, replication_status, assessment_level, assessment_status, "
+                "source_job_id, source_study_id, source_run_id, scorecard_json, fairness_json, controls_json, "
+                "caveats_json, evidence_json, diagnostics_json, schema_version, created_ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    snapshot["verdict_key"], revision, content_hash, snapshot["source_kind"], snapshot["source_id"],
+                    snapshot["claim_id"], snapshot["claim_level"], snapshot["claim_status"], snapshot["replication_status"],
+                    snapshot.get("assessment_level"), snapshot.get("assessment_status"), snapshot.get("source_job_id"),
+                    snapshot.get("source_study_id"), snapshot.get("source_run_id"), json_columns["scorecard"],
+                    json_columns["fairness"], json_columns["controls"], json_columns["caveats"], json_columns["evidence"],
+                    json_columns["diagnostics"], int(snapshot["schema_version"]), now,
+                ),
+            )
+            row = con.execute("SELECT * FROM verdict_snapshots WHERE id=?", (cur.lastrowid,)).fetchone()
+        return self._decode_verdict_snapshot(dict(row))
+
+    def list_latest_verdict_snapshots(self, limit: int = 100) -> list[dict]:
+        """Return at most 100 latest revisions, one per stable verdict key."""
+        bounded = max(1, min(int(limit), 100))
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT vs.* FROM verdict_snapshots AS vs JOIN ("
+                "SELECT verdict_key, MAX(revision) AS revision FROM verdict_snapshots GROUP BY verdict_key"
+                ") AS latest ON latest.verdict_key=vs.verdict_key AND latest.revision=vs.revision "
+                "ORDER BY vs.created_ts DESC, vs.id DESC LIMIT ?",
+                (bounded,),
+            ).fetchall()
+        return [self._decode_verdict_snapshot(dict(row)) for row in rows]
+
+    def get_verdict_snapshot(self, snapshot_id: int) -> dict | None:
+        with self._conn() as con:
+            row = con.execute("SELECT * FROM verdict_snapshots WHERE id=?", (int(snapshot_id),)).fetchone()
+        return self._decode_verdict_snapshot(dict(row)) if row is not None else None
+
+    def get_verdict_snapshot_history(self, verdict_key: str) -> list[dict]:
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT * FROM verdict_snapshots WHERE verdict_key=? ORDER BY revision DESC",
+                (str(verdict_key),),
+            ).fetchall()
+        return [self._decode_verdict_snapshot(dict(row)) for row in rows]
 
     # ---- live-run registry + per-step logging (own MLflow replacement) ----
     def start_run(self, run_key: str, run_name: str, suite: str, variant: str,
