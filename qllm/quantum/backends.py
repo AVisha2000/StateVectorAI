@@ -1,9 +1,10 @@
 """Quantum simulation backends behind a common protocol.
 
 A backend turns an (ansatz, n_qubits, n_layers) spec into plain JAX-callable
-functions, so every layer and metric is backend-agnostic. Swapping
-``default.qubit`` (exact, <=~25 qubits) for a tensor-network simulator
-(100+ qubits, bounded entanglement) is a one-line config change.
+functions, so every layer and metric is backend-agnostic. Both currently
+implemented adapters use dense exact statevectors in analytic mode; capability
+metadata records that fact so TensorCircuit is not mistaken for an approximate
+tensor-network execution path.
 
 Returned callables:
 - ``expval_circuit``: (inputs(n,), weights) -> (n,) local Pauli-Z expvals
@@ -18,10 +19,12 @@ from typing import Callable, Protocol
 import jax.numpy as jnp
 
 from ..registry import BACKEND_TYPES, CIRCUIT_ANSATZ_TYPES, READOUT_TYPES
+from .capabilities import BackendCapabilities, resolve_backend_capabilities
 
 
 class CircuitBackend(Protocol):
     name: str
+    capabilities: BackendCapabilities
 
     def expval_circuit(
         self, n_qubits: int, n_layers: int, ansatz: str, readout: str = "z"
@@ -51,6 +54,9 @@ class PennyLaneBackend:
         self.device = device
         self.diff_method = diff_method
         self.shots = shots
+        self.capabilities = resolve_backend_capabilities(
+            self.name, device, diff_method, shots
+        )
 
     def _qnode(self, n_qubits: int, ansatz: str, measurement: str):
         import pennylane as qml
@@ -103,22 +109,34 @@ class PennyLaneBackend:
 
     def state_circuit(self, n_qubits, n_layers, ansatz):
         del n_layers
+        if not self.capabilities.state_access.supported:
+            raise ValueError(
+                "State access is unavailable for this PennyLane execution mode: "
+                f"{self.capabilities.state_access.limitation}."
+            )
         return self._qnode(n_qubits, ansatz, "state")
 
 
 class TensorCircuitBackend:
-    """EXPERIMENTAL: TensorCircuit-NG (JAX backend) for large-qubit scaling.
+    """EXPERIMENTAL: TensorCircuit-NG dense statevector adapter (JAX backend).
 
     Mirrors the PennyLane gate sequence (Rot = RZ·RY·RZ + ring of CNOTs,
-    matching ``qml.StronglyEntanglingLayers`` with range 1). Use
-    ``tc.MPSCircuit`` here when pushing past state-vector limits; the
-    exact/MPS API parity is what enables overlap-region benchmarking.
+    matching ``qml.StronglyEntanglingLayers`` with range 1). This adapter uses
+    ``tc.Circuit`` and does not expose MPS or another approximate execution mode.
     Requires ``pip install tensorcircuit-ng``.
     """
 
     name = "tensorcircuit"
 
-    def __init__(self, device: str = "statevector", **_):
+    def __init__(
+        self,
+        device: str = "statevector",
+        diff_method: str = "backprop",
+        shots: int | None = None,
+    ):
+        self.capabilities = resolve_backend_capabilities(
+            self.name, device, diff_method, shots
+        )
         try:
             import tensorcircuit as tc
         except ImportError as exc:  # pragma: no cover - optional dep
@@ -128,6 +146,8 @@ class TensorCircuitBackend:
         tc.set_backend("jax")
         self._tc = tc
         self.device = device
+        self.diff_method = diff_method
+        self.shots = shots
 
     def _apply(self, c, inputs, weights, n_qubits, ansatz):
         n_layers = weights.shape[0]
@@ -202,9 +222,13 @@ def make_backend(
         raise ValueError(
             f"Unknown backend '{backend}'. Available: {list(BACKEND_REGISTRY)}"
         )
+    # Validate the selected execution mode before loading an optional backend.
+    resolve_backend_capabilities(backend, device, diff_method, shots)
     if backend == BACKEND_TYPES[0]:
         return PennyLaneBackend(device=device, diff_method=diff_method, shots=shots)
-    return BACKEND_REGISTRY[backend](device=device)
+    return BACKEND_REGISTRY[backend](
+        device=device, diff_method=diff_method, shots=shots
+    )
 
 
 @lru_cache(maxsize=None)
@@ -241,6 +265,8 @@ def get_state_circuit(
     n_qubits: int,
     n_layers: int,
     ansatz: str,
+    diff_method: str = "backprop",
+    shots: int | None = None,
 ) -> Callable:
-    be = make_backend(backend, device)
+    be = make_backend(backend, device, diff_method, shots)
     return be.state_circuit(n_qubits, n_layers, ansatz)

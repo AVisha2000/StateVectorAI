@@ -7,6 +7,7 @@ from typing import Any
 import jax
 
 from .config import ExperimentConfig, ModelConfig, QuantumConfig
+from .quantum.capabilities import backend_capabilities_payload
 from .registry import QUANTUM_ARCH_TYPES, QUANTUM_ATTN_TYPES, QUANTUM_FFN_TYPES
 
 
@@ -122,6 +123,19 @@ def _active_quantum_configs(
     return active
 
 
+def _component_capabilities(
+    qcfg: QuantumConfig, implementation: str
+) -> dict[str, Any]:
+    """Resolve the actual adapter semantics stored with a run resource plan."""
+    if implementation == "configured_circuit_backend":
+        return backend_capabilities_payload(
+            qcfg.backend, qcfg.device, qcfg.diff_method, qcfg.shots
+        )
+    return backend_capabilities_payload(
+        "jax_native_statevector", "jax_runtime", "backprop", None
+    )
+
+
 def static_resource_plan(
     cfg: ExperimentConfig,
     *,
@@ -229,6 +243,7 @@ def static_resource_plan(
                         if implementation == "configured_circuit_backend"
                         else "not_applicable_to_native_jax_component"
                     ),
+                    "capabilities": _component_capabilities(qcfg, implementation),
                     "logical_instances_per_token": int(logical_instances),
                 }
                 for name, qcfg, logical_instances, implementation in active_configs

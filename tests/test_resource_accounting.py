@@ -67,6 +67,34 @@ def test_static_quantum_plan_distinguishes_logical_from_backend_calls(
     assert logical["status"] == "derived_logical_forward_instances"
     assert plan["backend_execution_calls"]["value"] is None
     assert plan["backend_execution_calls"]["status"] == "unsupported"
+    configured_component = plan["quantum_backend"]["components"][
+        "block_0.feed_forward"
+    ]
+    assert configured_component["capabilities"]["exactness"] == "exact"
+    assert configured_component["capabilities"]["approximation"] is None
+
+    sampled_cfg = dataclasses.replace(
+        tiny_quantum_cfg,
+        model=dataclasses.replace(
+            tiny_quantum_cfg.model,
+            quantum=dataclasses.replace(
+                tiny_quantum_cfg.model.quantum,
+                diff_method="parameter-shift",
+                shots=64,
+            ),
+        ),
+    )
+    sampled = static_resource_plan(
+        sampled_cfg,
+        n_params=123,
+        requested_device="cpu",
+        resolved_device=device,
+    )
+    sampled_capabilities = sampled["quantum_backend"]["components"][
+        "block_0.feed_forward"
+    ]["capabilities"]
+    assert sampled_capabilities["exactness"] == "sampled"
+    assert sampled_capabilities["approximation"]["shots"] == 64
 
     parallel_cfg = dataclasses.replace(
         tiny_quantum_cfg,
@@ -113,6 +141,12 @@ def test_static_quantum_plan_distinguishes_logical_from_backend_calls(
     assert native_component["shots"] is None
     assert native_component["configured_shots"] == 100
     assert native_component["shots_status"] == "not_applicable_to_native_jax_component"
+    assert native_component["capabilities"]["backend"] == "jax_native_statevector"
+    assert native_component["capabilities"]["exactness"] == "exact"
+    assert native_component["capabilities"]["approximation"] is None
+    assert native_component["capabilities"]["capabilities"]["gradients"][
+        "status"
+    ] == "supported"
     assert native["backend"] == "jax_native_statevector"
     assert native["backend_status"] == "actual_implementation"
 

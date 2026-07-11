@@ -157,6 +157,19 @@ def compile_unitary(
     Returns (circuit_weights, zz_phase, global_phase, fidelity) with
     fidelity = 1 - ||e^{ig}U - V||_F / ||V||_F.
     """
+    if (
+        isinstance(steps, bool)
+        or not isinstance(steps, (int, np.integer))
+        or steps <= 0
+    ):
+        raise ValueError("steps must be a positive integer")
+    if (
+        isinstance(restarts, bool)
+        or not isinstance(restarts, (int, np.integer))
+        or restarts <= 0
+    ):
+        raise ValueError("restarts must be a positive integer")
+
     tgt = jnp.asarray(target.astype(np.complex64))
 
     def loss_fn(params):
@@ -164,11 +177,21 @@ def compile_unitary(
         return jnp.sum(jnp.abs(U - tgt) ** 2)
 
     tx = optax.adam(lr)
-    step = jax.jit(
-        lambda p, o: (lambda l, g: (l, *_apply(tx, p, o, g)))(
-            *jax.value_and_grad(loss_fn)(p)
+    def optimize(params, opt):
+        def scan_step(carry, _):
+            current_params, current_opt = carry
+            loss, grads = jax.value_and_grad(loss_fn)(current_params)
+            next_params, next_opt = _apply(
+                tx, current_params, current_opt, grads
+            )
+            return (next_params, next_opt), loss
+
+        (params, opt), losses = jax.lax.scan(
+            scan_step, (params, opt), xs=None, length=steps
         )
-    )
+        return params, opt, losses[-1]
+
+    optimize = jax.jit(optimize)
 
     best = None
     for r in range(restarts):
@@ -182,9 +205,7 @@ def compile_unitary(
             "g": jax.random.uniform(k3, (), maxval=2 * math.pi),
         }
         opt = tx.init(params)
-        loss = None
-        for _ in range(steps):
-            loss, params, opt = step(params, opt)
+        params, opt, loss = optimize(params, opt)
         if best is None or float(loss) < best[0]:
             best = (float(loss), params)
 

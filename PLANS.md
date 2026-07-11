@@ -40,12 +40,63 @@ Progress:
   delivered to `main` in commit `2418d7b`.
 - [x] M05 Trust runs (`codex/m05-durable-runs`), delivered to `main` in commit
   `e901139`.
-- [ ] M06 Local safety and resource reproducibility (`codex/m06-safety-resources`).
+- [x] M06 Local safety and resource reproducibility
+  (`codex/m06-safety-resources`), delivered to `main` in commit `182192c`.
 - [ ] M07 Local scaling architecture (`codex/m07-local-scaling`).
 - [ ] M08 Dashboard and UI evidence completion (`codex/m08-dashboard-evidence`).
 - [ ] M09 Documentation and completion audit (`codex/m09-docs-audit`).
 
-Current milestone: M06 local safety and resource reproducibility.
+Current milestone: M07 local scaling architecture.
+
+M07 acceptance evidence:
+
+- Recurrent, contextual, routed, two-stream, and transplant transformations use
+  static-shape `lax.scan`/vectorized execution only where numerical semantics
+  and public model contracts remain intact.
+- Backend capability metadata is canonical and additive across state access,
+  expectations, probabilities, sampling, gradients, noise, reset, and dynamic
+  circuits. Unsupported capabilities fail explicitly rather than being inferred.
+- Exact state-vector and approximate/sampled/noisy outcomes are labeled and
+  stored distinctly; small CPU overlap fixtures compare implementations only
+  where their semantics genuinely coincide.
+- Focused numerical parity, gradient, shape/JIT, backend-capability, and
+  unsupported-path tests pass together with change-aware/full CPU verification
+  and a fresh verifier PASS. No GPU/QPU workload is launched.
+
+M07 progress:
+
+- [x] Deliver M06 and create `codex/m07-local-scaling` from updated `main`.
+- [x] Inventory hot-loop transformation candidates and backend/API drift.
+- [x] Implement one coupled static-shape transformation path at a time with
+  numerical/gradient parity tests.
+- [x] Add canonical backend capability metadata and exact/approximate overlap
+  fixtures without weakening existing dispatch.
+- [x] Run focused, change-aware, and full CPU verification.
+- [x] Obtain a fresh verifier PASS and deliver M07 under standing Git approval.
+
+M07 design constraints:
+
+- Sequence recurrence in QRNN/contextual/routed models, transplant circuit
+  depth, and two-stream prefix evaluation are already scanned/vectorized. M07
+  therefore targets the transplant compiler's Python-per-optimizer-step host
+  dispatch; static gate-construction and named transformer-block loops remain
+  unchanged because scanning them would add dynamic-index or parameter-tree
+  risk without demonstrated benefit.
+- Restart selection remains host-controlled and deterministic. Only the
+  optimizer step axis is scanned, preserving the established loss convention
+  and bounded memory behavior.
+- The current TensorCircuit adapter is an exact dense state-vector path, not an
+  MPS or approximate implementation. Capability metadata must say so, and M07
+  will report that no approximate backend exists rather than fabricate one.
+- Transformation boundaries are selected for measurable compile/runtime or
+  memory benefit, not merely to replace readable Python with JAX primitives.
+- Static shapes, carry state, masking, reset behavior, RNG use, and gradient
+  semantics are explicit and covered by small deterministic CPU fixtures.
+- Capability declarations describe actual adapter behavior. Configured backend
+  names, native-JAX implementations, and simulator approximations remain
+  distinct in manifests and result metadata.
+- No GPU/QPU run, dependency installation, paid service, destructive artifact
+  migration, claim promotion, or `RESULTS.md` edit is part of M07.
 
 M06 acceptance evidence:
 
