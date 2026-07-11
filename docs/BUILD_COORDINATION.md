@@ -69,6 +69,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/jobs` | array of jobs: `{id, run_name, status(queued\|running\|done\|error\|cancelled), comparison_role, preset_id, dataset_name, seed, steps, eval_every, model_family, group_id, analogue_state, analogue_job_id, compare_to_job_id, device_target, gpu_reservation, interpretation_warnings, config}` |
 | GET | `/jobs/{id}` · `/jobs/{id}/workspace` · `/jobs/{id}/comparison` · `/jobs/{id}/model-graph` · `/jobs/{id}/model-tests` | run detail, twin comparison, model graph, tests |
 | GET | `/jobs/{id}/diagnostics` | retrieval-only saved dimensions: `gradient_variance`, `parameter_shift_gradient_snr`, `expressibility_kl`, `meyer_wallach_q`, `scaling_fit`; every dimension is measured or explicitly unavailable, with provenance and non-advantage warnings |
+| GET | `/verdicts` · `/verdicts/{id}` | latest append-only verdict snapshots and revision history; canonical `claim_level`, `claim_status`, and `replication_status` are ledger-bound and separate from derived `assessment_level`/`assessment_status`; named scorecard dimensions only |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
 | GET | `/status` | exact typed shape: `{worker: string, gpu_available: boolean, queued: integer, running: integer, runs: integer}`; `runs` is the recorded `runs` row count |
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
@@ -78,7 +79,6 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 ### Proposed / needed by the frontend (backend to design & confirm shapes)
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
-| P2 | GET | `/verdicts` · `/verdicts/{id}` | persistent verdict/adjudication store (does not exist yet — verdicts are derived on the fly). Each: claim_level, replication_status, per-dimension scorecard (diagnostics labeled as diagnostics), fairness/controls, caveats | Phase 2 Verdicts |
 | P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
 | P3 | GET | `/library/*`, `/discover/*` | greenfield research service (human-gated provider/cost) | Phase 4 |
 
@@ -104,6 +104,13 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   least two distinct persisted qubit counts, and diagnostics cannot produce or
   raise an advantage claim. Evidence: diagnostics `10 passed`; metrics/backend
   capability regressions `58 passed`; typed OpenAPI contract `1 passed`.
+- 2026-07-11 · backend: D3 uses append-only, content-addressed verdict
+  snapshots. Canonical claim level/status/replication come only from the checked
+  claim ledger; dashboard classifications remain separate assessment fields.
+  Comparison projections materialize idempotently with compact run/job
+  provenance, named diagnostics/controls, and no composite advantage score.
+  Evidence: verdict/research `47 passed`; dashboard `74 passed`; durability
+  `38 passed`; worker-free OpenAPI lifecycle `1 passed`.
 
 ## Log — from UI (Claude appends here)
 
