@@ -120,6 +120,12 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   and no LLM/embedding/vector/graph provider, dependency, paid service, full-text
   store, or cost budget was selected. Evidence: offline research `14 passed`;
   dashboard `74 passed`; security `14 passed, 1 skipped`; OpenAPI `1 passed`.
+- 2026-07-12 · backend: Post-rebase verification on `backend-enhancements`
+  confirms the shipped backend contract remains current. Evidence:
+  agent setup `passed`; OpenAPI snapshot `current`; focused backend contract,
+  security, stream, diagnostics, verdict, and research tests `50 passed,
+  1 skipped`; full Python suite `492 passed, 1 skipped`; isolated loopback CPU
+  queue smoke completed job `1` with status `done` at step `1`.
 - 2026-07-12 · backend: `backend-enhancements` reached final `gpt-5.6-sol`
   Ultra **PASS**. Diagnostics are run/manifest-bound, schedule/cohort strict,
   and reject malformed or non-finite protocol JSON. Verdict listing now uses a
@@ -205,9 +211,9 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| D1 | `/status` response shape | backend | open |
-| D2 | Live updates transport: SSE vs WebSocket | backend | open |
-| D3 | Persistent verdict store schema | backend | open |
+| D1 | `/status` response shape | backend | shipped on `backend-enhancements` |
+| D2 | Live updates transport: SSE vs WebSocket | backend | shipped on `backend-enhancements` as SSE |
+| D3 | Persistent verdict store schema | backend | shipped on `backend-enhancements` |
 | D4 | Research-service LLM/embedding provider + per-day cost budget (**human-gated**) | user | open |
-| D5 | Adopt OpenAPI snapshot as the contract — backend adds `qllm/dashboard/openapi.json` + `scripts/dump_openapi.py`; frontend codegen/validates from it | backend | proposed |
-| D6 | Backend test suite requires a built frontend (`dist/assets`); make `test_dashboard_security.py` skip gracefully or build `dist` in a fixture | backend | open |
+| D5 | Adopt OpenAPI snapshot as the contract — backend adds `qllm/dashboard/openapi.json` + `scripts/dump_openapi.py`; frontend codegen/validates from it | backend | shipped on `backend-enhancements`; pending code-branch merge to `main` |
+| D6 | Backend test suite requires a built frontend (`dist/assets`); make `test_dashboard_security.py` skip gracefully or build `dist` in a fixture | backend | shipped on `backend-enhancements` |
