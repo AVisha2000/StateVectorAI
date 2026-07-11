@@ -193,7 +193,7 @@ def test_default_python_ci_runs_the_complete_cpu_contract() -> None:
     assert "python -m pip install -r requirements-cpu.txt" in workflow
     assert "python scripts/check_dependency_profiles.py --runtime-profile cpu" in workflow
     assert "python -m compileall -q qllm benchmarks scripts tests" in workflow
-    assert "python -m pytest -q --basetemp .tmp/pytest-ci" in workflow
+    assert 'python -m pytest -q --basetemp "${{ runner.temp }}/pytest-ci"' in workflow
 
 
 def test_dashboard_and_dependency_automation_contracts() -> None:

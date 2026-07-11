@@ -45,4 +45,4 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q qllm benchmarks scripts tests
       - name: Run complete CPU test suite
-        run: python -m pytest -q --basetemp .tmp/pytest-ci
+        run: python -m pytest -q --basetemp "${{ runner.temp }}/pytest-ci"
