@@ -98,3 +98,52 @@ export function caveats(comparison) {
   const warnings = comparison?.interpretation_warnings
   return Array.isArray(warnings) ? warnings : []
 }
+
+// ---- Persistent verdict-store snapshots (/verdicts, /verdicts/{id}) ---------
+// The store keeps claim_level / claim_status / replication_status as canonical,
+// ledger-bound fields, DISTINCT from the derived assessment_level/assessment_status.
+// We surface both but never conflate them, and never synthesize a composite score.
+
+export function snapshotClaim(snapshot) {
+  const s = snapshot || {}
+  return {
+    claimId: s.claim_id ?? null,
+    claimLevel: s.claim_level ?? null, // canonical (ledger)
+    claimStatus: s.claim_status ?? null, // canonical (ledger)
+    replicationStatus: s.replication_status ?? null, // canonical, distinct from claim
+    assessmentLevel: s.assessment_level ?? null, // derived, separate
+    assessmentStatus: s.assessment_status ?? null, // derived, separate
+    revision: s.revision ?? null,
+    sourceKind: s.source_kind ?? null,
+    sourceId: s.source_id ?? null,
+    createdTs: s.created_ts ?? null,
+    verdictKey: s.verdict_key ?? null,
+  }
+}
+
+// Named scorecard dimensions as labeled per-dimension deltas — no aggregate.
+export function snapshotScorecardRows(snapshot) {
+  const dims = snapshot?.scorecard?.dimensions
+  if (!dims || typeof dims !== 'object') return []
+  const deltas = dims.deltas && typeof dims.deltas === 'object' ? dims.deltas : {}
+  return Object.entries(deltas)
+    .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+    .map(([key, delta]) => ({ key, label: key, delta }))
+}
+
+export function snapshotMetricType(snapshot) {
+  return snapshot?.scorecard?.dimensions?.metric_type ?? null
+}
+
+// Turn a loosely-typed fairness/controls object into boolean check rows.
+export function booleanChecks(obj) {
+  if (!obj || typeof obj !== 'object') return []
+  return Object.entries(obj)
+    .filter(([, v]) => typeof v === 'boolean')
+    .map(([key, ok]) => ({ key, label: key.replace(/_/g, ' '), ok }))
+}
+
+export function snapshotCaveats(snapshot) {
+  const c = snapshot?.caveats
+  return Array.isArray(c) ? c : []
+}

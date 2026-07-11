@@ -6,6 +6,9 @@ import {
   passedFairnessCount,
   ladderView,
   caveats,
+  snapshotClaim,
+  snapshotScorecardRows,
+  booleanChecks,
 } from './verdictView.js'
 import { diagnosticValues, hasAnyDiagnostic } from './diagnostics.js'
 
@@ -68,6 +71,37 @@ test('ladderView passes the backend ladder through verbatim', () => {
 test('caveats surface backend interpretation warnings', () => {
   assert.equal(caveats(comparison)[0].code, 'single_seed')
   assert.deepEqual(caveats({}), [])
+})
+
+test('snapshotClaim keeps canonical claim fields distinct from derived assessment', () => {
+  const c = snapshotClaim({
+    claim_id: 'c1', claim_level: 'empirical', claim_status: 'candidate',
+    replication_status: 'single_instance', assessment_level: 'descriptive',
+    assessment_status: 'unassigned', revision: 3, verdict_key: 'k1',
+  })
+  assert.equal(c.claimLevel, 'empirical')
+  assert.equal(c.replicationStatus, 'single_instance') // distinct field
+  assert.equal(c.assessmentLevel, 'descriptive') // derived, separate
+  assert.equal(c.revision, 3)
+})
+
+test('snapshotScorecardRows lists named delta dimensions with no aggregate', () => {
+  const rows = snapshotScorecardRows({
+    scorecard: { dimensions: { metric_type: 'ppl', deltas: { val_ppl: -0.16, wall_seconds: 624, note: 'x' } } },
+  })
+  assert.deepEqual(rows, [
+    { key: 'val_ppl', label: 'val_ppl', delta: -0.16 },
+    { key: 'wall_seconds', label: 'wall_seconds', delta: 624 },
+  ])
+  assert.ok(!rows.some((r) => 'score' in r))
+})
+
+test('booleanChecks turns a fairness/controls object into check rows', () => {
+  const rows = booleanChecks({ same_dataset: true, frozen_circuit: false, ratio: 1.02 })
+  assert.deepEqual(rows, [
+    { key: 'same_dataset', label: 'same dataset', ok: true },
+    { key: 'frozen_circuit', label: 'frozen circuit', ok: false },
+  ])
 })
 
 test('diagnosticValues reads the endpoint per-dimension shape (mappings + scalars)', () => {
