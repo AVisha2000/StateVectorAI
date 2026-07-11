@@ -7,6 +7,7 @@ import {
   resolveInitialTheme,
   navTitleForPath,
 } from './appShell.js'
+import { useJobsStream, useStreamActive } from './lib/stream.js'
 
 function initialTheme() {
   const saved = globalThis.localStorage?.getItem?.(THEME_STORAGE_KEY)
@@ -18,6 +19,8 @@ export default function App() {
   const [theme, setTheme] = useState(initialTheme)
   const location = useLocation()
   const fetching = useIsFetching()
+  useJobsStream()
+  const streaming = useStreamActive()
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -63,9 +66,9 @@ export default function App() {
         <div className="topbar">
           <div className="crumb">{crumb}</div>
           <div className="right">
-            <span className="chip">
-              <span className={`dot ${fetching ? 'run' : 'idle'}`} />
-              {fetching ? 'syncing' : 'live'}
+            <span className="chip" title={streaming ? 'Live SSE stream connected' : 'Polling for updates'}>
+              <span className={`dot ${fetching || streaming ? 'run' : 'idle'}`} />
+              {fetching ? 'syncing' : streaming ? 'streaming' : 'live'}
             </span>
             <button
               className="iconbtn"

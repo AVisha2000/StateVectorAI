@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api.js'
 import { LIVE_REFETCH_MS } from './queryClient.js'
+import { useStreamActive } from './stream.js'
 
 // Thin typed-ish query hooks over the existing REST api. Live surfaces refetch
 // on an interval; static ones do not. (The interval is replaced by the
@@ -23,10 +24,13 @@ export function useStatus() {
 }
 
 export function useJobs() {
+  // When the SSE stream is connected it pushes fresh snapshots, so the interval
+  // poll is disabled; it re-arms automatically if the stream drops.
+  const streamActive = useStreamActive()
   return useQuery({
     queryKey: ['jobs'],
     queryFn: api.jobs,
-    refetchInterval: LIVE_REFETCH_MS,
+    refetchInterval: streamActive ? false : LIVE_REFETCH_MS,
   })
 }
 
