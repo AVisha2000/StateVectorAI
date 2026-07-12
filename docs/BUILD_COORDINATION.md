@@ -251,6 +251,13 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   the Studies rigor track into the landing page; degrades gracefully when the
   studies store is absent. 89 unit / 54 functional E2E / 14 visual. Consumes the
   existing `/studies` contract; no new backend asks.
+- 2026-07-12 · ui: Run detail now shows a **scaling-group backlink**
+  (`main` `8799d53`) — when `/jobs/{id}/diagnostics` reports a `group_id` (the
+  only job→group reference in the contract), a linked chip in the run header
+  deep-links to `/runs/scaling/{group_id}`, closing the loop from a single run
+  back to its sweep. Absent when the run has no group. 89 unit / 56 functional
+  E2E / 14 visual. Note: there is no job→study back-reference in the contract
+  (`study_id` is only a path param), so no study backlink was added.
 
 ## Open decisions / blockers
 
