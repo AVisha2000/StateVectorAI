@@ -1,13 +1,22 @@
 import { useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
 import {
   ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ReferenceArea,
 } from 'recharts'
+import { api } from '../api.js'
 import { useStudies, useStudy } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
 import { chartAxisTick, chartGridStroke, chartTooltipProps, chartSeries } from '../chartTheme.js'
+import { SeedBandChart, ARM } from '../components/charts.jsx'
+import { seedBand } from '../lib/curves.js'
 import { studySummary, deltaPairs, winConsistency, studyLadder, studyJobs, studyCaveats } from '../lib/studyView.js'
 import { fmtNum, fmtPct, DASH } from '../lib/format.js'
+
+// A study job's identifier across the shapes the backend may use.
+function jobIdOf(j) {
+  return j?.id ?? j?.job_id ?? j?.job?.id ?? null
+}
 
 const AXIS = { tick: chartAxisTick, stroke: 'var(--axis)' }
 
@@ -92,6 +101,16 @@ function StudyDetail({ id }) {
   const jobs = useMemo(() => studyJobs(study), [study])
   const caveats = useMemo(() => studyCaveats(study), [study])
 
+  // Fan out to each study run's workspace to assemble a per-seed val_ppl band
+  // over training steps — the trajectory spread the final-value delta strip can't
+  // show. Cached; a study with N seeds makes N cheap, deduped requests.
+  const jobIds = useMemo(() => jobs.map(jobIdOf).filter((v) => v != null), [jobs])
+  const workspaceQueries = useQueries({
+    queries: jobIds.map((jid) => ({ queryKey: ['workspace', jid], queryFn: () => api.workspace(jid), staleTime: 30_000, retry: false })),
+  })
+  const seedCurves = workspaceQueries.map((q) => q.data?.curve).filter(Boolean)
+  const band = seedBand(seedCurves, 'val_ppl')
+
   if (isError) return <ErrorState error={error} label="Could not load this study." />
   if (isLoading) return <Loading label="Loading study…" />
   if (!study) return <ErrorState error={{ message: `Study ${id} not found.` }} label="Study not found." />
@@ -118,6 +137,27 @@ function StudyDetail({ id }) {
           This is the multi-seed spread, not a single verdict — the value single-seed comparisons can't give. No composite
           advantage score; wall-time (elsewhere) is simulator cost.
         </p>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="hd"><h3>Seed-band val_ppl over steps</h3><span className="hint">band = min–max across seeds · line = mean · lower is better</span></div>
+        <div className="bd chart-wrap">
+          {band.length && seedCurves.length >= 2 ? (
+            <SeedBandChart rows={band} color={ARM.quantum} label="mean val_ppl" />
+          ) : (
+            <p className="hint" style={{ padding: '18px 4px' }}>
+              {seedCurves.length === 1
+                ? 'Only one seed trajectory is available so far — a band needs at least two. Showing the per-pair spread above.'
+                : 'No per-seed training curves are available for this study yet. This lights up once its runs report step-wise val_ppl.'}
+            </p>
+          )}
+        </div>
+        {band.length && seedCurves.length >= 2 ? (
+          <p className="hint" style={{ padding: '0 16px 12px' }}>
+            The spread is the seed-to-seed variance of the trajectory itself, not a claim. A narrow band means the result
+            replicates across seeds; a wide one means a single seed could tell either story.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid2" style={{ marginTop: 14 }}>

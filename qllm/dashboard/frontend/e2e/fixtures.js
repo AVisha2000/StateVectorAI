@@ -132,10 +132,19 @@ export const STUDY_1 = {
     ],
   },
   jobs: [
-    { study_sweep: { n_qubits: 4, n_circuit_layers: 2 }, final_run: { val_ppl: 3.4 }, status: 'done' },
-    { study_sweep: { n_qubits: 6, n_circuit_layers: 2 }, final_run: { val_ppl: 3.5 }, status: 'done' },
+    { id: 201, study_sweep: { n_qubits: 4, n_circuit_layers: 2 }, final_run: { val_ppl: 3.4 }, status: 'done' },
+    { id: 202, study_sweep: { n_qubits: 6, n_circuit_layers: 2 }, final_run: { val_ppl: 3.5 }, status: 'done' },
+    { id: 203, study_sweep: { n_qubits: 4, n_circuit_layers: 2 }, final_run: { val_ppl: 3.45 }, status: 'done' },
   ],
   interpretation_warnings: [{ code: 'single_task_instance', title: 'One task instance', message: 'Multi-seed, single task instance.' }],
+}
+
+// Per-seed workspaces for STUDY_1's runs — distinct val_ppl trajectories so the
+// seed-band aggregates a real min–max spread over steps.
+export const STUDY_1_WORKSPACES = {
+  '/jobs/201/workspace': { curve: { val_ppl: [{ step: 0, value: 9.1 }, { step: 100, value: 5.0 }, { step: 200, value: 3.40 }] } },
+  '/jobs/202/workspace': { curve: { val_ppl: [{ step: 0, value: 9.4 }, { step: 100, value: 5.4 }, { step: 200, value: 3.50 }] } },
+  '/jobs/203/workspace': { curve: { val_ppl: [{ step: 0, value: 9.2 }, { step: 100, value: 5.2 }, { step: 200, value: 3.45 }] } },
 }
 
 export const CAPABILITIES = { metadata_only: true, full_text: false, unreviewed_preprints: true, claim_evidence_classification: false, human_review_required: true, paid_services_enabled: false, daily_cost_budget: null, llm_provider: null, embedding_provider: null, vector_store_provider: null, graph_store_provider: null, d4_human_gate_open: true }
@@ -159,6 +168,7 @@ export async function mockApi(page, overrides = {}) {
     '/scaling-tests/scale-grp': SCALING_GRP,
     '/studies': STUDIES,
     '/studies/1': STUDY_1,
+    ...STUDY_1_WORKSPACES,
     ...overrides,
   }
   await page.route('**/api/**', async (route) => {

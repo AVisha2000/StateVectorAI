@@ -31,7 +31,26 @@ test('Study detail: multi-seed KPIs, delta strip, ladder, and integrity framing'
   await expect(page.getByText(/multi-seed spread, not a single verdict/i)).toBeVisible()
   // evidence ladder + study runs
   await expect(page.getByText('Multiple seeds')).toBeVisible()
-  await expect(page.getByText('q4/d2')).toBeVisible()
+  await expect(page.getByText('q4/d2').first()).toBeVisible()
+})
+
+test('Study detail: seed-band aggregates per-seed val_ppl trajectories', async ({ page }) => {
+  await page.goto('/studies/1')
+  const band = page.locator('.card', { hasText: 'Seed-band val_ppl over steps' })
+  await expect(band).toBeVisible()
+  // three per-seed workspaces → a real band renders (composed area+line svg)
+  await expect(band.locator('.chart-wrap svg')).toBeVisible()
+  // integrity: the spread is variance, not a claim
+  await expect(band.getByText(/seed-to-seed variance of the trajectory itself, not a claim/i)).toBeVisible()
+})
+
+test('Study detail: seed-band degrades when per-seed curves are absent', async ({ page }) => {
+  // strip the per-seed workspaces → 404 → graceful note, no crash
+  await mockApi(page, { '/jobs/201/workspace': null, '/jobs/202/workspace': null, '/jobs/203/workspace': null })
+  await page.goto('/studies/1')
+  const band = page.locator('.card', { hasText: 'Seed-band val_ppl over steps' })
+  await expect(band).toBeVisible()
+  await expect(band.getByText(/No per-seed training curves are available/i)).toBeVisible()
 })
 
 test('Studies empty state points to the Bench', async ({ page }) => {
