@@ -130,7 +130,9 @@ def _model_spec_meta(db: ResultsDB, preset_id: str, config: dict) -> dict:
     }
 
 
-def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
+def _job_payload(
+    db: ResultsDB, job: dict | None, *, include_curves: bool = True
+) -> dict | None:
     if not job:
         return None
     try:
@@ -163,7 +165,11 @@ def _job_payload(db: ResultsDB, job: dict | None) -> dict | None:
         "preset": preset,
         "dataset": get_dataset(db, job["dataset_name"]),
         "live": _live(db, job.get("run_key"), job.get("run_uuid")),
-        "curve": _curve(db, job.get("run_key"), job.get("run_uuid")),
+        "curve": (
+            _curve(db, job.get("run_key"), job.get("run_uuid"))
+            if include_curves
+            else {}
+        ),
         "final_run": final_run,
         "metric_contract": metric_contract,
         "claim_id": claim_id,
@@ -197,7 +203,9 @@ def _comparison_metric_contract(*rows: dict | None) -> dict | None:
     )
 
 
-def comparison_payload(db: ResultsDB, job_id: int) -> dict:
+def comparison_payload(
+    db: ResultsDB, job_id: int, *, include_curves: bool = True
+) -> dict:
     job = _job(db, job_id)
     if not job:
         payload = {"available": False, "reason": "job not found"}
@@ -207,7 +215,9 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         return payload
     other = _job(db, job.get("compare_to_job_id"))
     if not other:
-        candidate_payload = _job_payload(db, job)
+        candidate_payload = _job_payload(
+            db, job, include_curves=include_curves
+        )
         payload = {
             "available": False,
             "reason": "no linked classical comparison",
@@ -231,8 +241,12 @@ def comparison_payload(db: ResultsDB, job_id: int) -> dict:
         baseline, candidate = job, other
     else:
         candidate, baseline = job, other
-    candidate_payload = _job_payload(db, candidate)
-    baseline_payload = _job_payload(db, baseline)
+    candidate_payload = _job_payload(
+        db, candidate, include_curves=include_curves
+    )
+    baseline_payload = _job_payload(
+        db, baseline, include_curves=include_curves
+    )
     candidate_run = candidate_payload["final_run"] if candidate_payload else None
     baseline_run = baseline_payload["final_run"] if baseline_payload else None
     deltas = None

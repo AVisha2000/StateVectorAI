@@ -13,13 +13,14 @@ from qllm.resultsdb import ResultsDB
 def _job(
     db: ResultsDB, artifacts: Path, *, group_id: str | None = None, qubits: int = 2,
     dataset_name: str = "test", seed: int = 17, config: dict | None = None,
-    comparison_role: str = "primary", name_suffix: str = "",
+    comparison_role: str = "primary", name_suffix: str = "", steps: int = 2,
+    eval_every: int = 1,
 ) -> dict:
     run_name = f"run-{qubits}-{group_id or 'single'}{name_suffix}"
     job_id = db.create_lab_job({
         "status": "done", "preset_id": "quantum-ffn-4q", "dataset_name": dataset_name,
         "run_name": run_name, "seed": seed,
-        "steps": 2, "eval_every": 1, "group_id": group_id,
+        "steps": steps, "eval_every": eval_every, "group_id": group_id,
         "artifact_dir": str(artifacts / run_name),
         "config": config or {"lab.study_cell.n_qubits": qubits},
         "comparison_role": comparison_role,
@@ -250,6 +251,76 @@ def test_scaling_fit_ignores_queue_output_config_but_keeps_depth_fixed(tmp_path)
     assert scaling["status"] == "measured"
     assert scaling["provenance"]["persisted_rows"] == 2
     assert scaling["value"]["variance_decay_factor_per_qubit"] == pytest.approx(0.5)
+
+
+def test_scaling_fit_does_not_mix_rows_with_different_authoritative_schedules(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=4)
+    different_schedule = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8,
+        steps=200, eval_every=50, name_suffix="-long",
+    )
+    _write_summary(first, {"quantum_diagnostics": _diagnostics(0.25)})
+    _write_summary(second, {"quantum_diagnostics": _diagnostics(0.0625)})
+    _write_summary(different_schedule, {"quantum_diagnostics": _diagnostics(1000.0)})
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
+    assert scaling["provenance"]["persisted_rows"] == 2
+    assert scaling["provenance"]["qubit_counts"] == [2, 4]
+
+
+def test_scaling_fit_rejects_target_with_malformed_config_json(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    job = _job(db, tmp_path / "artifacts", group_id="sweep")
+    _write_summary(job, {"quantum_diagnostics": _diagnostics()})
+    with db._conn() as con:
+        con.execute("UPDATE lab_jobs SET config_json='{broken' WHERE id=?", (job["id"],))
+    job = db.get_lab_job(job["id"])
+
+    scaling = diagnostics_payload(db, job["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "unavailable"
+    assert scaling["reason"] == "job config_json is malformed"
+    assert scaling["provenance"]["config_validation"] == "failed"
+    assert scaling["provenance"]["config_source"] == "lab_jobs.config_json"
+
+
+def test_scaling_fit_excludes_candidate_with_malformed_config_json(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=4)
+    malformed = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8, name_suffix="-malformed",
+    )
+    for job, variance in ((first, 0.25), (second, 0.0625), (malformed, 1000.0)):
+        _write_summary(job, {"quantum_diagnostics": _diagnostics(variance)})
+    with db._conn() as con:
+        con.execute("UPDATE lab_jobs SET config_json='{broken' WHERE id=?", (malformed["id"],))
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
+    assert scaling["provenance"]["persisted_rows"] == 2
+    assert scaling["provenance"]["qubit_counts"] == [2, 4]
+    assert scaling["provenance"]["excluded_malformed_config_rows"] == 1
+
+
+def test_scaling_fit_accepts_valid_empty_object_configs_with_matching_schedule(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="legacy", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="legacy", qubits=4)
+    with db._conn() as con:
+        con.execute("UPDATE lab_jobs SET config_json='{}' WHERE id IN (?, ?)", (first["id"], second["id"]))
+    _write_summary(first, {"n_qubits": 2, "quantum_diagnostics": _diagnostics(0.25)})
+    _write_summary(second, {"n_qubits": 4, "quantum_diagnostics": _diagnostics(0.0625)})
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
+    assert scaling["provenance"]["persisted_rows"] == 2
 
 
 def test_unknown_job_raises_key_error(tmp_path):

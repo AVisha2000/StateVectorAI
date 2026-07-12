@@ -5,6 +5,7 @@ hook.  Routes may use its Pydantic projections once they are explicitly wired.
 """
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping
 
@@ -16,7 +17,8 @@ from ..resultsdb import ResultsDB
 
 VERDICT_SNAPSHOT_SCHEMA_VERSION = 1
 _FORBIDDEN_SCORE_KEYS = frozenset({"advantage_score", "composite_score", "composite_advantage_score"})
-_RECONCILIATION_JOB_LIMIT = 200
+_RECONCILIATION_JOB_LIMIT = 25
+_RECONCILIATION_CURSOR_NAME = "comparison_verdict_snapshots"
 
 
 class VerdictSnapshotSummary(BaseModel):
@@ -281,13 +283,13 @@ def reconcile_comparison_verdict_snapshots(
     """Materialize eligible recent comparison verdicts without read-order coupling.
 
     The canonical comparison payload remains the sole owner of claim, fairness,
-    final-run, and persistence decisions.  The bounded pending batch advances
-    by excluding existing snapshots.  A malformed or unavailable job must not
-    prevent the verdict list from remaining available.
+    final-run, and persistence decisions.  A durable high-water cursor advances
+    after every deterministic attempt, so a malformed historical row cannot
+    starve later evidence.  Exhausted passes wrap to allow later corrections.
     """
     from .lab import comparison_research_payload
 
-    bounded = max(1, int(job_limit))
+    bounded = max(1, min(int(job_limit), _RECONCILIATION_JOB_LIMIT))
     claims = list_claims()
     claim_ids = [claim["claim_id"] for claim in claims]
     preset_ids = sorted({
@@ -299,6 +301,7 @@ def reconcile_comparison_verdict_snapshots(
         return
     claim_placeholders = ", ".join("?" for _ in claim_ids)
     preset_placeholders = ", ".join("?" for _ in preset_ids)
+    cursor = db.get_reconciliation_cursor(_RECONCILIATION_CURSOR_NAME)
     with db._conn() as con:
         rows = con.execute(
             "SELECT candidate.id FROM lab_jobs AS candidate "
@@ -316,20 +319,36 @@ def reconcile_comparison_verdict_snapshots(
             "OR CASE WHEN json_valid(candidate.config_json) "
             "THEN json_extract(candidate.config_json, '$.\"research.claim_id\"') "
             "IN (" + claim_placeholders + ") ELSE 0 END) "
-            "AND NOT EXISTS ("
+            "AND candidate.id>? AND NOT EXISTS ("
             "SELECT 1 FROM verdict_snapshots AS snapshot "
             "WHERE snapshot.verdict_key=('comparison:' || candidate.id)"
             ") ORDER BY candidate.id ASC LIMIT ?",
-            (*preset_ids, *claim_ids, bounded),
+            (*preset_ids, *claim_ids, cursor, bounded),
         ).fetchall()
 
+    if not rows:
+        db.reset_reconciliation_cursor(_RECONCILIATION_CURSOR_NAME)
+        return
+
     for row in rows:
+        candidate_job_id = int(row["id"])
         try:
-            comparison_research_payload(db, int(row["id"]))
-        # This is an availability boundary for a list endpoint: malformed,
-        # deleted, or otherwise unavailable historical rows are isolated.
+            comparison_research_payload(
+                db, candidate_job_id, include_curves=False
+            )
+        except sqlite3.Error:
+            # Database/system failures are not deterministic row failures. Do
+            # not advance the cursor, so a later call can safely retry it.
+            return
+        # Deterministically malformed historical rows are isolated and cannot
+        # starve later evidence. Unexpected failures remain retryable.
+        except (ArithmeticError, KeyError, TypeError, ValueError):
+            pass
         except Exception:
-            continue
+            return
+        db.advance_reconciliation_cursor(
+            _RECONCILIATION_CURSOR_NAME, candidate_job_id
+        )
 
 
 def verdict_snapshot_list_response(db: ResultsDB, *, limit: int = 100) -> VerdictSnapshotListResponse:

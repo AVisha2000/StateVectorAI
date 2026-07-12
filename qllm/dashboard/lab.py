@@ -239,8 +239,11 @@ def _resource_normalized_for_payload(payload: dict) -> dict | None:
     )
 
 
-def comparison_research_payload(db: ResultsDB, job_id: int) -> dict:
-    payload = comparison_payload(db, job_id)
+def comparison_research_payload(
+    db: ResultsDB, job_id: int, *, include_curves: bool = True
+) -> dict:
+    """Build the canonical comparison payload, optionally without step curves."""
+    payload = comparison_payload(db, job_id, include_curves=include_curves)
     candidate = payload.get("candidate") or {}
     candidate_job = candidate.get("job") or {}
     candidate_config = candidate_job.get("config") or {}

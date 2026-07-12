@@ -12,6 +12,7 @@ from qllm.dashboard.verdicts import (
     verdict_snapshot_list_response,
 )
 from qllm.dashboard.runner import ExperimentQueue
+from qllm.dashboard.lab import comparison_research_payload
 from qllm.claims import get_claim
 from qllm.quantum.advantage import AdvantageReport
 from qllm.resultsdb import ResultsDB
@@ -35,6 +36,25 @@ def _payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _complete_pair(db, pair, *, candidate_ppl=1.0, baseline_ppl=2.0):
+    """Persist the minimum canonical evidence required by reconciliation."""
+    for job, ppl in ((pair, candidate_ppl), (pair["comparison_job"], baseline_ppl)):
+        db.update_lab_job(
+            job["id"],
+            status="done",
+            run_key=(
+                f"lab/{job['preset_id']}/{job['dataset_name']}/"
+                f"{job['seed']}/{job['steps']}"
+            ),
+        )
+        db.record(
+            "lab", job["preset_id"], "default-text", job["seed"], 2,
+            10, ppl / 2, ppl, ppl / 3, 1.0,
+            config=job["config"], run_uuid=job["run_uuid"],
+            experiment_uuid=job["experiment_uuid"],
+        )
 
 
 def test_legacy_and_repeatable_verdict_migration_preserves_existing_rows(tmp_path):
@@ -167,6 +187,96 @@ def test_verdict_reconciliation_advances_through_pending_pairs(tmp_path):
     assert [snapshot["source_id"] for snapshot in first] == [str(pairs[0]["id"])]
     assert {snapshot["source_id"] for snapshot in second} == {
         str(pair["id"]) for pair in pairs
+    }
+
+
+def test_reconciliation_cursor_skips_invalid_oldest_pair_and_survives_reopen(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    invalid = queue.submit(
+        "quantum-ffn-4q", "default-text", "invalid", 11, 2, 1,
+        queue_classical_comparison=True, claim_id=CLAIM_ID,
+    )
+    valid = queue.submit(
+        "quantum-ffn-4q", "default-text", "valid", 12, 2, 1,
+        queue_classical_comparison=True, claim_id=CLAIM_ID,
+    )
+    db = ResultsDB(db_path)
+    _complete_pair(db, invalid)
+    _complete_pair(db, valid)
+    invalid_config = dict(invalid["config"])
+    invalid_config["research.claim_id"] = "unknown-claim"
+    db.update_lab_job(invalid["id"], config=invalid_config)
+
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    assert db.list_latest_verdict_snapshots() == []
+    assert db.get_reconciliation_cursor("comparison_verdict_snapshots") == invalid["id"]
+
+    reopened = ResultsDB(db_path)
+    reconcile_comparison_verdict_snapshots(reopened, job_limit=1)
+    assert [row["source_id"] for row in reopened.list_latest_verdict_snapshots()] == [
+        str(valid["id"])
+    ]
+
+
+def test_reconciliation_cursor_wrap_retries_an_earlier_corrected_pair(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    pair = queue.submit(
+        "quantum-ffn-4q", "default-text", "retry", 13, 2, 1,
+        queue_classical_comparison=True, claim_id=CLAIM_ID,
+    )
+    db = ResultsDB(db_path)
+    _complete_pair(db, pair)
+    invalid_config = dict(pair["config"])
+    invalid_config["research.claim_id"] = "unknown-claim"
+    db.update_lab_job(pair["id"], config=invalid_config)
+
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    assert db.get_reconciliation_cursor("comparison_verdict_snapshots") == 0
+
+    db.update_lab_job(pair["id"], config=pair["config"])
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    assert [row["source_id"] for row in db.list_latest_verdict_snapshots()] == [
+        str(pair["id"])
+    ]
+
+
+def test_reconciliation_uses_metadata_only_but_comparison_defaults_to_curves(tmp_path, monkeypatch):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    pair = queue.submit(
+        "quantum-ffn-4q", "default-text", "curves", 14, 2, 1,
+        queue_classical_comparison=True, claim_id=CLAIM_ID,
+    )
+    db = ResultsDB(db_path)
+    _complete_pair(db, pair)
+    candidate_key = (
+        f"lab/{pair['preset_id']}/{pair['dataset_name']}/"
+        f"{pair['seed']}/{pair['steps']}"
+    )
+    db.log_step(candidate_key, 1, {"loss": 1.5}, run_uuid=pair["run_uuid"])
+
+    default_payload = comparison_research_payload(db, pair["id"])
+    assert default_payload["candidate"]["curve"]["loss"] == [
+        {"step": 1, "value": 1.5}
+    ]
+
+    # Use a new pair because the default comparison intentionally persisted the
+    # first pair's snapshot, excluding it from reconciliation selection.
+    metadata_pair = queue.submit(
+        "quantum-ffn-4q", "default-text", "metadata", 15, 2, 1,
+        queue_classical_comparison=True, claim_id=CLAIM_ID,
+    )
+    _complete_pair(db, metadata_pair)
+    monkeypatch.setattr(
+        db, "fetch_steps", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("curves fetched"))
+    )
+
+    reconcile_comparison_verdict_snapshots(db, job_limit=25)
+    assert {row["source_id"] for row in db.list_latest_verdict_snapshots()} == {
+        str(pair["id"]), str(metadata_pair["id"])
     }
 
 

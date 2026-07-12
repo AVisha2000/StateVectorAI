@@ -270,6 +270,25 @@ def _config(job: Mapping[str, Any]) -> Mapping[str, Any]:
     return decoded if isinstance(decoded, Mapping) else {}
 
 
+def _cohort_config(job: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, str | None]:
+    """Decode cohort config without treating absent or invalid evidence as empty."""
+    raw = job.get("config_json")
+    if raw is None:
+        config = job.get("config")
+        if isinstance(config, Mapping):
+            return config, None
+        return None, "job config is absent"
+    if not isinstance(raw, str):
+        return None, "job config_json is not a JSON string"
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, "job config_json is malformed"
+    if not isinstance(decoded, Mapping):
+        return None, "job config_json must decode to a JSON object"
+    return decoded, None
+
+
 def _without_qubit_axes(value: object, path: tuple[str, ...] = ()) -> object:
     """Canonicalize persisted protocol data while leaving qubit count as the fit axis."""
     if isinstance(value, Mapping):
@@ -316,18 +335,26 @@ def _summary_protocol(summary: Mapping[str, Any]) -> dict[str, object]:
     }
 
 
-def _cohort_identity(job: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
+def _cohort_identity(
+    job: Mapping[str, Any], summary: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
     """Stable identity for rows that may differ only on the qubit-count axis."""
+    config, config_error = _cohort_config(job)
+    if config_error:
+        return None, config_error
     protocol = {
         "job": {
             name: job.get(name)
-            for name in ("dataset_name", "seed", "preset_id", "comparison_role", "device_target")
+            for name in (
+                "dataset_name", "seed", "preset_id", "comparison_role", "device_target",
+                "steps", "eval_every",
+            )
         },
-        "config": _without_qubit_axes(_config(job)),
+        "config": _without_qubit_axes(config),
         "summary": _summary_protocol(summary),
     }
     encoded = json.dumps(protocol, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), None
 
 
 def _n_qubits(summary: Mapping[str, Any], job: Mapping[str, Any]) -> int | None:
@@ -383,14 +410,27 @@ def _scaling_dimension(
         )
     values_by_qubits: dict[int, list[float]] = {}
     persisted_rows = 0
-    cohort_id = _cohort_identity(job, target_summary)
+    excluded_malformed_config_rows = 0
+    cohort_id, target_config_error = _cohort_identity(job, target_summary)
+    if target_config_error:
+        return _unavailable(
+            "scaling_fit",
+            target_config_error,
+            group_id=group_id,
+            config_validation="failed",
+            config_source="lab_jobs.config_json",
+        )
+    assert cohort_id is not None
     for candidate in db.fetch_lab_jobs(limit=1_000):
         if candidate.get("group_id") != group_id:
             continue
         summary, error, _ = _read_summary(results_dir, candidate)
         if error or summary is None:
             continue
-        candidate_cohort = _cohort_identity(candidate, summary)
+        candidate_cohort, candidate_config_error = _cohort_identity(candidate, summary)
+        if candidate_config_error:
+            excluded_malformed_config_rows += 1
+            continue
         if candidate_cohort != cohort_id:
             continue
         diagnostics = summary.get("quantum_diagnostics")
@@ -416,6 +456,7 @@ def _scaling_dimension(
             cohort_id=cohort_id,
             persisted_rows=persisted_rows,
             distinct_qubit_counts=len(rows),
+            excluded_malformed_config_rows=excluded_malformed_config_rows,
         )
     try:
         fit = gradient_variance_scaling_fit(rows)
@@ -434,6 +475,7 @@ def _scaling_dimension(
             "persisted_rows": persisted_rows,
             "distinct_qubit_counts": len(rows),
             "qubit_counts": [int(row["n_qubits"]) for row in rows],
+            "excluded_malformed_config_rows": excluded_malformed_config_rows,
             "fit": "qllm.quantum.metrics.gradient_variance_scaling_fit",
         },
     )

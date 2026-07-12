@@ -893,6 +893,8 @@ Progress:
   diagnostics findings.
 - [x] Reconcile terminal claim-bound verdicts before listing so persistence no
   longer depends on comparison-read order.
+- [x] Close the second Ultra pass: make cohorts schedule/config strict and make
+  verdict reconciliation cursor-driven and metadata-only.
 - [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
   and commit authorized deliverables without merging the feature branch.
 
@@ -1010,6 +1012,19 @@ python scripts/queue_smoke.py --url http://127.0.0.1:8180 --steps 1
   --eval-every 1 --device-target cpu --timeout 180
 PASS: isolated job 1 completed on CPU at step 1 with latest/best checkpoints and
 no error; the temporary server was stopped and port 8180 confirmed free.
+gpt-5.6-sol Ultra remediation verification
+REMEDIATION REQUIRED: the verifier confirmed artifact identity was fixed, then
+reproduced schedule/config under-grouping plus invalid-row starvation and
+unbounded curve loading in list-time verdict reconciliation.
+python -m pytest -q tests/test_dashboard_diagnostics.py tests/test_dashboard_verdicts.py
+  tests/test_dashboard_lab.py tests/test_durable_runs.py tests/test_dashboard_security.py
+  tests/test_openapi_contract.py tests/test_metrics.py tests/test_advantage.py
+  tests/test_research_protocol.py --basetemp .tmp/pytest-third-pass-integration
+PASS: 206 passed, 1 skipped; one existing Starlette/httpx warning and 17 existing
+JAX complex128-to-complex64 warnings.
+python scripts/dump_openapi.py --check
+PASS: metadata-only reconciliation and additive cursor storage do not change the
+public API; the committed OpenAPI snapshot remains current.
 ```
 
 ## Completed plan: local platform completion

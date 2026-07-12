@@ -244,6 +244,13 @@ CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_latest
     ON verdict_snapshots(verdict_key, revision DESC);
 CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_created
     ON verdict_snapshots(created_ts DESC, id DESC);
+-- Durable cursors for bounded reconciliation passes.  A named cursor keeps
+-- malformed historical rows from starving later materializable evidence.
+CREATE TABLE IF NOT EXISTS reconciliation_cursors (
+    name TEXT PRIMARY KEY,
+    candidate_job_id INTEGER NOT NULL DEFAULT 0,
+    updated_ts TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS research_scan_usage (
     source TEXT NOT NULL,
     day_utc TEXT NOT NULL,
@@ -706,6 +713,42 @@ class ResultsDB:
                 (str(verdict_key),),
             ).fetchall()
         return [self._decode_verdict_snapshot(dict(row)) for row in rows]
+
+    def get_reconciliation_cursor(self, name: str) -> int:
+        """Return the durable high-water candidate job ID for a named pass."""
+        with self._conn() as con:
+            row = con.execute(
+                "SELECT candidate_job_id FROM reconciliation_cursors WHERE name=?",
+                (str(name),),
+            ).fetchone()
+        return int(row["candidate_job_id"]) if row is not None else 0
+
+    def advance_reconciliation_cursor(self, name: str, candidate_job_id: int) -> None:
+        """Atomically advance, but never rewind, a named reconciliation cursor."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "INSERT INTO reconciliation_cursors "
+                "(name, candidate_job_id, updated_ts) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "candidate_job_id=MAX(candidate_job_id, excluded.candidate_job_id), "
+                "updated_ts=excluded.updated_ts",
+                (str(name), int(candidate_job_id), now),
+            )
+
+    def reset_reconciliation_cursor(self, name: str) -> None:
+        """Atomically wrap a named reconciliation pass to its initial position."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "INSERT INTO reconciliation_cursors "
+                "(name, candidate_job_id, updated_ts) VALUES (?, 0, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "candidate_job_id=0, updated_ts=excluded.updated_ts",
+                (str(name), now),
+            )
 
     def reserve_research_scan_quota(
         self,
