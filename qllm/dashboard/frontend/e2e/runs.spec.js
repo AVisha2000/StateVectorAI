@@ -31,6 +31,13 @@ test('Runs: free-text search and dataset filter narrow the table', async ({ page
   await expect(page.getByText('gru-s42')).toHaveCount(0)
 })
 
+test('Runs: table rows are keyboard-operable', async ({ page }) => {
+  await page.goto('/runs')
+  await page.getByRole('button', { name: /Open run qrnn-s42/i }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/runs\/7$/)
+})
+
 test('Runs shows a graceful error when /jobs fails', async ({ page }) => {
   await page.route('**/api/jobs', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }))
   await page.goto('/runs')

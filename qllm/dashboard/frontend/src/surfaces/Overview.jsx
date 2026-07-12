@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useJobs, useVerdicts, isNotYetBuilt } from '../lib/hooks.js'
-import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
+import { PageHeader, Loading, ErrorState, StatusTag, rowActivation } from '../lib/ui.jsx'
 
 // Recent snapshots first (higher id = newer append-only revision).
 function latestVerdicts(data, n = 5) {
@@ -119,7 +119,7 @@ export default function Overview() {
                   </thead>
                   <tbody>
                     {running.map((j) => (
-                      <tr key={j.id} className="click" onClick={() => navigate(`/runs/${j.id}`)}>
+                      <tr key={j.id} className="click" aria-label={`Open run ${j.run_name}`} {...rowActivation(() => navigate(`/runs/${j.id}`))}>
                         <td className="mono">#{j.id} {j.run_name}</td>
                         <td>{j.preset_id}</td>
                         <td>{j.dataset_name}</td>

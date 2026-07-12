@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useJobs } from '../lib/hooks.js'
-import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
+import { PageHeader, Loading, ErrorState, StatusTag, rowActivation } from '../lib/ui.jsx'
 import { filterRuns, uniqueDatasets } from '../lib/runsFilter.js'
 
 const FILTERS = [
@@ -80,7 +80,7 @@ export default function Runs() {
               </thead>
               <tbody>
                 {rows.map((j) => (
-                  <tr key={j.id} className="click" onClick={() => navigate(`/runs/${j.id}`)}>
+                  <tr key={j.id} className="click" aria-label={`Open run ${j.run_name}`} {...rowActivation(() => navigate(`/runs/${j.id}`))}>
                     <td className="mono">#{j.id} {j.run_name}</td>
                     <td><span className="tag plain">{j.comparison_role || 'primary'}</span></td>
                     <td>{j.preset_id}</td>
