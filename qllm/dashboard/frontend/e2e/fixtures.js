@@ -5,6 +5,8 @@
 export const JOBS = [
   { id: 7, run_name: 'qrnn-s42', status: 'running', comparison_role: 'candidate', preset_id: 'quantum-ffn-4q', dataset_name: 'monitored_ising', seed: 42, steps: 2000, model_family: 'qrnn', analogue_state: 'linked', device_target: 'cpu', comparison_state: 'available', uses_quantum: true, claim: { label: 'paired empirical' } },
   { id: 8, run_name: 'gru-s42', status: 'done', comparison_role: 'analogue', preset_id: 'classical-small', dataset_name: 'monitored_ising', seed: 42, steps: 2000, model_family: 'gru', analogue_state: 'none', device_target: 'cpu', comparison_state: 'none', uses_quantum: false },
+  { id: 9, run_name: 'qattn-s77', status: 'error', comparison_role: 'candidate', preset_id: 'quantum-attn', dataset_name: 'contextual', seed: 77, steps: 2000, model_family: 'qattn', analogue_state: 'none', device_target: 'cpu', comparison_state: 'missing', uses_quantum: true },
+  { id: 10, run_name: 'tsq-s11', status: 'queued', comparison_role: 'candidate', preset_id: 'quantum-ffn-4q', dataset_name: 'contextual', seed: 11, steps: 2000, model_family: 'qffn', analogue_state: 'none', device_target: 'cpu', comparison_state: 'none', uses_quantum: true },
 ]
 
 export const STATUS = { worker: 'CPU · active', gpu_available: false, queued: 1, running: 1, runs: 312 }
@@ -47,6 +49,43 @@ export const WORKSPACE_7 = {
   interpretation_warnings: [{ code: 'single_seed', severity: 'warning', title: 'One pair', message: 'Single seed per arm.' }],
 }
 
+export const DIAGNOSTICS_7 = {
+  job: { id: 7, run_name: 'qrnn-s42', status: 'running', group_id: 'scale-grp' },
+  diagnostics: {
+    gradient_variance: { status: 'measured', value: { grad_var_first_param: 2e-3, grad_var_mean: 1.2e-3, grad_var_max: 3e-3 }, source: 'summary', reason: null, provenance: {} },
+    parameter_shift_gradient_snr: { status: 'measured', value: { median_snr: 8.4, mean_snr: 9.1 }, source: 'diagnostics', reason: null, provenance: {} },
+    expressibility_kl: { status: 'measured', value: 0.18, source: 'summary', reason: null, provenance: {} },
+    meyer_wallach_q: { status: 'measured', value: 0.61, source: 'summary', reason: null, provenance: {} },
+    scaling_fit: { status: 'measured', value: { log_var_slope: -0.34, log_var_intercept: 0.1, variance_decay_factor_per_qubit: 0.71, exponential_decay_detected: true }, source: 'scaling', reason: null, provenance: {} },
+  },
+  interpretation_warnings: [{ code: 'diagnostics_scope', severity: 'warning', title: 'Diagnostics scope', message: 'These are mechanism observations, not evidence of quantum advantage.' }],
+}
+
+export const MODEL_TESTS_7 = {
+  job: { id: 7, run_name: 'qrnn-s42', status: 'running' },
+  summary: { quantum_diagnostics: { grad_var_mean: 1.2e-3, meyer_wallach_q: 0.61, expressibility_kl: 0.18, availability: {} } },
+  artifacts: {}, supported_tests: { summary_review: true, prompt_generation: false }, unsupported_reasons: [],
+}
+
+export const SCALING_GRP = {
+  points: [
+    { job: { id: 7, run_name: 'q4' }, status: 'done', n_qubits: 4, n_circuit_layers: 2, scale: 1, val_ppl: 5.8, val_loss: 1.6, wall_seconds: 12, n_params: 1000 },
+    { job: { id: 11, run_name: 'q6' }, status: 'done', n_qubits: 6, n_circuit_layers: 2, scale: 1.5, val_ppl: 5.2, val_loss: 1.5, wall_seconds: 30, n_params: 2000 },
+    { job: { id: 12, run_name: 'q8' }, status: 'done', n_qubits: 8, n_circuit_layers: 2, scale: 2, val_ppl: 4.9, val_loss: 1.4, wall_seconds: 70, n_params: 3200 },
+  ],
+  best: { n_qubits: 8, n_circuit_layers: 2, val_ppl: 4.9, wall_seconds: 70, n_params: 3200 },
+  complete_count: 3, total_count: 3, protocol_warnings: [],
+}
+
+export const ARXIV_SCAN = {
+  request: { topic: 'quant-ph', max_results: 10 },
+  papers: [
+    { arxiv_id: '2503.12345', title: 'Reuploading circuits resist barren plateaus', authors: ['Larocca', 'Cerezo'], categories: ['quant-ph', 'cs.LG'], published: '2025-03-01', updated: '2025-03-02', abs_url: 'https://arxiv.org/abs/2503.12345', version: 1 },
+    { arxiv_id: '2101.11111', title: 'Quantum models as random features', authors: ['Schuld'], categories: ['quant-ph'], published: '2024-01-01', updated: '2024-01-01', abs_url: 'https://arxiv.org/abs/2101.11111', version: 2 },
+  ],
+  quota_used: 2, quota_remaining: 48, quota_limit: 50, capabilities: null,
+}
+
 // A full VerdictSnapshotDetail for /verdicts/{id} (snapshot + history).
 export const VERDICT_DETAIL_101 = {
   snapshot: {
@@ -77,13 +116,21 @@ export async function mockApi(page, overrides = {}) {
     '/verdicts/101': VERDICT_DETAIL_101,
     '/research/capabilities': CAPABILITIES,
     '/jobs/7/workspace': WORKSPACE_7,
+    '/jobs/7/diagnostics': DIAGNOSTICS_7,
+    '/jobs/7/model-tests': MODEL_TESTS_7,
+    '/jobs/7/comparison': WORKSPACE_7.comparison,
+    '/scaling-tests/scale-grp': SCALING_GRP,
     ...overrides,
   }
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '')
+    const method = route.request().method()
     if (path.startsWith('/stream/')) return route.abort() // SSE → app falls back to polling
-    if (route.request().method() === 'POST' && path === '/jobs') {
+    if (method === 'POST' && path === '/jobs') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 99, run_name: 'queued', status: 'queued' }) })
+    }
+    if (method === 'POST' && path === '/discover/arxiv/scan') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(overrides['/discover/arxiv/scan'] ?? ARXIV_SCAN) })
     }
     const body = table[path]
     if (body === undefined || body === null) {
