@@ -87,6 +87,16 @@ export function useModelTests(id) {
   })
 }
 
+// The run's architecture graph (nodes/edges) for the model-structure view.
+export function useModelGraph(id) {
+  return useQuery({
+    queryKey: ['model-graph', id],
+    queryFn: () => api.jobGraph(id),
+    enabled: id != null && id !== '',
+    retry: false,
+  })
+}
+
 // A "proposed" endpoint the backend has not shipped yet returns 404. Don't retry
 // or spam it, and let the caller render a calm "awaiting backend" state instead
 // of a hard error (see isNotYetBuilt).
