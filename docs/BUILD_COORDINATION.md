@@ -232,6 +232,12 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   snapshots; the E2E `e2e` CI job runs on every frontend push. No new backend
   asks — still awaiting the P0 audit fixes + the proposed `/atlas/ontology` and
   `/designer/circuit` endpoints (UI degrades gracefully until they land).
+- 2026-07-12 · ui: Study detail now shows a **seed-band val_ppl over steps**
+  (`main` `161afd6`) — fans out each study run's `/jobs/{id}/workspace` and
+  aggregates the per-seed trajectories into a min–max band over training steps.
+  Framed as seed-to-seed *variance*, not a claim; degrades to a note when fewer
+  than two per-seed curves exist. 86 unit / 51 functional E2E / 14 visual. No
+  new backend asks; consumes the existing workspace contract.
 
 ## Open decisions / blockers
 
