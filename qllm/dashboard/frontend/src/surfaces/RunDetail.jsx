@@ -72,6 +72,9 @@ export default function RunDetail() {
   if (!job) return <ErrorState error={{ message: `Run ${id} not found.` }} label="Run not found." />
 
   const isQuantum = job.uses_quantum
+  // Backlink to the scaling sweep this run belongs to, when the diagnostics
+  // endpoint reports a group_id (the only job→group reference in the contract).
+  const groupId = diag?.job?.group_id ?? null
   const currentStep = pplRows.length ? pplRows[pplRows.length - 1].step : null
   const totalSteps = job.steps
   const live = job.status === 'running' || job.status === 'queued'
@@ -107,6 +110,11 @@ export default function RunDetail() {
         <StatusTag status={job.status} />
         {currentStep != null && totalSteps ? (
           <span className="tag plain num">step {fmtNum(currentStep, 0)} / {fmtNum(totalSteps, 0)}</span>
+        ) : null}
+        {groupId ? (
+          <Link className="tag plain" to={`/runs/scaling/${groupId}`} title="This run is part of a scaling sweep">
+            ⧉ scaling group →
+          </Link>
         ) : null}
       </div>
 
