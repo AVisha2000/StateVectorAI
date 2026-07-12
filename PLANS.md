@@ -1046,6 +1046,17 @@ python -m pytest -q tests/test_dashboard_diagnostics.py
   --basetemp .tmp/pytest-diagnostics-strict-json
 PASS: 26 passed, covering non-standard constants, overflowed non-finite values,
 decoder recursion, target rejection, and peer exclusion.
+python scripts/check_agent_setup.py
+PASS: agent setup validation passed after strict-JSON remediation.
+python scripts/verify_changes.py --run
+PASS: clean-tree agent-setup selection passed.
+python -m pytest -q --basetemp .tmp/pytest-backend-full-strict-json
+PASS: 513 passed, 1 skipped, 48 warnings in 322.86 seconds; warnings remain
+the existing Starlette/httpx deprecation and JAX dtype notices.
+python scripts/queue_smoke.py --url http://127.0.0.1:8182 --steps 1
+  --eval-every 1 --device-target cpu --timeout 180
+PASS: isolated CPU job 1 completed at step 1 with both checkpoints and no error;
+the temporary server was stopped and port 8182 confirmed free.
 ```
 
 ## Completed plan: local platform completion
