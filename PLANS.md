@@ -98,6 +98,30 @@ Latest validation:
 - Not done (deferred/gated): Slice C polish (URL deep-link/expand-collapse UI),
   Slice D static-export helper, and the **human-gated public Atlas export**
   (internet exposure — out of scope until scoped with the user).
+- **Graph resolution:** the cytoscape graph was rebuilt as hand-authored SVG
+  (`atlasSvgLayout.js` + `AtlasGraphSvg.jsx`); cytoscape dependency removed
+  entirely. Verified in-browser (19 clickable cells, correct shapes/colors,
+  click→detail with claim/replication distinct). Graph now the equal of the List.
+
+### Phase 4 — research loop (Library shipped; copilot human-gated)
+
+- `Library` surface built (`7d52c5e`): consumes the backend's shipped, ungated
+  bounded arXiv metadata scan (`POST /discover/arxiv/scan`) + the D4 capability
+  gate (`GET /research/capabilities`), rendered as an honest boundary panel.
+  `npm test` 68/68, build clean, verified in-browser (graceful when the service
+  isn't reachable). Papers table + quota display.
+- **Blocked on a human gate:** the Discover copilot / vault synthesis needs a
+  paid LLM + embedding provider and a per-day cost budget (AGENTS.md human gate),
+  and the integration is backend-owned. User approved *pursuing* it; still needs
+  the specific provider + budget named and keys configured before the backend
+  enables it. Frontend Discover UI will consume it once exposed.
+
+### Phase 5 — Designer (not started; backend round-trip unshipped)
+
+- User chose a full interactive editor. Buildable frontend-first as SVG (the
+  cytoscape lesson: canvas libs don't render in this sandbox). Its acceptance
+  ("one built circuit runs on the Bench with a matched control") depends on the
+  unshipped `/designer/circuit` round-trip to `registry.py`.
 
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 
