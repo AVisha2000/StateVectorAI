@@ -116,12 +116,20 @@ Latest validation:
   the specific provider + budget named and keys configured before the backend
   enables it. Frontend Discover UI will consume it once exposed.
 
-### Phase 5 — Designer (not started; backend round-trip unshipped)
+### Phase 4 Discover + Phase 5 Designer — shipped
 
-- User chose a full interactive editor. Buildable frontend-first as SVG (the
-  cytoscape lesson: canvas libs don't render in this sandbox). Its acceptance
-  ("one built circuit runs on the Bench with a matched control") depends on the
-  unshipped `/designer/circuit` round-trip to `registry.py`.
+- **Discover** (`e202fcd`): capability-aware surface; copilot + idea queue stay
+  disabled (no spend) until the paid provider is approved. Points to the working
+  Library scan and to Bench/Designer.
+- **Designer** (`905ed3d`): parameterized-ansatz circuit editor over registry.py
+  families (hardware_efficient/reuploading/ising) with a hand-authored SVG circuit
+  view; live properties (gates/params/entangling/depth); classical↔quantum toggle;
+  Send-to-Bench carries `quantum_overrides`; Validate consumes the proposed
+  `/designer/circuit` round-trip gracefully. Verified in-browser (ansatz switch
+  re-renders, params update). npm test 73/73.
+- **All ten surfaces are now real.** Remaining backend/human-gated items:
+  `/designer/circuit` round-trip (requested), the paid research copilot (D4),
+  OpenAPI codegen once `openapi.json` reaches `main`, and the public Atlas export.
 
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 
