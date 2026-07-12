@@ -141,6 +141,16 @@ export function useAtlasOntology() {
   })
 }
 
+// Research-service capabilities (D4 boundary: which providers are enabled, cost
+// budget, human gates). Shipped on backend-enhancements; 404 until it's on main.
+export function useResearchCapabilities() {
+  return useQuery({
+    queryKey: ['research-capabilities'],
+    queryFn: api.researchCapabilities,
+    ...proposedQueryOptions,
+  })
+}
+
 export function useScalingTest(groupId) {
   return useQuery({
     queryKey: ['scaling-test', groupId],

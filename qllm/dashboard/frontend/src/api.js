@@ -93,4 +93,6 @@ export const api = {
   verdicts: () => get('/verdicts'),
   verdict: (id) => get(`/verdicts/${encodeURIComponent(id)}`),
   atlasOntology: () => get('/atlas/ontology'),
+  researchCapabilities: () => get('/research/capabilities'),
+  arxivScan: (payload = {}) => post('/discover/arxiv/scan', payload),
 }
