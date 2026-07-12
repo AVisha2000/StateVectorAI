@@ -77,6 +77,28 @@ Latest validation:
       pre-rebase Phase 1 tip). Backend endpoints live on `backend-enhancements`,
       not yet on `main`, so real-data wiring is contract-verified, not run here.
 
+### Phase 3 — Atlas (in progress, `a858ab0`)
+
+- Slice A (model + seed ontology + list) and Slice B (Cytoscape graph) shipped.
+- Data: `src/lib/atlasOntology.seed.js` transcribes RESEARCH_MAP's 19 areas
+  verbatim (status/claim/replication), grouped into 6 domains — a labeled
+  placeholder pending the backend `/api/atlas/ontology` (requested in the UI log).
+  `atlasModel` joins to the live `/verdicts` store; `outcome_class` is a color
+  bucket from RESEARCH_MAP `status` only (never a verdict, no composite score);
+  `claim_level` (map ladder) and `replication_status` stay separate; null /
+  "no advantage found" cells are first-class (own `--null` token, counted).
+- Verified: `npm test` 71/71, build clean; the List view + summary + filters +
+  node detail render correctly in-browser (nulls first-class confirmed).
+- **Graph caveat:** the Cytoscape graph's element/style transforms are
+  unit-tested and code-split, but its **canvas rendering could not be visually
+  verified in this sandbox browser** — cytoscape's renderer emits nothing (even
+  under `forceRender`) while a hand-drawn canvas paints/reads back fine, and the
+  screenshot tool times out. Environment limitation, not a logic defect. The
+  List is the default, verified render path; the graph needs a real-browser check.
+- Not done (deferred/gated): Slice C polish (URL deep-link/expand-collapse UI),
+  Slice D static-export helper, and the **human-gated public Atlas export**
+  (internet exposure — out of scope until scoped with the user).
+
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 
 Owner: parent agent
