@@ -34,6 +34,14 @@ test('Study detail: multi-seed KPIs, delta strip, ladder, and integrity framing'
   await expect(page.getByText('q4/d2').first()).toBeVisible()
 })
 
+test('Study detail: study-runs rows link back to each run', async ({ page }) => {
+  await page.goto('/studies/1')
+  const card = page.locator('.card', { hasText: 'Study runs' })
+  await expect(card).toBeVisible()
+  await card.getByRole('link', { name: /Open/ }).first().click()
+  await expect(page).toHaveURL(/\/runs\/201$/)
+})
+
 test('Study detail: seed-band aggregates per-seed val_ppl trajectories', async ({ page }) => {
   await page.goto('/studies/1')
   const band = page.locator('.card', { hasText: 'Seed-band val_ppl over steps' })

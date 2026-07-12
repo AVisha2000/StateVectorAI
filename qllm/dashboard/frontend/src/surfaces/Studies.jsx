@@ -184,16 +184,20 @@ function StudyDetail({ id }) {
           <div className="hd"><h3>Study runs</h3><span className="hint">{jobs.length} jobs</span></div>
           <div className="bd" style={{ padding: '4px 16px 8px' }}>
             <table className="data">
-              <thead><tr><th>Grid</th><th className="right-td">val_ppl</th><th>Status</th></tr></thead>
+              <thead><tr><th>Grid</th><th className="right-td">val_ppl</th><th>Status</th><th className="right-td" /></tr></thead>
               <tbody>
-                {jobs.map((j, i) => (
-                  <tr key={j.job?.id ?? j.id ?? i}>
-                    <td className="mono">{j.study_sweep?.n_qubits != null ? `q${j.study_sweep.n_qubits}/d${j.study_sweep.n_circuit_layers}` : DASH}</td>
-                    <td className="right-td num">{fmtNum(j.final_run?.val_ppl, 2)}</td>
-                    <td>{j.status ? <StatusTag status={j.status} /> : DASH}</td>
-                  </tr>
-                ))}
-                {jobs.length === 0 ? <tr><td colSpan="3" className="hint">No jobs linked yet.</td></tr> : null}
+                {jobs.map((j, i) => {
+                  const jid = jobIdOf(j)
+                  return (
+                    <tr key={jid ?? i}>
+                      <td className="mono">{j.study_sweep?.n_qubits != null ? `q${j.study_sweep.n_qubits}/d${j.study_sweep.n_circuit_layers}` : DASH}</td>
+                      <td className="right-td num">{fmtNum(j.final_run?.val_ppl, 2)}</td>
+                      <td>{j.status ? <StatusTag status={j.status} /> : DASH}</td>
+                      <td className="right-td">{jid != null ? <Link className="btn sm" to={`/runs/${jid}`}>Open →</Link> : null}</td>
+                    </tr>
+                  )
+                })}
+                {jobs.length === 0 ? <tr><td colSpan="4" className="hint">No jobs linked yet.</td></tr> : null}
               </tbody>
             </table>
           </div>
