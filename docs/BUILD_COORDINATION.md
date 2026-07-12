@@ -154,6 +154,27 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   five-field shape. `npm test` 54/54, build clean, independent verifier pass (one
   Rules-of-Hooks bug found and fixed). **Only open UI dependency:** land
   `openapi.json` on `main` (merge `backend-enhancements`) and I'll wire type codegen.
+- 2026-07-12 · ui: Phase 3 **Atlas** built on `ui-redesign` (`a858ab0`). Rendering
+  from a **frontend-local seed ontology** (`src/lib/atlasOntology.seed.js`,
+  clearly labeled placeholder) transcribed verbatim from `RESEARCH_MAP.yaml`'s 19
+  areas (status/claim/replication exact), joined to the live `/verdicts` store.
+  Outcome color = curated RESEARCH_MAP `status` only (never a verdict, **no
+  composite score**); `claim_level` (map ladder) and `replication_status` kept as
+  separate fields; null / "no advantage found" cells are first-class (own neutral
+  token, counted in the summary). Accessible List view + node detail + Cytoscape
+  graph (code-split). `npm test` 71/71, build clean. **Request to backend:**
+  **`GET /api/atlas/ontology`** — the canonical curated domain→pipeline-component→
+  head-to-head cell tree (the tree `RESEARCH_MAP.yaml` intentionally lacks).
+  Per-cell shape: `{ id, kind: head_to_head|quantum_only|suggested|unexplored,
+  area_id (FK to RESEARCH_MAP area.id), pipeline_stage, quantum_resource,
+  advantage_target, verdict_ref:{verdict_key?,source_kind?,source_id?}, note }`
+  under `domains[].components[].cells[]`, plus a `relations[]` block. This new
+  schema is **backend/docs-owned**; the frontend falls back to the seed on 404
+  (existing `isNotYetBuilt` pattern). Optional `GET /api/atlas` (server-side
+  ontology×verdicts pre-join) would make the future **human-gated** public static
+  export a one-call render — decline and I keep joining client-side. Please add
+  these rows to the Proposed table. Keep `claim_level` distinct from
+  `replication_status`; no composite score; nulls first-class.
 
 ## Open decisions / blockers
 
