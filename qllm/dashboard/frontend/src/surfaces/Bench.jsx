@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.js'
@@ -55,6 +55,16 @@ export default function Bench() {
   const seeds = level.seeds
   const runName = preset?.defaults?.run_name || preset?.id || 'bench-run'
 
+  // Tunable quantum params exposed by the preset (n_qubits, depth, …). User edits
+  // override the preset default (and any Designer prefill); reset on preset change.
+  const qFields = preset?.quantum_controls?.enabled ? (preset.quantum_controls.fields || []) : []
+  const [qEdits, setQEdits] = useState({})
+  useEffect(() => { setQEdits({}) }, [preset?.id])
+  const qValue = (f) => qEdits[f.key] ?? designer?.overrides?.[f.key] ?? f.default
+  const quantumOverrides = qFields.length
+    ? Object.fromEntries(qFields.map((f) => [f.key, Number(qValue(f))]))
+    : (designer?.overrides || null)
+
   const config = {
     presetId: preset?.id,
     datasetName: datasetName || datasets[0]?.name,
@@ -68,7 +78,7 @@ export default function Bench() {
     queueComparison: level.queueComparison,
     qubits: parsePositiveIntList(qubits),
     depths: parsePositiveIntList(depths),
-    quantumOverrides: designer?.overrides || null,
+    quantumOverrides,
   }
   const estimate = estimateRuns({ ...config, rigor })
   const gpuGated = requiresGpuGate(deviceTarget)
@@ -171,6 +181,31 @@ export default function Bench() {
           </div>
         </div>
       </div>
+
+      {qFields.length ? (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="hd"><h3>Quantum controls</h3><span className="hint">{preset.quantum_controls.summary || 'tune the candidate circuit — sent as quantum_overrides'}</span></div>
+          <div className="bd field-grid">
+            {qFields.map((f) => (
+              <label key={f.key}>
+                <span className="microlabel">{f.label}</span>
+                <input
+                  className="mini block num"
+                  type="number"
+                  min={f.min}
+                  max={f.max}
+                  value={qValue(f)}
+                  onChange={(e) => setQEdits((prev) => ({ ...prev, [f.key]: Number(e.target.value) }))}
+                />
+                <span className="hint">{f.min}–{f.max}{f.gpu_max > f.max ? ` (to ${f.gpu_max} on GPU)` : ''}</span>
+              </label>
+            ))}
+          </div>
+          {preset.quantum_controls.warning ? (
+            <p className="hint" style={{ padding: '0 16px 12px', color: 'var(--warn)' }}>{preset.quantum_controls.warning}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Protocol */}
       <div className="grid2" style={{ marginTop: 14 }}>

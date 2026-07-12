@@ -14,7 +14,7 @@ export const STATUS = { worker: 'CPU · active', gpu_available: false, queued: 1
 export const OVERVIEW = { running: 1, queued: 1, done: 1, failed: 0, jobs: JOBS, verdicts: [], hypotheses: [], interpretation_warnings: [] }
 
 export const PRESETS = [
-  { id: 'quantum-ffn-4q', label: 'Quantum FFN 4q', kind: 'quantum', cost: 'light', summary: 'Quantum FFN block', architecture: 'ffn', quantum_role: 'ffn', classical_analogue: { label: 'Classical FFN twin', analogue_preset_id: 'classical-small', reason: 'Curated classical twin.' }, quantum_controls: { enabled: true, fields: [] }, defaults: { steps: 2000, eval_every: 100, run_name: 'quantum-ffn' } },
+  { id: 'quantum-ffn-4q', label: 'Quantum FFN 4q', kind: 'quantum', cost: 'light', summary: 'Quantum FFN block', architecture: 'ffn', quantum_role: 'ffn', classical_analogue: { label: 'Classical FFN twin', analogue_preset_id: 'classical-small', reason: 'Curated classical twin.' }, quantum_controls: { enabled: true, summary: 'Tune the quantum FFN circuit', warning: 'Larger circuits run slower.', fields: [{ key: 'n_qubits', label: 'Qubits', min: 2, max: 8, gpu_max: 12, step: 1, default: 4 }, { key: 'n_circuit_layers', label: 'Depth', min: 1, max: 4, gpu_max: 8, step: 1, default: 2 }] }, defaults: { steps: 2000, eval_every: 100, run_name: 'quantum-ffn' } },
   { id: 'classical-small', label: 'Classical small', kind: 'classical', cost: 'light', summary: 'Classical baseline', architecture: 'mlp', quantum_role: 'none', classical_analogue: null, quantum_controls: { enabled: false, fields: [] }, defaults: { steps: 50, eval_every: 10, run_name: 'classical-small' } },
 ]
 
