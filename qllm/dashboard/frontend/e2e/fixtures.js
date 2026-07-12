@@ -111,7 +111,12 @@ export const VERDICT_DETAIL_101 = {
     diagnostics: {},
     schema_version: 1,
   },
-  history: [VERDICTS.snapshots[0]],
+  // Append-only ledger: rev 1 was a null result, rev 2 promoted to empirical
+  // after a second seed replicated. Both are kept — the timeline shows the change.
+  history: [
+    { id: 100, verdict_key: 'qrnn-vs-gru', revision: 1, content_hash: '77ff', claim_level: 'none', claim_status: 'candidate', replication_status: 'single_task_instance', created_ts: '2026-07-10T00:00:00Z' },
+    VERDICTS.snapshots[0],
+  ],
 }
 
 export const STUDIES = [

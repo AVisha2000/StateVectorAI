@@ -27,9 +27,25 @@ test('Verdict detail (snapshot): scorecard has no composite score; promotion hum
   await expect(page.getByRole('heading', { name: /qrnn-vs-gru|Verdict/ })).toBeVisible()
   await expect(page.getByText(/no total|per dimension/i)).toBeVisible()
   await expect(page.getByText(/no composite advantage score/i)).toBeVisible()
-  // canonical claim + replication both present as distinct chips/rows
-  await expect(page.getByText(/replication:/i)).toBeVisible()
+  // canonical claim + replication both present as distinct chips/rows (banner)
+  await expect(page.locator('.banner').getByText(/replication:/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /Promote to claim ladder/i })).toBeDisabled()
+})
+
+test('Verdict detail: revision history timeline makes the append-only ledger visible', async ({ page }) => {
+  await page.goto('/verdicts/101')
+  const card = page.locator('.card', { hasText: 'Revision history' })
+  await expect(card).toBeVisible()
+  // both revisions on record, newest (rev 2) first and marked current
+  const items = card.locator('.rev-item')
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('rev 2')
+  await expect(items.first().locator('.tag.good')).toHaveText('current')
+  await expect(items.last()).toContainText('rev 1')
+  // integrity framing: corrections recorded, never overwritten
+  await expect(card.getByText(/never overwritten/i)).toBeVisible()
+  // the rev-1 null result is preserved verbatim (level: none)
+  await expect(items.last()).toContainText('none')
 })
 
 test('Verdict detail (comparison fallback): a run without a snapshot renders its pair', async ({ page }) => {

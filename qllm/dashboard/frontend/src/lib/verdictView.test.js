@@ -9,6 +9,7 @@ import {
   snapshotClaim,
   snapshotScorecardRows,
   booleanChecks,
+  revisionHistory,
 } from './verdictView.js'
 import { diagnosticValues, hasAnyDiagnostic } from './diagnostics.js'
 
@@ -131,4 +132,40 @@ test('diagnosticValues falls back to the legacy summary when the endpoint is abs
   assert.match(values.expressibility_kl.reason, /MPS backend/)
   assert.equal(values.grad_snr.available, false) // summary carries no SNR
   assert.match(values.grad_snr.reason, /not computed/)
+})
+
+test('revisionHistory orders newest-first and marks the current revision', () => {
+  const rows = revisionHistory([
+    { revision: 1, content_hash: 'aa', claim_level: 'none', claim_status: 'candidate', replication_status: 'single_task_instance', created_ts: '2026-07-10T00:00:00Z' },
+    { revision: 2, content_hash: 'bb', claim_level: 'empirical', claim_status: 'candidate', replication_status: 'multi_seed_single_instance', created_ts: '2026-07-11T00:00:00Z' },
+  ], 2)
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].revision, 2) // newest first
+  assert.equal(rows[0].isCurrent, true)
+  assert.equal(rows[1].isCurrent, false)
+  assert.equal(rows[1].isOldest, true)
+})
+
+test('revisionHistory flags which fields changed from the older revision', () => {
+  const rows = revisionHistory([
+    { revision: 1, claim_level: 'none', claim_status: 'candidate', replication_status: 'single_task_instance' },
+    { revision: 2, claim_level: 'empirical', claim_status: 'candidate', replication_status: 'multi_seed_single_instance' },
+  ])
+  const newest = rows[0] // revision 2
+  assert.equal(newest.changed.level, true) // none → empirical
+  assert.equal(newest.changed.status, false) // candidate → candidate
+  assert.equal(newest.changed.replication, true)
+  assert.equal(newest.changedAny, true)
+  // the oldest revision has no predecessor → no changes flagged
+  assert.equal(rows[1].changedAny, false)
+})
+
+test('revisionHistory tolerates empty, missing, and non-array history', () => {
+  assert.deepEqual(revisionHistory(null), [])
+  assert.deepEqual(revisionHistory(undefined), [])
+  assert.deepEqual(revisionHistory([]), [])
+  const one = revisionHistory([{ revision: 3, claim_level: 'empirical' }])
+  assert.equal(one.length, 1)
+  assert.equal(one[0].isCurrent, true) // single revision defaults to current
+  assert.equal(one[0].isOldest, true)
 })
