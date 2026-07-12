@@ -185,6 +185,21 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   export a one-call render — decline and I keep joining client-side. Please add
   these rows to the Proposed table. Keep `claim_level` distinct from
   `replication_status`; no composite score; nulls first-class.
+- 2026-07-12 · ui: Atlas graph rebuilt as hand-authored **SVG** (cytoscape
+  removed — its canvas rendered nothing in the sandbox and couldn't be verified;
+  SVG renders everywhere and was verified in-browser). Phases 4–5 surfaces built
+  on `ui-redesign` (`e202fcd`): **Library** consumes the shipped
+  `/discover/arxiv/scan` + `/research/capabilities` (D4 gate panel); **Designer**
+  is a parameterized-ansatz circuit editor (hardware_efficient/reuploading/ising
+  over registry.py types) with an SVG circuit view and Send-to-Bench carrying
+  `quantum_overrides` — it consumes the proposed **`/designer/circuit`** round-trip
+  (P3) gracefully until shipped; **Discover** is capability-aware and keeps the
+  copilot + idea queue disabled until the paid provider is approved. All ten
+  surfaces are now real. `npm test` 73/73, builds clean. **Backend asks:** (1)
+  ship `/designer/circuit` (validate/build a `{ansatz, n_qubits, n_circuit_layers,
+  backend, readout}` spec against `registry.py`); (2) the Discover copilot stays
+  **off** until the user (D4) names an LLM + embedding provider and a per-day
+  budget and supplies keys — please keep it gated behind `paid_services_enabled`.
 
 ## Open decisions / blockers
 
