@@ -6,6 +6,7 @@ the optional scaling result is a pure numeric fit over those saved rows.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -105,9 +106,13 @@ def _artifact_dir(results_dir: str | Path, job: Mapping[str, Any]) -> Path:
     return resolve_within(root, str(job["run_name"]), label="legacy run artifact")
 
 
+def _identity_value(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _read_summary(
     results_dir: str | Path, job: Mapping[str, Any]
-) -> tuple[Mapping[str, Any] | None, str | None]:
+) -> tuple[Mapping[str, Any] | None, str | None, dict[str, Any]]:
     """Load exactly one path-confined JSON summary without raising for artifacts."""
     try:
         artifact_dir = _artifact_dir(results_dir, job)
@@ -115,16 +120,48 @@ def _read_summary(
             artifact_dir, artifact_dir / "summary.json", label="summary artifact"
         )
     except (KeyError, TypeError, ValueError) as exc:
-        return None, str(exc)
+        return None, str(exc), {}
     if not summary_path.is_file():
-        return None, "summary.json artifact is missing"
+        return None, "summary.json artifact is missing", {}
     try:
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None, "summary.json is not valid JSON"
+        return None, "summary.json is not valid JSON", {}
     if not isinstance(summary, Mapping):
-        return None, "summary.json must contain a JSON object"
-    return summary, None
+        return None, "summary.json must contain a JSON object", {}
+    job_identities = {
+        field: _identity_value(job.get(field))
+        for field in ("run_uuid", "manifest_hash")
+    }
+    summary_identities = {
+        field: _identity_value(summary.get(field))
+        for field in ("run_uuid", "manifest_hash")
+    }
+    if not any(job_identities.values()):
+        for field, observed in summary_identities.items():
+            if observed is not None:
+                return None, (
+                    f"summary.json {field} cannot be bound to an identity-less job"
+                ), {
+                    "identity_field": field,
+                    "expected_identity": None,
+                    "observed_identity": observed,
+                }
+        return summary, None, {}
+    for field, expected in job_identities.items():
+        if expected is None:
+            continue
+        observed = summary_identities[field]
+        provenance = {
+            "identity_field": field,
+            "expected_identity": expected,
+            "observed_identity": observed,
+        }
+        if observed is None:
+            return None, f"summary.json is missing persisted job {field}", provenance
+        if observed != expected:
+            return None, f"summary.json {field} does not match persisted job", provenance
+    return summary, None, {}
 
 
 def _finite_number(value: object) -> float | None:
@@ -233,6 +270,66 @@ def _config(job: Mapping[str, Any]) -> Mapping[str, Any]:
     return decoded if isinstance(decoded, Mapping) else {}
 
 
+def _without_qubit_axes(value: object, path: tuple[str, ...] = ()) -> object:
+    """Canonicalize persisted protocol data while leaving qubit count as the fit axis."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): _without_qubit_axes(item, (*path, str(key)))
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            if not _is_qubit_axis(str(key))
+            and not _is_non_protocol_config_path((*path, str(key)))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_without_qubit_axes(item, path) for item in value]
+    return value
+
+
+def _is_qubit_axis(key: str) -> bool:
+    normalized = key.lower()
+    return normalized in {"n_qubits", "qubits", "num_qubits"} or normalized.endswith(
+        (".n_qubits", ".qubits", ".num_qubits")
+    )
+
+
+def _is_non_protocol_config_path(path: tuple[str, ...]) -> bool:
+    normalized = ".".join(part.lower() for part in path)
+    return (
+        normalized in {"tracking.run_name", "lab.artifact_dir"}
+        or normalized.startswith("lab.resource.")
+        or normalized == "lab.resource"
+        or normalized.startswith("lab.gpu_reservation.")
+        or normalized == "lab.gpu_reservation"
+    )
+
+
+def _summary_protocol(summary: Mapping[str, Any]) -> dict[str, object]:
+    """Use only persisted protocol descriptors, never measured outcomes, for cohorts."""
+    names = (
+        "dataset_name", "seed", "seed_axes", "preset_id", "comparison_role",
+        "model", "ansatz", "backend", "device", "readout", "shots",
+        "circuit_depth", "layers", "quantum_backend",
+    )
+    return {
+        name: _without_qubit_axes(summary[name])
+        for name in names
+        if name in summary
+    }
+
+
+def _cohort_identity(job: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
+    """Stable identity for rows that may differ only on the qubit-count axis."""
+    protocol = {
+        "job": {
+            name: job.get(name)
+            for name in ("dataset_name", "seed", "preset_id", "comparison_role", "device_target")
+        },
+        "config": _without_qubit_axes(_config(job)),
+        "summary": _summary_protocol(summary),
+    }
+    encoded = json.dumps(protocol, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _n_qubits(summary: Mapping[str, Any], job: Mapping[str, Any]) -> int | None:
     direct = summary.get("n_qubits")
     if isinstance(direct, int) and not isinstance(direct, bool) and direct > 0:
@@ -279,13 +376,22 @@ def _scaling_dimension(
     group_id = job.get("group_id")
     if not isinstance(group_id, str) or not group_id:
         return _unavailable("scaling_fit", "job has no persisted group_id")
+    target_summary, target_error, _ = _read_summary(results_dir, job)
+    if target_error or target_summary is None:
+        return _unavailable(
+            "scaling_fit", target_error or "requested job summary is unavailable"
+        )
     values_by_qubits: dict[int, list[float]] = {}
     persisted_rows = 0
+    cohort_id = _cohort_identity(job, target_summary)
     for candidate in db.fetch_lab_jobs(limit=1_000):
         if candidate.get("group_id") != group_id:
             continue
-        summary, error = _read_summary(results_dir, candidate)
+        summary, error, _ = _read_summary(results_dir, candidate)
         if error or summary is None:
+            continue
+        candidate_cohort = _cohort_identity(candidate, summary)
+        if candidate_cohort != cohort_id:
             continue
         diagnostics = summary.get("quantum_diagnostics")
         if not isinstance(diagnostics, Mapping):
@@ -307,6 +413,7 @@ def _scaling_dimension(
             "scaling_fit",
             "at least two distinct persisted same-group qubit counts are required",
             group_id=group_id,
+            cohort_id=cohort_id,
             persisted_rows=persisted_rows,
             distinct_qubit_counts=len(rows),
         )
@@ -323,6 +430,7 @@ def _scaling_dimension(
         provenance={
             "dimension": "scaling_fit",
             "group_id": group_id,
+            "cohort_id": cohort_id,
             "persisted_rows": persisted_rows,
             "distinct_qubit_counts": len(rows),
             "qubit_counts": [int(row["n_qubits"]) for row in rows],
@@ -338,10 +446,12 @@ def diagnostics_payload(
     job = db.get_lab_job(job_id)
     if job is None:
         raise KeyError(f"Unknown job {job_id}")
-    summary, summary_error = _read_summary(results_dir, job)
+    summary, summary_error, summary_provenance = _read_summary(results_dir, job)
     if summary is None:
         dimensions = {
-            name: _unavailable(name, summary_error or "summary is unavailable")
+            name: _unavailable(
+                name, summary_error or "summary is unavailable", **summary_provenance
+            )
             for name in DIMENSION_NAMES
         }
     else:

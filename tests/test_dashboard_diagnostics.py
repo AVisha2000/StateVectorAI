@@ -10,20 +10,30 @@ from qllm.dashboard.diagnostics import DIMENSION_NAMES, diagnostics_payload
 from qllm.resultsdb import ResultsDB
 
 
-def _job(db: ResultsDB, artifacts: Path, *, group_id: str | None = None, qubits: int = 2) -> dict:
+def _job(
+    db: ResultsDB, artifacts: Path, *, group_id: str | None = None, qubits: int = 2,
+    dataset_name: str = "test", seed: int = 17, config: dict | None = None,
+    comparison_role: str = "primary", name_suffix: str = "",
+) -> dict:
+    run_name = f"run-{qubits}-{group_id or 'single'}{name_suffix}"
     job_id = db.create_lab_job({
-        "status": "done", "preset_id": "quantum-ffn-4q", "dataset_name": "test",
-        "run_name": f"run-{qubits}-{group_id or 'single'}", "seed": qubits,
+        "status": "done", "preset_id": "quantum-ffn-4q", "dataset_name": dataset_name,
+        "run_name": run_name, "seed": seed,
         "steps": 2, "eval_every": 1, "group_id": group_id,
-        "artifact_dir": str(artifacts / f"run-{qubits}-{group_id or 'single'}"),
-        "config": {"lab.study_cell.n_qubits": qubits},
+        "artifact_dir": str(artifacts / run_name),
+        "config": config or {"lab.study_cell.n_qubits": qubits},
+        "comparison_role": comparison_role,
     })
     return db.get_lab_job(job_id)
 
 
-def _write_summary(job: dict, payload: dict) -> None:
+def _write_summary(job: dict, payload: dict, *, bind_identity: bool = True) -> None:
     directory = Path(job["artifact_dir"])
     directory.mkdir(parents=True, exist_ok=True)
+    if bind_identity:
+        payload = {"run_uuid": job["run_uuid"], **payload}
+        if job.get("manifest_hash"):
+            payload["manifest_hash"] = job["manifest_hash"]
     (directory / "summary.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -102,7 +112,10 @@ def test_scaling_fit_uses_only_same_group_persisted_rows(tmp_path):
 def test_scaling_fit_requires_distinct_qubit_counts(tmp_path):
     db = ResultsDB(tmp_path / "results.db")
     first = _job(db, tmp_path / "artifacts", group_id="seeds", qubits=4)
-    second = _job(db, tmp_path / "artifacts", group_id="seeds", qubits=4)
+    second = _job(
+        db, tmp_path / "artifacts", group_id="seeds", qubits=4,
+        name_suffix="-repeat",
+    )
     _write_summary(first, {"quantum_diagnostics": _diagnostics(0.25)})
     _write_summary(second, {"quantum_diagnostics": _diagnostics(0.125)})
 
@@ -112,6 +125,131 @@ def test_scaling_fit_requires_distinct_qubit_counts(tmp_path):
     assert scaling["status"] == "unavailable"
     assert scaling["provenance"]["persisted_rows"] == 2
     assert scaling["provenance"]["distinct_qubit_counts"] == 1
+
+
+def test_summary_identity_mismatch_in_shared_artifact_dir_is_unavailable(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="shared", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="shared", qubits=4)
+    db.update_lab_job(second["id"], artifact_dir=first["artifact_dir"])
+    _write_summary(first, {"quantum_diagnostics": _diagnostics()})
+
+    payload = diagnostics_payload(db, second["id"], tmp_path / "artifacts")
+
+    dimension = payload["diagnostics"]["gradient_variance"]
+    assert dimension["status"] == "unavailable"
+    assert dimension["reason"] == "summary.json run_uuid does not match persisted job"
+    assert dimension["provenance"]["identity_field"] == "run_uuid"
+    assert dimension["provenance"]["expected_identity"] == second["run_uuid"]
+    assert dimension["provenance"]["observed_identity"] == first["run_uuid"]
+
+
+def test_summary_missing_persisted_manifest_identity_is_unavailable(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    job = _job(db, tmp_path / "artifacts")
+    db.update_lab_job(job["id"], manifest_hash="manifest-a")
+    job = db.get_lab_job(job["id"])
+    _write_summary(
+        job,
+        {"run_uuid": job["run_uuid"], "quantum_diagnostics": _diagnostics()},
+        bind_identity=False,
+    )
+
+    dimension = diagnostics_payload(db, job["id"], tmp_path / "artifacts")["diagnostics"]["gradient_variance"]
+
+    assert dimension["status"] == "unavailable"
+    assert dimension["reason"] == "summary.json is missing persisted job manifest_hash"
+    assert dimension["provenance"]["identity_field"] == "manifest_hash"
+
+
+def test_identified_summary_cannot_bind_to_identity_less_legacy_job(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    job = _job(db, tmp_path / "artifacts")
+    with db._conn() as con:
+        con.execute(
+            "UPDATE lab_jobs SET run_uuid=NULL, manifest_hash=NULL WHERE id=?",
+            (job["id"],),
+        )
+    legacy_job = db.get_lab_job(job["id"])
+    _write_summary(
+        legacy_job,
+        {"run_uuid": "modern-run", "quantum_diagnostics": _diagnostics()},
+        bind_identity=False,
+    )
+
+    dimension = diagnostics_payload(db, legacy_job["id"], tmp_path / "artifacts")["diagnostics"]["gradient_variance"]
+
+    assert dimension["status"] == "unavailable"
+    assert dimension["reason"] == "summary.json run_uuid cannot be bound to an identity-less job"
+    assert dimension["provenance"]["identity_field"] == "run_uuid"
+
+
+def test_scaling_fit_excludes_incompatible_protocol_rows(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=4)
+    different_dataset = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8,
+        dataset_name="other", name_suffix="-dataset",
+    )
+    different_depth = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8,
+        config={"lab.study_cell.n_qubits": 8, "model.quantum.n_layers": 99},
+        name_suffix="-depth",
+    )
+    different_seed = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8, seed=18,
+        name_suffix="-seed",
+    )
+    _write_summary(first, {"quantum_diagnostics": _diagnostics(0.25)})
+    _write_summary(second, {"quantum_diagnostics": _diagnostics(0.0625)})
+    for job in (different_dataset, different_depth, different_seed):
+        _write_summary(job, {"quantum_diagnostics": _diagnostics(1000.0)})
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
+    assert scaling["provenance"]["persisted_rows"] == 2
+    assert scaling["value"]["variance_decay_factor_per_qubit"] == pytest.approx(0.5)
+
+
+def test_scaling_fit_ignores_queue_output_config_but_keeps_depth_fixed(tmp_path):
+    db = ResultsDB(tmp_path / "results.db")
+
+    def queue_config(qubits: int, *, run_name: str, layers: int) -> dict:
+        return {
+            "lab.study_cell.n_qubits": qubits,
+            "model.quantum.n_layers": layers,
+            "model.quantum.readout": "expectation",
+            "data.context_length": 32,
+            "train.lr": 0.001,
+            "tracking.run_name": run_name,
+            "lab.artifact_dir": f"results/{run_name}",
+            "lab.resource.estimated_memory_mib": qubits * 64,
+            "lab.gpu_reservation.request_id": f"reservation-{qubits}",
+        }
+
+    first = _job(
+        db, tmp_path / "artifacts", group_id="queue-sweep", qubits=2,
+        config=queue_config(2, run_name="queue-q2", layers=3),
+    )
+    second = _job(
+        db, tmp_path / "artifacts", group_id="queue-sweep", qubits=4,
+        config=queue_config(4, run_name="queue-q4", layers=3),
+    )
+    different_depth = _job(
+        db, tmp_path / "artifacts", group_id="queue-sweep", qubits=8,
+        config=queue_config(8, run_name="queue-q8", layers=4),
+    )
+    _write_summary(first, {"quantum_diagnostics": _diagnostics(0.25)})
+    _write_summary(second, {"quantum_diagnostics": _diagnostics(0.0625)})
+    _write_summary(different_depth, {"quantum_diagnostics": _diagnostics(1000.0)})
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
+    assert scaling["provenance"]["persisted_rows"] == 2
+    assert scaling["value"]["variance_decay_factor_per_qubit"] == pytest.approx(0.5)
 
 
 def test_unknown_job_raises_key_error(tmp_path):

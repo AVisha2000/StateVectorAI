@@ -10,12 +10,13 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel
 
-from ..claims import get_claim
+from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
 
 
 VERDICT_SNAPSHOT_SCHEMA_VERSION = 1
 _FORBIDDEN_SCORE_KEYS = frozenset({"advantage_score", "composite_score", "composite_advantage_score"})
+_RECONCILIATION_JOB_LIMIT = 200
 
 
 class VerdictSnapshotSummary(BaseModel):
@@ -274,7 +275,65 @@ def comparison_verdict_snapshot(db: ResultsDB, payload: Mapping[str, Any]) -> di
     return persist_verdict_snapshot(db, service_payload)
 
 
+def reconcile_comparison_verdict_snapshots(
+    db: ResultsDB, *, job_limit: int = _RECONCILIATION_JOB_LIMIT
+) -> None:
+    """Materialize eligible recent comparison verdicts without read-order coupling.
+
+    The canonical comparison payload remains the sole owner of claim, fairness,
+    final-run, and persistence decisions.  The bounded pending batch advances
+    by excluding existing snapshots.  A malformed or unavailable job must not
+    prevent the verdict list from remaining available.
+    """
+    from .lab import comparison_research_payload
+
+    bounded = max(1, int(job_limit))
+    claims = list_claims()
+    claim_ids = [claim["claim_id"] for claim in claims]
+    preset_ids = sorted({
+        preset_id
+        for claim in claims
+        for preset_id in claim["analysis_settings"]["preset_ids"]
+    })
+    if not claim_ids and not preset_ids:
+        return
+    claim_placeholders = ", ".join("?" for _ in claim_ids)
+    preset_placeholders = ", ".join("?" for _ in preset_ids)
+    with db._conn() as con:
+        rows = con.execute(
+            "SELECT candidate.id FROM lab_jobs AS candidate "
+            "JOIN lab_jobs AS baseline ON baseline.id=candidate.compare_to_job_id "
+            "WHERE candidate.status='done' AND baseline.status='done' "
+            "AND candidate.comparison_role != 'baseline' "
+            "AND EXISTS (SELECT 1 FROM run_results AS candidate_run "
+            "WHERE candidate_run.run_uuid=candidate.run_uuid "
+            "AND candidate_run.suite='lab') "
+            "AND EXISTS (SELECT 1 FROM run_results AS baseline_run "
+            "WHERE baseline_run.run_uuid=baseline.run_uuid "
+            "AND baseline_run.suite='lab') "
+            "AND json_valid(candidate.config_json) "
+            "AND (candidate.preset_id IN (" + preset_placeholders + ") "
+            "OR CASE WHEN json_valid(candidate.config_json) "
+            "THEN json_extract(candidate.config_json, '$.\"research.claim_id\"') "
+            "IN (" + claim_placeholders + ") ELSE 0 END) "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM verdict_snapshots AS snapshot "
+            "WHERE snapshot.verdict_key=('comparison:' || candidate.id)"
+            ") ORDER BY candidate.id ASC LIMIT ?",
+            (*preset_ids, *claim_ids, bounded),
+        ).fetchall()
+
+    for row in rows:
+        try:
+            comparison_research_payload(db, int(row["id"]))
+        # This is an availability boundary for a list endpoint: malformed,
+        # deleted, or otherwise unavailable historical rows are isolated.
+        except Exception:
+            continue
+
+
 def verdict_snapshot_list_response(db: ResultsDB, *, limit: int = 100) -> VerdictSnapshotListResponse:
+    reconcile_comparison_verdict_snapshots(db)
     return VerdictSnapshotListResponse(
         snapshots=[_summary(snapshot) for snapshot in db.list_latest_verdict_snapshots(limit)]
     )
@@ -316,5 +375,6 @@ __all__ = [
     "VERDICT_SNAPSHOT_SCHEMA_VERSION", "VerdictSnapshotDetail", "VerdictSnapshotHistoryResponse",
     "VerdictSnapshotListResponse", "VerdictSnapshotSummary", "advantage_report_scorecard",
     "build_verdict_snapshot", "comparison_verdict_snapshot", "persist_verdict_snapshot",
-    "verdict_snapshot_detail_response", "verdict_snapshot_list_response",
+    "reconcile_comparison_verdict_snapshots", "verdict_snapshot_detail_response",
+    "verdict_snapshot_list_response",
 ]

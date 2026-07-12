@@ -7,9 +7,11 @@ from qllm.dashboard.verdicts import (
     build_verdict_snapshot,
     comparison_verdict_snapshot,
     persist_verdict_snapshot,
+    reconcile_comparison_verdict_snapshots,
     verdict_snapshot_detail_response,
     verdict_snapshot_list_response,
 )
+from qllm.dashboard.runner import ExperimentQueue
 from qllm.claims import get_claim
 from qllm.quantum.advantage import AdvantageReport
 from qllm.resultsdb import ResultsDB
@@ -98,6 +100,74 @@ def test_comparison_snapshot_requires_canonical_available_evidence_and_preserves
     assert snapshot["evidence"]["baseline"]["run"]["run_uuid"] == "run-b"
     assert snapshot["assessment_level"] == "anecdote"
     assert snapshot["claim_level"] == get_claim(CLAIM_ID)["level"]
+
+
+def test_verdict_list_reconciles_completed_pairs_without_comparison_read(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    candidate = queue.submit(
+        "quantum-ffn-4q", "default-text", "completed", 5, 2, 1,
+        queue_classical_comparison=True,
+        claim_id=CLAIM_ID,
+    )
+    baseline = candidate["comparison_job"]
+    incomplete = queue.submit(
+        "quantum-ffn-4q", "default-text", "incomplete", 6, 2, 1,
+        queue_classical_comparison=True,
+        claim_id=CLAIM_ID,
+    )
+    db = ResultsDB(db_path)
+    for job, ppl in ((candidate, 1.0), (baseline, 2.0)):
+        db.update_lab_job(job["id"], status="done")
+        db.record(
+            "lab", job["preset_id"], "default-text", 5, 2,
+            10, ppl / 2, ppl, ppl / 3, 1.0,
+            config=job["config"],
+            run_uuid=job["run_uuid"],
+            experiment_uuid=job["experiment_uuid"],
+        )
+
+    first = verdict_snapshot_list_response(db)
+    second = verdict_snapshot_list_response(db)
+
+    assert incomplete["comparison_job"]["id"] != baseline["id"]
+    assert [snapshot.source_id for snapshot in first.snapshots] == [str(candidate["id"])]
+    assert [snapshot.id for snapshot in second.snapshots] == [first.snapshots[0].id]
+    assert len(db.get_verdict_snapshot_history(first.snapshots[0].verdict_key)) == 1
+
+
+def test_verdict_reconciliation_advances_through_pending_pairs(tmp_path):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    pairs = [
+        queue.submit(
+            "quantum-ffn-4q", "default-text", f"pair-{seed}", seed, 2, 1,
+            queue_classical_comparison=True,
+            claim_id=CLAIM_ID,
+        )
+        for seed in (7, 8)
+    ]
+    db = ResultsDB(db_path)
+    for pair in pairs:
+        for job, ppl in ((pair, 1.0), (pair["comparison_job"], 2.0)):
+            db.update_lab_job(job["id"], status="done")
+            db.record(
+                "lab", job["preset_id"], "default-text", job["seed"], 2,
+                10, ppl / 2, ppl, ppl / 3, 1.0,
+                config=job["config"],
+                run_uuid=job["run_uuid"],
+                experiment_uuid=job["experiment_uuid"],
+            )
+
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    first = db.list_latest_verdict_snapshots()
+    reconcile_comparison_verdict_snapshots(db, job_limit=1)
+    second = db.list_latest_verdict_snapshots()
+
+    assert [snapshot["source_id"] for snapshot in first] == [str(pairs[0]["id"])]
+    assert {snapshot["source_id"] for snapshot in second} == {
+        str(pair["id"]) for pair in pairs
+    }
 
 
 def test_advantage_report_scorecard_and_forbidden_composites(tmp_path):

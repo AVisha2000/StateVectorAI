@@ -889,6 +889,10 @@ Progress:
 - [x] Ship the bounded research-service scaffold and stop at D4.
 - [x] Regenerate the final OpenAPI snapshot and update only the backend-owned API
   contract and Backend log in `docs/BUILD_COORDINATION.md`.
+- [x] Remediate the Ultra verifier's artifact-identity and protocol-cohort
+  diagnostics findings.
+- [x] Reconcile terminal claim-bound verdicts before listing so persistence no
+  longer depends on comparison-read order.
 - [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
   and commit authorized deliverables without merging the feature branch.
 
@@ -977,6 +981,23 @@ git diff --name-only origin/main...HEAD
 PASS: 20 backend/plan/test paths changed and no qllm/dashboard/frontend path changed.
 git diff --check
 PASS: no whitespace errors.
+gpt-5.6-sol Ultra immutable-range verification
+REMEDIATION REQUIRED: the verifier reproduced cross-run summary leakage,
+protocol-incompatible scaling cohorts, and verdict persistence coupled to a
+prior comparison read. D5, D6, status, SSE, bounded research, and human gates
+passed independently.
+python -m pytest -q tests/test_dashboard_diagnostics.py tests/test_dashboard_verdicts.py
+  tests/test_dashboard_lab.py tests/test_durable_runs.py tests/test_dashboard_security.py
+  tests/test_openapi_contract.py --basetemp .tmp/pytest-ultra-remediation-integration
+PASS: 149 passed, 1 skipped; one existing Starlette/httpx deprecation warning.
+python -m pytest -q tests/test_metrics.py tests/test_advantage.py
+  tests/test_research_protocol.py tests/test_research_service.py
+  --basetemp .tmp/pytest-ultra-remediation-research
+PASS: 64 passed; 17 existing JAX complex128-to-complex64 warnings.
+python scripts/dump_openapi.py --check
+PASS: committed OpenAPI snapshot remains current after verifier remediation.
+git diff --check
+PASS: no whitespace errors; only LF-to-CRLF working-copy notices.
 ```
 
 ## Completed plan: local platform completion
