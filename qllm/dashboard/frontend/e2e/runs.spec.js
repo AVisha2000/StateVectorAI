@@ -18,6 +18,19 @@ test('Runs table lists all jobs and filters by status', async ({ page }) => {
   await expect(page.getByText('gru-s42')).toHaveCount(0)
 })
 
+test('Runs: free-text search and dataset filter narrow the table', async ({ page }) => {
+  await page.goto('/runs')
+  const box = page.getByRole('searchbox', { name: 'Search runs' })
+  await box.fill('qattn')
+  await expect(page.getByText('qattn-s77')).toBeVisible()
+  await expect(page.getByText('qrnn-s42')).toHaveCount(0)
+  await box.fill('')
+  // dataset filter → only contextual jobs (qattn-s77, tsq-s11)
+  await page.locator('label').filter({ hasText: 'Dataset' }).locator('select').selectOption('contextual')
+  await expect(page.getByText('qattn-s77')).toBeVisible()
+  await expect(page.getByText('gru-s42')).toHaveCount(0)
+})
+
 test('Runs shows a graceful error when /jobs fails', async ({ page }) => {
   await page.route('**/api/jobs', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }))
   await page.goto('/runs')
@@ -27,7 +40,7 @@ test('Runs shows a graceful error when /jobs fails', async ({ page }) => {
 test('Runs empty state when there are no jobs', async ({ page }) => {
   await mockApi(page, { '/jobs': [] })
   await page.goto('/runs')
-  await expect(page.getByText(/No runs match this filter/i)).toBeVisible()
+  await expect(page.getByText(/No runs match/i)).toBeVisible()
 })
 
 test('Run detail: header, diagnostics KPIs, charts, and warnings', async ({ page }) => {

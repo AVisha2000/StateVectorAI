@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useJobs } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
+import { filterRuns, uniqueDatasets } from '../lib/runsFilter.js'
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -14,11 +15,14 @@ const FILTERS = [
 export default function Runs() {
   const { data: jobs = [], isLoading, isError, error } = useJobs()
   const [filter, setFilter] = useState('all')
+  const [dataset, setDataset] = useState('all')
+  const [search, setSearch] = useState('')
   const navigate = useNavigate()
 
+  const datasets = useMemo(() => uniqueDatasets(jobs), [jobs])
   const rows = useMemo(
-    () => (filter === 'all' ? jobs : jobs.filter((j) => j.status === filter)),
-    [jobs, filter],
+    () => filterRuns(jobs, { status: filter, dataset, search }),
+    [jobs, filter, dataset, search],
   )
 
   return (
@@ -34,7 +38,7 @@ export default function Runs() {
         <Loading label="Loading runs…" />
       ) : (
         <>
-          <div className="row" style={{ margin: '16px 0 12px' }}>
+          <div className="row" style={{ margin: '16px 0 12px', gap: 10 }}>
             <div className="seg" role="tablist">
               {FILTERS.map((f) => (
                 <button
@@ -46,6 +50,22 @@ export default function Runs() {
                 </button>
               ))}
             </div>
+            <label className="row" style={{ gap: 6 }}>
+              <span className="microlabel">Dataset</span>
+              <select className="mini" value={dataset} onChange={(e) => setDataset(e.target.value)}>
+                <option value="all">all</option>
+                {datasets.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <input
+              className="mini"
+              type="search"
+              placeholder="Search runs…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ minWidth: 180 }}
+              aria-label="Search runs"
+            />
             <span className="hint spacer">{rows.length} run{rows.length === 1 ? '' : 's'}</span>
           </div>
 
@@ -73,7 +93,7 @@ export default function Runs() {
                 ))}
                 {rows.length === 0 && (
                   <tr><td colSpan="8" className="hint" style={{ padding: '16px 12px' }}>
-                    No runs match this filter.
+                    No runs match these filters.
                   </td></tr>
                 )}
               </tbody>
