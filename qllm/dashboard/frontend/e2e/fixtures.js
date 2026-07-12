@@ -61,6 +61,18 @@ export const DIAGNOSTICS_7 = {
   interpretation_warnings: [{ code: 'diagnostics_scope', severity: 'warning', title: 'Diagnostics scope', message: 'These are mechanism observations, not evidence of quantum advantage.' }],
 }
 
+export const MODEL_GRAPH_7 = {
+  nodes: [
+    { id: 'tokens', label: 'Tokens', kind: 'input' },
+    { id: 'embed', label: 'Classical Embedding', kind: 'classical', meta: { component_type: 'embedding' } },
+    { id: 'qffn', label: 'Quantum FFN', kind: 'quantum', meta: { resource: { n_qubits: 4, n_circuit_layers: 2, backend: 'pennylane' } } },
+    { id: 'head', label: 'Output Head', kind: 'classical' },
+    { id: 'out', label: 'Logits', kind: 'output' },
+  ],
+  edges: [['tokens', 'embed'], ['embed', 'qffn'], ['qffn', 'head'], ['head', 'out']],
+  summary: { arch: 'qffn', uses_quantum: true, model_family: 'qffn' },
+}
+
 export const MODEL_TESTS_7 = {
   job: { id: 7, run_name: 'qrnn-s42', status: 'running' },
   summary: { quantum_diagnostics: { grad_var_mean: 1.2e-3, meyer_wallach_q: 0.61, expressibility_kl: 0.18, availability: {} } },
@@ -118,6 +130,7 @@ export async function mockApi(page, overrides = {}) {
     '/jobs/7/workspace': WORKSPACE_7,
     '/jobs/7/diagnostics': DIAGNOSTICS_7,
     '/jobs/7/model-tests': MODEL_TESTS_7,
+    '/jobs/7/model-graph': MODEL_GRAPH_7,
     '/jobs/7/comparison': WORKSPACE_7.comparison,
     '/scaling-tests/scale-grp': SCALING_GRP,
     ...overrides,

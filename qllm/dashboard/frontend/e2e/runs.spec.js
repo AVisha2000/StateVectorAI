@@ -50,6 +50,16 @@ test('Run detail: header, diagnostics KPIs, charts, and warnings', async ({ page
   await expect(page.getByRole('link', { name: /Compare with twin/i })).toBeVisible()
 })
 
+test('Run detail: model-structure graph shows quantum and classical blocks', async ({ page }) => {
+  await page.goto('/runs/7')
+  await expect(page.getByText('Model structure')).toBeVisible()
+  const svg = page.locator('.model-graph svg')
+  await expect(svg).toBeVisible()
+  await expect(svg.getByText('Quantum FFN')).toBeVisible()
+  await expect(svg.getByText('Classical Embedding')).toBeVisible()
+  await expect(svg.getByText('4q · d2 · pennylane')).toBeVisible()
+})
+
 test('Run detail: unknown id degrades gracefully', async ({ page }) => {
   await page.goto('/runs/424242')
   await expect(page.getByText(/Could not load this run|not found/i)).toBeVisible()

@@ -2,9 +2,10 @@ import { useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.js'
-import { useWorkspace, useModelTests, useDiagnostics } from '../lib/hooks.js'
+import { useWorkspace, useModelTests, useDiagnostics, useModelGraph } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState, StatusTag } from '../lib/ui.jsx'
 import { ComparisonCurve, MetricCurve, TrainabilityChart, Legend, ARM } from '../components/charts.jsx'
+import ModelGraphSvg from '../components/ModelGraphSvg.jsx'
 import { mergeComparison, mergeCurve } from '../lib/curves.js'
 import { diagnosticValues, hasAnyDiagnostic, DIAGNOSTIC_KPIS } from '../lib/diagnostics.js'
 import { fmtNum, fmtSci, fmtPct, DASH } from '../lib/format.js'
@@ -25,6 +26,7 @@ export default function RunDetail() {
   const { data, isLoading, isError, error } = useWorkspace(id)
   const { data: tests } = useModelTests(id)
   const { data: diag } = useDiagnostics(id)
+  const { data: modelGraph } = useModelGraph(id)
 
   const cancel = useMutation({
     mutationFn: () => api.cancelJob(id),
@@ -155,6 +157,18 @@ export default function RunDetail() {
           </div>
         </div>
       </div>
+
+      {modelGraph?.nodes?.length ? (
+        <div style={{ marginTop: 14 }}>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 660 }}>Model structure</h3>
+            <span className="hint">quantum vs classical blocks, input → output</span>
+            <span className="spacer" />
+            <Legend items={[{ label: 'quantum', color: 'var(--q)' }, { label: 'classical', color: 'var(--c)' }]} />
+          </div>
+          <ModelGraphSvg graph={modelGraph} />
+        </div>
+      ) : null}
 
       {!hasAnyDiagnostic(diagValues) ? (
         <p className="hint" style={{ marginTop: 10 }}>

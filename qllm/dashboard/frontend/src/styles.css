@@ -313,3 +313,7 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
 .metric-row span { color:var(--ink2); }
 .circuit-wrap { overflow-x:auto; padding:10px; }
 .circuit-wrap text { user-select:none; }
+
+/* run-detail model-structure graph */
+.model-graph { overflow-x:auto; padding:8px; }
+.model-graph text { user-select:none; }
