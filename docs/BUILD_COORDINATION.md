@@ -238,6 +238,13 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   Framed as seed-to-seed *variance*, not a claim; degrades to a note when fewer
   than two per-seed curves exist. 86 unit / 51 functional E2E / 14 visual. No
   new backend asks; consumes the existing workspace contract.
+- 2026-07-12 · ui: Verdict detail now renders a **revision-history timeline**
+  (`main` `ef2c0da`) from the snapshot's `history[]` — newest-first, each entry
+  showing that revision's canonical claim_level/status/replication verbatim and
+  flagging what changed from the older revision. Makes the append-only,
+  content-addressed ledger's corrections/supersessions auditable without any
+  snapshot being rewritten; no verdict derived in React. 89 unit / 52 E2E / 14
+  visual. Consumes the existing `/verdicts/{id}` contract; no new backend asks.
 
 ## Open decisions / blockers
 
