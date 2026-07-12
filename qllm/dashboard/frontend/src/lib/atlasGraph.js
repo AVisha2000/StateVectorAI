@@ -16,13 +16,15 @@ export function toElements(resolved, { expanded } = {}) {
     nodes.push({ data: { id: d.id, label: d.label, type: 'domain' }, classes: 'domain' })
     if (!exp.has(d.id)) continue
     for (const comp of d.components || []) {
-      nodes.push({ data: { id: comp.id, label: comp.label, parent: d.id, type: 'component' }, classes: 'component' })
+      nodes.push({ data: { id: comp.id, label: comp.label, type: 'component' }, classes: 'component' })
+      // hierarchy edge domain → component (drives the breadthfirst tree layout)
+      edges.push({ data: { id: `h:${d.id}:${comp.id}`, source: d.id, target: comp.id }, classes: 'hierarchy' })
       for (const c of comp.cells || []) {
+        edges.push({ data: { id: `h:${comp.id}:${c.id}`, source: comp.id, target: c.id }, classes: 'hierarchy' })
         nodes.push({
           data: {
             id: c.id,
             label: c.label,
-            parent: comp.id,
             type: 'cell',
             outcome: c.outcome_class,
             kind: c.kind,

@@ -43,28 +43,32 @@ export function toStylesheet(tokenMap = {}) {
       selector: '.domain',
       style: {
         shape: 'round-rectangle',
-        'background-opacity': 0.06,
         'background-color': ink2,
+        'background-opacity': 0.22,
         'border-width': 1,
         'border-color': hair,
-        'text-valign': 'top',
+        color: ink,
         'font-weight': 700,
         'font-size': 12,
-        padding: 12,
+        width: 'label',
+        height: 'label',
+        padding: '10px',
+        'text-valign': 'center',
       },
     },
     {
       selector: '.component',
       style: {
         shape: 'round-rectangle',
-        'background-opacity': 0.04,
         'background-color': surface2,
         'border-width': 1,
         'border-color': hair,
-        'text-valign': 'top',
-        'font-size': 10,
         color: ink2,
-        padding: 8,
+        'font-size': 10,
+        width: 'label',
+        height: 'label',
+        padding: '8px',
+        'text-valign': 'center',
       },
     },
     {
@@ -110,9 +114,10 @@ export function toStylesheet(tokenMap = {}) {
       opacity: 0.6,
     },
   })
+  sheet.push({ selector: 'edge.hierarchy', style: { 'line-color': axis, opacity: 0.5, width: 1.5 } })
   sheet.push({
     selector: 'edge.relation',
-    style: { 'line-style': 'dashed', 'line-color': t('--accent', '#8f8af0'), label: 'data(relation)', 'font-size': 8, color: ink2 },
+    style: { 'line-style': 'dashed', 'line-color': t('--accent', '#8f8af0'), width: 2, label: 'data(relation)', 'font-size': 8, color: ink2 },
   })
 
   return sheet

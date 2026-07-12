@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, lazy, Suspense } from 'react'
 import { useAtlasOntology, useVerdicts } from '../lib/hooks.js'
 import { PageHeader, Loading } from '../lib/ui.jsx'
+
+// Heavy graph (cytoscape) is route-split so it never bloats the initial bundle
+// and never enters the pure test path.
+const CytoscapeGraph = lazy(() => import('../components/atlas/CytoscapeGraph.jsx'))
 import { ATLAS_SEED } from '../lib/atlasOntology.seed.js'
 import {
   resolveOntology,
@@ -40,14 +44,24 @@ export default function Atlas() {
   )
   const selected = useMemo(() => allCells.find((c) => c.id === selectedId) || null, [allCells, selectedId])
 
-  // Regroup filtered cells back under their domains for the list.
+  // Regroup filtered cells back under their domains (with pipeline-stage
+  // components) so the list and the graph render the same filtered structure.
   const filteredDomains = useMemo(() => {
     const byDomain = new Map()
     for (const c of filtered) {
       if (!byDomain.has(c.domain_id)) byDomain.set(c.domain_id, { id: c.domain_id, label: c.domain_label, cells: [] })
       byDomain.get(c.domain_id).cells.push(c)
     }
-    return [...byDomain.values()]
+    return [...byDomain.values()].map((d) => {
+      const byStage = new Map()
+      for (const c of d.cells) {
+        const stage = c.pipeline_stage || 'other'
+        if (!byStage.has(stage)) byStage.set(stage, [])
+        byStage.get(stage).push(c)
+      }
+      const components = [...byStage.entries()].map(([stage, cs]) => ({ id: `${d.id}::${stage}`, label: stage, pipeline_stage: stage, cells: cs }))
+      return { ...d, components }
+    })
   }, [filtered])
 
   if (ontologyQuery.isLoading) return <Loading label="Loading the Atlas…" />
@@ -112,12 +126,9 @@ export default function Atlas() {
       <div className="atlas-shell" style={{ marginTop: 14 }}>
         <div>
           {view === 'graph' ? (
-            <div className="card"><div className="bd">
-              <p className="hint" style={{ margin: 0 }}>
-                The interactive Cytoscape graph lands in the next slice. The <b>List</b> view below is the accessible,
-                fully-functional equivalent (and the render path the future public export reuses).
-              </p>
-            </div></div>
+            <Suspense fallback={<Loading label="Loading graph…" />}>
+              <CytoscapeGraph resolved={{ ...resolved, domains: filteredDomains }} onSelect={setSelectedId} />
+            </Suspense>
           ) : filteredDomains.length === 0 ? (
             <div className="state">No cells match these filters.</div>
           ) : (
