@@ -16,6 +16,19 @@ export function Loading({ label = 'Loading…' }) {
   return <div className="state">{label}</div>
 }
 
+// Make a click-only table row keyboard-operable: spread onto a <tr> so Enter/Space
+// activate it like a button. Pair with an aria-label describing the target.
+export function rowActivation(onActivate) {
+  return {
+    tabIndex: 0,
+    role: 'button',
+    onClick: onActivate,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate() }
+    },
+  }
+}
+
 export function ErrorState({ error, label = 'Could not load this data.' }) {
   const detail = error?.message || String(error || '')
   return (
