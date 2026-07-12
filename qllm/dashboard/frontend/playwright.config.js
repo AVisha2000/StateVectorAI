@@ -6,7 +6,13 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
-  expect: { timeout: 7_000 },
+  expect: {
+    timeout: 7_000,
+    // Visual-regression tolerance. Baselines are platform-specific (Playwright
+    // stores one per OS, e.g. -linux.png / -win32.png). Generate/refresh with
+    // `npm run test:e2e:visual:update`; CI (Linux) needs its own -linux baselines.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: 'disabled', scale: 'css', caret: 'hide' },
+  },
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
