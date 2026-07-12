@@ -60,6 +60,23 @@ test('Overview: Latest-verdicts degrades when the store is unreachable', async (
   await expect(page.getByText(/verdict store isn.t reachable/i)).toBeVisible()
 })
 
+test('Overview: Multi-seed studies strip lists studies with evidence + fair pairs', async ({ page }) => {
+  await page.goto('/')
+  const card = page.locator('.card', { hasText: 'Multi-seed studies' })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('qffn-multiseed')).toBeVisible()
+  await expect(card.getByText('paired empirical')).toBeVisible()
+  await expect(card.getByRole('link', { name: /Open/ }).first()).toBeVisible()
+  // integrity framing: replication across seeds, no composite score
+  await expect(card.getByText(/no composite advantage score/i)).toBeVisible()
+})
+
+test('Overview: Multi-seed studies strip degrades when studies are unreachable', async ({ page }) => {
+  await mockApi(page, { '/studies': null })
+  await page.goto('/')
+  await expect(page.getByText(/Studies aren.t reachable yet/i)).toBeVisible()
+})
+
 test('System: /status five fields render and quantum backends are listed', async ({ page }) => {
   await page.goto('/system')
   await expect(page.getByText('CPU · active')).toBeVisible()
