@@ -1,10 +1,7 @@
-import { useMemo, useState, lazy, Suspense } from 'react'
+import { useMemo, useState } from 'react'
 import { useAtlasOntology, useVerdicts } from '../lib/hooks.js'
 import { PageHeader, Loading } from '../lib/ui.jsx'
-
-// Heavy graph (cytoscape) is route-split so it never bloats the initial bundle
-// and never enters the pure test path.
-const CytoscapeGraph = lazy(() => import('../components/atlas/CytoscapeGraph.jsx'))
+import AtlasGraphSvg from '../components/atlas/AtlasGraphSvg.jsx'
 import { ATLAS_SEED } from '../lib/atlasOntology.seed.js'
 import {
   resolveOntology,
@@ -126,9 +123,11 @@ export default function Atlas() {
       <div className="atlas-shell" style={{ marginTop: 14 }}>
         <div>
           {view === 'graph' ? (
-            <Suspense fallback={<Loading label="Loading graph…" />}>
-              <CytoscapeGraph resolved={{ ...resolved, domains: filteredDomains }} onSelect={setSelectedId} />
-            </Suspense>
+            filteredDomains.length === 0 ? (
+              <div className="state">No cells match these filters.</div>
+            ) : (
+              <AtlasGraphSvg resolved={{ ...resolved, domains: filteredDomains }} onSelect={setSelectedId} selectedId={selectedId} />
+            )
           ) : filteredDomains.length === 0 ? (
             <div className="state">No cells match these filters.</div>
           ) : (

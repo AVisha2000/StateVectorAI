@@ -296,5 +296,7 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
   border-radius:10px; background:var(--surface); }
 .atlas-legend-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
-/* cytoscape graph mount */
-.atlas-graph { width:100%; height:560px; background:var(--surface); border:1px solid var(--hair); border-radius:12px; }
+/* hand-authored SVG graph (theme-aware via CSS vars, renders everywhere) */
+.atlas-graph-svg { overflow:auto; max-height:660px; padding:8px; }
+.atlas-graph-svg text { user-select:none; }
+.atlas-graph-svg g[role="button"]:hover { filter:brightness(1.08); }
