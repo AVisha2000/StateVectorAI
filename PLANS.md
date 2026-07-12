@@ -998,6 +998,18 @@ python scripts/dump_openapi.py --check
 PASS: committed OpenAPI snapshot remains current after verifier remediation.
 git diff --check
 PASS: no whitespace errors; only LF-to-CRLF working-copy notices.
+python scripts/check_agent_setup.py
+PASS: agent setup validation passed after remediation.
+python scripts/verify_changes.py --run
+PASS: agent-setup passed; the clean-tree selector again had no uncommitted paths,
+so the complete branch-wide suite below remains the behavioral authority.
+python -m pytest -q --basetemp .tmp/pytest-backend-full-remediated
+PASS: 499 passed, 1 skipped, 48 warnings in 316.68 seconds; warnings remain
+the existing Starlette/httpx deprecation and JAX complex128-to-complex64 notices.
+python scripts/queue_smoke.py --url http://127.0.0.1:8180 --steps 1
+  --eval-every 1 --device-target cpu --timeout 180
+PASS: isolated job 1 completed on CPU at step 1 with latest/best checkpoints and
+no error; the temporary server was stopped and port 8180 confirmed free.
 ```
 
 ## Completed plan: local platform completion
