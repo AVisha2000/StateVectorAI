@@ -80,6 +80,23 @@ test('Run detail: model-structure graph shows quantum and classical blocks', asy
   await expect(svg.getByText('4q · d2 · pennylane')).toBeVisible()
 })
 
+test('Run detail: scaling-group backlink appears when the run is part of a sweep', async ({ page }) => {
+  await page.goto('/runs/7')
+  const link = page.getByRole('link', { name: /scaling group/i })
+  await expect(link).toBeVisible()
+  await link.click()
+  await expect(page).toHaveURL(/\/runs\/scaling\/scale-grp$/)
+  await expect(page.getByRole('heading', { name: 'Scaling', exact: true })).toBeVisible()
+})
+
+test('Run detail: no scaling-group backlink when the run has no group', async ({ page }) => {
+  // diagnostics without a group_id → no backlink
+  await mockApi(page, { '/jobs/7/diagnostics': { job: { id: 7, run_name: 'qrnn-s42', status: 'running' }, diagnostics: {}, interpretation_warnings: [] } })
+  await page.goto('/runs/7')
+  await expect(page.getByText('#7 qrnn-s42')).toBeVisible()
+  await expect(page.getByRole('link', { name: /scaling group/i })).toHaveCount(0)
+})
+
 test('Run detail: unknown id degrades gracefully', async ({ page }) => {
   await page.goto('/runs/424242')
   await expect(page.getByText(/Could not load this run|not found/i)).toBeVisible()
