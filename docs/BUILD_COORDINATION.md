@@ -120,6 +120,16 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   and no LLM/embedding/vector/graph provider, dependency, paid service, full-text
   store, or cost budget was selected. Evidence: offline research `14 passed`;
   dashboard `74 passed`; security `14 passed, 1 skipped`; OpenAPI `1 passed`.
+- 2026-07-12 · backend: `backend-enhancements` reached final `gpt-5.6-sol`
+  Ultra **PASS**. Diagnostics are run/manifest-bound, schedule/cohort strict,
+  and reject malformed or non-finite protocol JSON. Verdict listing now uses a
+  durable wrapping cursor, a hard 25-pair batch, and metadata-only comparison
+  projections, so invalid history cannot starve later evidence and curves are
+  never loaded during reconciliation. Final evidence: agent setup and
+  change-verification `passed`; OpenAPI `current`; full CPU suite `513 passed,
+  1 skipped`; isolated one-step CPU queue smoke completed with both checkpoints.
+  D4 provider/spend and all GPU/QPU, claim-promotion, environment, and branch-
+  merge gates remain closed.
 
 ## Log — from UI (Claude appends here)
 
