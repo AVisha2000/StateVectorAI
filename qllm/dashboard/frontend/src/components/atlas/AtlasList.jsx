@@ -2,10 +2,14 @@ import { Fragment } from 'react'
 import { OUTCOME_LABELS } from '../../lib/atlasModel.js'
 
 // Accessible table alternative to the graph (and the render path a future static
-// public export reuses). Grouped by domain; every row — including
+// public export reuses). Grouped by collapsible domain; every row — including
 // "classical holds / no advantage" and "unexplored" — carries equal weight, with
-// claim level and replication as separate columns.
-export default function AtlasList({ domains, onSelect, selectedId }) {
+// claim level and replication as separate columns. Rows are keyboard-operable.
+export default function AtlasList({ domains, onSelect, selectedId, collapsed, onToggleDomain }) {
+  const isCollapsed = (id) => collapsed instanceof Set && collapsed.has(id)
+  const selectKey = (e, id) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(id) }
+  }
   return (
     <div className="card scroll-x">
       <table className="data atlas-list">
@@ -16,27 +20,49 @@ export default function AtlasList({ domains, onSelect, selectedId }) {
           </tr>
         </thead>
         <tbody>
-          {domains.map((d) => (
-            <Fragment key={d.id}>
-              <tr className="atlas-group">
-                <td colSpan="6"><span className="microlabel">{d.label}</span></td>
-              </tr>
-              {d.cells.map((c) => (
-                <tr
-                  key={c.id}
-                  className={`click ${selectedId === c.id ? 'sel' : ''}`}
-                  onClick={() => onSelect?.(c.id)}
-                >
-                  <td>{c.label}</td>
-                  <td><span className={`atlas-oc atlas-oc-${c.outcome_class}`}>{OUTCOME_LABELS[c.outcome_class]}</span></td>
-                  <td>{c.claim_level || '—'}</td>
-                  <td>{c.replication_status || '—'}</td>
-                  <td>{c.verdict_claim_level ? <span className="tag good">{c.verdict_claim_level}</span> : <span className="hint">—</span>}</td>
-                  <td><span className={`tag ${c.provenance === 'seed' ? 'plain' : 'good'}`}>{c.provenance === 'seed' ? 'seed' : 'verdict'}</span></td>
+          {domains.map((d) => {
+            const open = !isCollapsed(d.id)
+            return (
+              <Fragment key={d.id}>
+                <tr className="atlas-group">
+                  <td colSpan="6">
+                    {onToggleDomain ? (
+                      <button
+                        type="button"
+                        className="atlas-group-toggle"
+                        aria-expanded={open}
+                        onClick={() => onToggleDomain(d.id)}
+                      >
+                        <span className="atlas-chevron">{open ? '▾' : '▸'}</span>
+                        <span className="microlabel">{d.label}</span>
+                        <span className="hint">{(d.cells || []).length}</span>
+                      </button>
+                    ) : (
+                      <span className="microlabel">{d.label}</span>
+                    )}
+                  </td>
                 </tr>
-              ))}
-            </Fragment>
-          ))}
+                {open && d.cells.map((c) => (
+                  <tr
+                    key={c.id}
+                    className={`click ${selectedId === c.id ? 'sel' : ''}`}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${c.label} — ${OUTCOME_LABELS[c.outcome_class]}`}
+                    onClick={() => onSelect?.(c.id)}
+                    onKeyDown={(e) => selectKey(e, c.id)}
+                  >
+                    <td>{c.label}</td>
+                    <td><span className={`atlas-oc atlas-oc-${c.outcome_class}`}>{OUTCOME_LABELS[c.outcome_class]}</span></td>
+                    <td>{c.claim_level || '—'}</td>
+                    <td>{c.replication_status || '—'}</td>
+                    <td>{c.verdict_claim_level ? <span className="tag good">{c.verdict_claim_level}</span> : <span className="hint">—</span>}</td>
+                    <td><span className={`tag ${c.provenance === 'seed' ? 'plain' : 'good'}`}>{c.provenance === 'seed' ? 'seed' : 'verdict'}</span></td>
+                  </tr>
+                ))}
+              </Fragment>
+            )
+          })}
         </tbody>
       </table>
     </div>
