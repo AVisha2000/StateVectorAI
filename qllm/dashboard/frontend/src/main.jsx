@@ -14,6 +14,7 @@ import Bench from './surfaces/Bench.jsx'
 import Runs from './surfaces/Runs.jsx'
 import RunDetail from './surfaces/RunDetail.jsx'
 import Scaling from './surfaces/Scaling.jsx'
+import Studies from './surfaces/Studies.jsx'
 import Verdicts from './surfaces/Verdicts.jsx'
 import Datasets from './surfaces/Datasets.jsx'
 import System from './surfaces/System.jsx'
@@ -35,6 +36,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="runs" element={<Runs />} />
             <Route path="runs/scaling/:groupId" element={<Scaling />} />
             <Route path="runs/:id" element={<RunDetail />} />
+            <Route path="studies" element={<Studies />} />
+            <Route path="studies/:id" element={<Studies />} />
             <Route path="verdicts" element={<Verdicts />} />
             <Route path="verdicts/:id" element={<Verdicts />} />
             <Route path="datasets" element={<Datasets />} />
