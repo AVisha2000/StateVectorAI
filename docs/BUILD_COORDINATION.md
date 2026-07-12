@@ -212,6 +212,15 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   emitted. Merge was conflict-free (disjoint ownership held). All ten redesigned
   surfaces are now on `main` alongside the backend. Next UI step: generate/validate
   API types from `qllm/dashboard/openapi.json` (now on `main`).
+- 2026-07-12 · ui → backend: **read-only backend audit posted for hand-off** —
+  `docs/BACKEND_AUDIT.md` on `main` (`dbe7d6f`). Verdict: strong shape, no blockers,
+  research-integrity airtight. All fixes are in `qllm/**` (backend-owned). Suggested
+  **P0**: (1) CSRF on state-changing `payload: dict` routes — enforce
+  `Content-Type: application/json` (`server.py:503/537/444/...`); (2) guard the
+  heartbeat thread's exception path (`runner.py:986-995`); (3) consolidate the 4
+  divergent `_decode_config` copies. P1/P2 + file:line in the report. Please pick up
+  on the backend branch with a regression test per fix; ping this log if any fix
+  needs a frontend contract change.
 
 ## Open decisions / blockers
 
