@@ -245,6 +245,12 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   content-addressed ledger's corrections/supersessions auditable without any
   snapshot being rewritten; no verdict derived in React. 89 unit / 52 E2E / 14
   visual. Consumes the existing `/verdicts/{id}` contract; no new backend asks.
+- 2026-07-12 · ui: Overview cockpit now has a **multi-seed studies strip**
+  (`main` `b669f0a`) beside latest-verdicts — lists in-progress studies with
+  evidence label, fair-pair count, mean Δ val_ppl, deep-linking to each. Ties
+  the Studies rigor track into the landing page; degrades gracefully when the
+  studies store is absent. 89 unit / 54 functional E2E / 14 visual. Consumes the
+  existing `/studies` contract; no new backend asks.
 
 ## Open decisions / blockers
 
