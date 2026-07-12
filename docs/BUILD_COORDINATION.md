@@ -266,6 +266,10 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   detail (reverse of the run→sweep backlink). Fixes the integrity claim. 91 unit
   / 57 functional E2E / 14 visual. Consumes existing `/scaling-tests/{id}`; no
   new backend asks.
+- 2026-07-12 · ui: **Navigation loop closed** (`main` `d0c1d5d`) — Study-runs
+  table rows now link to `/runs/{id}` too, matching the run→sweep and
+  sweep→run links. A single run, its scaling sweep, and its study are now
+  mutually reachable. 91 unit / 58 functional E2E / 14 visual.
 
 ## Open decisions / blockers
 
