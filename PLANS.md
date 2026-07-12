@@ -1025,6 +1025,17 @@ JAX complex128-to-complex64 warnings.
 python scripts/dump_openapi.py --check
 PASS: metadata-only reconciliation and additive cursor storage do not change the
 public API; the committed OpenAPI snapshot remains current.
+python scripts/check_agent_setup.py
+PASS: agent setup validation passed after the third remediation pass.
+python scripts/verify_changes.py --run
+PASS: clean-tree agent-setup selection passed.
+python -m pytest -q --basetemp .tmp/pytest-backend-full-third-pass
+PASS: 506 passed, 1 skipped, 48 warnings in 308.72 seconds; warnings remain
+the existing Starlette/httpx deprecation and JAX dtype notices.
+python scripts/queue_smoke.py --url http://127.0.0.1:8181 --steps 1
+  --eval-every 1 --device-target cpu --timeout 180
+PASS: isolated job 1 completed on CPU at step 1 with both checkpoints and no
+error; the temporary server was stopped and port 8181 confirmed free.
 ```
 
 ## Completed plan: local platform completion
