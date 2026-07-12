@@ -5,8 +5,9 @@ test.beforeEach(async ({ page }) => { await mockApi(page) })
 
 test('sidebar shows all three nav groups and every surface link', async ({ page }) => {
   await page.goto('/')
+  const sidebar = page.locator('.sidebar')
   for (const name of ['Overview', 'Discover', 'Library', 'Atlas', 'Designer', 'Bench', 'Runs', 'Verdicts', 'Datasets', 'Queue & Backends']) {
-    await expect(page.getByRole('link', { name })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 })
 
@@ -40,6 +41,23 @@ test('Overview: tiles reflect job counts and the running table lists live runs',
   await expect(running.locator('.v')).toHaveText('1')
   await expect(page.locator('.tile', { hasText: 'Failed' }).locator('.v')).toHaveText('1')
   await expect(page.getByText('#7 qrnn-s42')).toBeVisible()
+})
+
+test('Overview: Latest-verdicts strip lists recent snapshots with claim + replication', async ({ page }) => {
+  await page.goto('/')
+  const card = page.locator('.card', { hasText: 'Latest verdicts' })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('empirical')).toBeVisible()
+  await expect(card.getByText('multi_seed_single_instance')).toBeVisible()
+  await expect(card.getByRole('link', { name: /Open/ }).first()).toBeVisible()
+  // integrity framing: positive claims are candidates, not established
+  await expect(card.getByText(/candidates.*not established/i)).toBeVisible()
+})
+
+test('Overview: Latest-verdicts degrades when the store is unreachable', async ({ page }) => {
+  await mockApi(page, { '/verdicts': null })
+  await page.goto('/')
+  await expect(page.getByText(/verdict store isn.t reachable/i)).toBeVisible()
 })
 
 test('System: /status five fields render and quantum backends are listed', async ({ page }) => {
