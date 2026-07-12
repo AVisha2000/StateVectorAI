@@ -147,3 +147,45 @@ export function snapshotCaveats(snapshot) {
   const c = snapshot?.caveats
   return Array.isArray(c) ? c : []
 }
+
+// The claim ledger is append-only and content-addressed: each revision is a new
+// snapshot, never an in-place edit. This turns the raw history list into a
+// newest-first timeline that makes supersession and correction *visible* — it
+// flags which fields changed from the immediately-older revision so a reader can
+// see how the claim evolved without any history being rewritten. It never
+// invents a verdict: claim_level/status/replication are rendered verbatim.
+export function revisionHistory(history, currentRevision = null) {
+  const rows = (Array.isArray(history) ? history : [])
+    .filter((s) => s && typeof s === 'object')
+    .map((s) => ({
+      revision: s.revision ?? null,
+      contentHash: s.content_hash ?? null,
+      claimLevel: s.claim_level ?? null,
+      claimStatus: s.claim_status ?? null,
+      replicationStatus: s.replication_status ?? null,
+      createdTs: s.created_ts ?? null,
+    }))
+  // Newest first. Fall back to created_ts when revision numbers are absent.
+  rows.sort((a, b) => {
+    if (a.revision != null && b.revision != null) return b.revision - a.revision
+    return String(b.createdTs ?? '').localeCompare(String(a.createdTs ?? ''))
+  })
+  const currentRev = currentRevision ?? (rows.length ? rows[0].revision : null)
+  return rows.map((row, i) => {
+    const prev = rows[i + 1] // the immediately-older revision
+    const changed = prev
+      ? {
+        level: row.claimLevel !== prev.claimLevel,
+        status: row.claimStatus !== prev.claimStatus,
+        replication: row.replicationStatus !== prev.replicationStatus,
+      }
+      : { level: false, status: false, replication: false }
+    return {
+      ...row,
+      isCurrent: currentRev != null && row.revision === currentRev,
+      isOldest: i === rows.length - 1,
+      changed,
+      changedAny: changed.level || changed.status || changed.replication,
+    }
+  })
+}

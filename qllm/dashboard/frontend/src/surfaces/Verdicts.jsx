@@ -15,6 +15,7 @@ import {
   snapshotMetricType,
   booleanChecks,
   snapshotCaveats,
+  revisionHistory,
 } from '../lib/verdictView.js'
 import { fmtNum, fmtPct, fmtSeconds, DASH } from '../lib/format.js'
 
@@ -162,6 +163,7 @@ function SnapshotDetail({ data }) {
   const fairness = booleanChecks(snapshot.fairness)
   const controls = booleanChecks(snapshot.controls)
   const notes = snapshotCaveats(snapshot)
+  const revisions = revisionHistory(history, claim.revision)
 
   return (
     <>
@@ -224,7 +226,50 @@ function SnapshotDetail({ data }) {
           <div className="bd" style={{ paddingTop: 8 }}><CheckList rows={controls} /></div>
         </div>
       </div>
+
+      {revisions.length > 1 ? (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="hd">
+            <h3>Revision history</h3>
+            <span className="hint">append-only, content-addressed · newest first · corrections are recorded, never overwritten</span>
+          </div>
+          <div className="bd" style={{ padding: '4px 16px 12px' }}>
+            <RevisionTimeline rows={revisions} />
+          </div>
+        </div>
+      ) : null}
     </>
+  )
+}
+
+// The claim ledger's history as a vertical timeline. Each entry shows the
+// canonical claim_level / status / replication for that revision verbatim, and
+// flags the fields that changed from the older revision — so a promotion,
+// refutation, or replication change is visible without any snapshot being
+// rewritten. The current revision is marked; nothing here derives a verdict.
+function RevisionTimeline({ rows }) {
+  return (
+    <ol className="rev-timeline">
+      {rows.map((r) => (
+        <li key={r.revision ?? r.contentHash ?? r.createdTs} className={`rev-item${r.isCurrent ? ' current' : ''}`}>
+          <span className="rev-dot" aria-hidden="true" />
+          <div className="rev-body">
+            <div className="rev-head">
+              <b>rev {r.revision ?? DASH}</b>
+              {r.isCurrent ? <span className="tag good sm">current</span> : null}
+              {r.changedAny ? <span className="tag warn sm">changed</span> : <span className="hint">no claim change</span>}
+              {r.createdTs ? <span className="hint mono" style={{ marginLeft: 'auto' }}>{r.createdTs}</span> : null}
+            </div>
+            <div className="rev-fields">
+              <span className={r.changed.level ? 'chg' : ''}>level: <b>{r.claimLevel ?? DASH}</b></span>
+              <span className={r.changed.status ? 'chg' : ''}>status: <b>{r.claimStatus ?? DASH}</b></span>
+              <span className={r.changed.replication ? 'chg' : ''}>replication: <b>{r.replicationStatus ?? DASH}</b></span>
+              {r.contentHash ? <span className="hint mono">#{r.contentHash}</span> : null}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ol>
   )
 }
 
