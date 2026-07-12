@@ -92,4 +92,5 @@ export const api = {
   diagnostics: (id) => get(`/jobs/${id}/diagnostics`),
   verdicts: () => get('/verdicts'),
   verdict: (id) => get(`/verdicts/${encodeURIComponent(id)}`),
+  atlasOntology: () => get('/atlas/ontology'),
 }

@@ -9,6 +9,9 @@
   --good:#3fbf3f; --good-soft:rgba(12,163,12,.17);
   --warn:#e0a52e; --warn-soft:rgba(250,178,25,.13);
   --crit:#e46262; --crit-soft:rgba(208,59,59,.17);
+  /* tested-null / "no advantage found" — a first-class, equal-prominence neutral
+     slate, deliberately NOT green and NOT dimmed (Atlas integrity). */
+  --null:#8f8ea0; --null-soft:rgba(143,142,160,.18); --null-ink:#c9c8d6;
   --grid:#26262d; --axis:#3a3a42;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.28);
   --shadow-lg:0 10px 34px rgba(0,0,0,.5);
@@ -33,6 +36,7 @@
   --good:#0a7d0a; --good-soft:rgba(12,163,12,.10);
   --warn:#9a6a00; --warn-soft:rgba(250,178,25,.15);
   --crit:#c23636; --crit-soft:rgba(208,59,59,.10);
+  --null:#6b6a78; --null-soft:rgba(107,106,120,.13); --null-ink:#4a4954;
   --grid:#e4e3dc; --axis:#c6c5bd;
   --shadow:0 1px 2px rgba(22,21,28,.05),0 4px 16px rgba(22,21,28,.045);
   --shadow-lg:0 8px 30px rgba(22,21,28,.10);
@@ -251,3 +255,46 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
 .notice { border:1px solid var(--hair); background:var(--surface2); border-radius:10px; padding:11px 14px;
   font-size:12.5px; color:var(--ink2); line-height:1.55; }
 .notice.crit { border-color:var(--crit); background:var(--crit-soft); color:var(--crit); }
+
+/* ---- Atlas ---- */
+/* outcome chips — color = outcome bucket; classical-holds is classical blue (not
+   green), unexplored is neutral slate; all at full prominence. */
+.atlas-oc { display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:2px 8px;
+  border-radius:6px; white-space:nowrap; }
+.atlas-oc-quantum_candidate, .atlas-oc-quantum_only { background:var(--q-soft); color:var(--q); }
+.atlas-oc-classical_holds { background:var(--c-soft); color:var(--c); }
+.atlas-oc-open { background:var(--warn-soft); color:var(--warn); }
+.atlas-oc-suggested { background:var(--accent-soft); color:var(--accent); }
+.atlas-oc-unexplored { background:var(--null-soft); color:var(--null); }
+
+.atlas-dot { width:9px; height:9px; border-radius:3px; display:inline-block; }
+.atlas-dot.atlas-oc-quantum_candidate, .atlas-dot.atlas-oc-quantum_only { background:var(--q); }
+.atlas-dot.atlas-oc-classical_holds { background:var(--c); }
+.atlas-dot.atlas-oc-open { background:var(--warn); }
+.atlas-dot.atlas-oc-suggested { background:var(--accent); }
+.atlas-dot.atlas-oc-unexplored { background:var(--null); }
+
+.atlas-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.atlas-summary-tile { display:flex; align-items:center; gap:8px; text-align:left; background:var(--surface);
+  border:1px solid var(--hair); border-radius:10px; padding:10px 12px; transition:border-color .12s; }
+.atlas-summary-tile:hover { border-color:var(--accent); }
+.atlas-summary-tile.on { border-color:var(--accent); background:var(--accent-soft); }
+.atlas-summary-tile .v { font-size:18px; font-weight:660; }
+.atlas-summary-tile .s { font-size:10.5px; color:var(--muted); line-height:1.3; }
+
+.atlas-shell { display:grid; grid-template-columns:1fr 340px; gap:14px; align-items:start; }
+@media (max-width:980px) { .atlas-shell { grid-template-columns:1fr; } }
+.atlas-side { position:sticky; top:70px; }
+
+.atlas-list tr.atlas-group td { background:var(--surface2); padding:6px 12px; }
+.atlas-list tr.sel td { background:var(--accent-soft); }
+
+.atlas-kv { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; font-size:13px; }
+.atlas-kv .microlabel { display:block; margin-bottom:2px; }
+
+.atlas-legend { display:flex; flex-direction:column; gap:8px; padding:10px 12px; border:1px solid var(--hair);
+  border-radius:10px; background:var(--surface); }
+.atlas-legend-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+/* cytoscape graph mount */
+.atlas-graph { width:100%; height:560px; background:var(--surface); border:1px solid var(--hair); border-radius:12px; }

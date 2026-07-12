@@ -131,6 +131,16 @@ export function useScalingTests() {
   return useQuery({ queryKey: ['scaling-tests'], queryFn: api.scalingTests })
 }
 
+// Proposed: /atlas/ontology — the canonical curated domain→component ontology.
+// 404s until the backend ships it; the Atlas surface falls back to the seed.
+export function useAtlasOntology() {
+  return useQuery({
+    queryKey: ['atlas-ontology'],
+    queryFn: api.atlasOntology,
+    ...proposedQueryOptions,
+  })
+}
+
 export function useScalingTest(groupId) {
   return useQuery({
     queryKey: ['scaling-test', groupId],
