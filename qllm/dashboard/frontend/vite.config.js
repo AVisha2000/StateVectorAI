@@ -9,5 +9,19 @@ export default defineConfig({
     port: 5173,
     proxy: { '/api': 'http://localhost:8000' },
   },
-  build: { outDir: 'dist' },
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        // Split heavy vendors into their own cacheable chunks so the app chunk
+        // stays small and vendor code is cached across app-only deploys.
+        manualChunks: {
+          recharts: ['recharts'],
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          query: ['@tanstack/react-query'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 700,
+  },
 })
