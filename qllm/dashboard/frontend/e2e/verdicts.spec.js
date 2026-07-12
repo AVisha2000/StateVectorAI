@@ -66,3 +66,16 @@ test('Scaling: KPIs, charts, and the barren-plateau fit light up from diagnostic
   await expect(page.getByText('Variance decay / qubit')).toBeVisible()
   await expect(page.getByText('detected')).toBeVisible()
 })
+
+test('Scaling: sweep runs table lists every point and links each back to its run', async ({ page }) => {
+  await page.goto('/runs/scaling/scale-grp')
+  const card = page.locator('.card', { hasText: 'Runs in this sweep' })
+  await expect(card).toBeVisible()
+  // all three sweep points listed (q4/q6/q8), each with its grid cell
+  await expect(card.getByText('q4/d2')).toBeVisible()
+  await expect(card.getByText('q8/d2')).toBeVisible()
+  await expect(card.locator('tbody tr')).toHaveCount(3)
+  // clicking a row navigates back to that run's detail (reverse of the run→sweep backlink)
+  await card.getByRole('button', { name: /Open run q4/i }).click()
+  await expect(page).toHaveURL(/\/runs\/7$/)
+})

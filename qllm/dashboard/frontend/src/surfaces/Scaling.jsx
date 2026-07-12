@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useScalingTest, useDiagnostics } from '../lib/hooks.js'
-import { PageHeader, Loading, ErrorState } from '../lib/ui.jsx'
+import { PageHeader, Loading, ErrorState, StatusTag, rowActivation } from '../lib/ui.jsx'
 import { ScalingChart, Legend } from '../components/charts.jsx'
 import { chartSeries } from '../chartTheme.js'
-import { scalingChartRows, scalingSummary, representativeJobId, scalingFitView } from '../lib/scalingView.js'
+import { scalingChartRows, scalingSummary, representativeJobId, scalingFitView, scalingPointRows } from '../lib/scalingView.js'
 import { fmtNum, fmtSeconds, DASH } from '../lib/format.js'
 
 // Folds the old ScalingTest page into the redesign (plan §4: Runs → scaling
@@ -14,9 +14,11 @@ import { fmtNum, fmtSeconds, DASH } from '../lib/format.js'
 // diagnostics/scaling-fit data ships (not computed for dashboard jobs today).
 export default function Scaling() {
   const { groupId } = useParams()
+  const navigate = useNavigate()
   const { data, isLoading, isError, error } = useScalingTest(groupId)
 
   const { rows, dropped } = useMemo(() => scalingChartRows(data?.points), [data])
+  const pointRows = useMemo(() => scalingPointRows(data?.points), [data])
   const summary = useMemo(() => scalingSummary(data), [data])
   // The group-level barren-plateau fit comes from a member run's diagnostics.
   const repJobId = useMemo(() => representativeJobId(data?.points), [data])
@@ -64,8 +66,45 @@ export default function Scaling() {
 
       {dropped ? (
         <p className="hint" style={{ marginTop: 10 }}>
-          {dropped} point{dropped === 1 ? '' : 's'} omitted from the chart (rerun-required or no measured metric) — kept in the run table, never silently dropped.
+          {dropped} point{dropped === 1 ? '' : 's'} omitted from the chart (rerun-required or no measured metric) — kept in the run table below, never silently dropped.
         </p>
+      ) : null}
+
+      {pointRows.length ? (
+        <div className="card scroll-x" style={{ marginTop: 14 }}>
+          <div className="hd">
+            <h3>Runs in this sweep</h3>
+            <span className="hint">{pointRows.length} point{pointRows.length === 1 ? '' : 's'} · every point kept, including chart-omitted ones</span>
+          </div>
+          <div className="bd" style={{ padding: '4px 16px 8px' }}>
+            <table className="data">
+              <thead>
+                <tr><th>Grid</th><th>Run</th><th className="right-td">val_ppl</th><th className="right-td">wall (sim)</th><th className="right-td">params</th><th>Status</th><th /></tr>
+              </thead>
+              <tbody>
+                {pointRows.map((p, i) => {
+                  const open = p.jobId != null ? () => navigate(`/runs/${p.jobId}`) : null
+                  return (
+                    <tr key={p.jobId ?? i} className={open ? 'click' : undefined}
+                      aria-label={open ? `Open run ${p.runName || p.jobId}` : undefined}
+                      {...(open ? rowActivation(open) : {})}>
+                      <td className="mono">{p.n_qubits != null ? `q${p.n_qubits}/d${p.n_circuit_layers}` : DASH}</td>
+                      <td className="mono">{p.runName || (p.jobId != null ? `#${p.jobId}` : DASH)}</td>
+                      <td className="right-td num">{fmtNum(p.val_ppl, 2)}</td>
+                      <td className="right-td num">{fmtSeconds(p.wall_seconds)}</td>
+                      <td className="right-td num">{fmtNum(p.n_params, 0)}</td>
+                      <td>
+                        {p.status ? <StatusTag status={p.status} /> : DASH}
+                        {p.omitted ? <span className="tag warn sm" style={{ marginLeft: 6 }} title={p.omittedReason}>off-chart</span> : null}
+                      </td>
+                      <td className="right-td">{p.jobId != null ? <span className="hint">→</span> : null}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : null}
 
       <div className="card" style={{ marginTop: 14 }}>
