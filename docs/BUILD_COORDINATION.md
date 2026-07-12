@@ -221,6 +221,17 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   divergent `_decode_config` copies. P1/P2 + file:line in the report. Please pick up
   on the backend branch with a regression test per fix; ping this log if any fix
   needs a frontend contract change.
+- 2026-07-12 · ui: post-merge feature work shipped to `main` (all consuming the
+  stable contract): Overview latest-verdicts strip; run-detail **model-structure
+  graph** (`/jobs/{id}/model-graph`); Runs search + dataset filter; vendor
+  bundle split; **Studies** surface (`/studies` — the multi-seed rigor view that
+  was missing, with a per-pair candidate−control delta strip, no composite
+  score); Atlas deep-linking (`?node=`) + expand/collapse + keyboard a11y; Bench
+  **quantum controls** (preset `quantum_controls.fields` → `quantum_overrides`).
+  Test stack now: 86 node --test unit, 49 Playwright functional E2E, 14 visual
+  snapshots; the E2E `e2e` CI job runs on every frontend push. No new backend
+  asks — still awaiting the P0 audit fixes + the proposed `/atlas/ontology` and
+  `/designer/circuit` endpoints (UI degrades gracefully until they land).
 
 ## Open decisions / blockers
 
