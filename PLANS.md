@@ -897,7 +897,7 @@ Progress:
   verdict reconciliation cursor-driven and metadata-only.
 - [x] Close the third Ultra pass: reject non-standard and non-finite cohort JSON
   plus bounded decoder failures for both target and peer rows.
-- [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
+- [x] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
   and commit authorized deliverables without merging the feature branch.
 
 Decisions: SQLite remains authoritative for stream events; SSE uses bounded
@@ -1057,6 +1057,13 @@ python scripts/queue_smoke.py --url http://127.0.0.1:8182 --steps 1
   --eval-every 1 --device-target cpu --timeout 180
 PASS: isolated CPU job 1 completed at step 1 with both checkpoints and no error;
 the temporary server was stopped and port 8182 confirmed free.
+gpt-5.6-sol Ultra final immutable-range verification
+PASS: no required fixes remain for
+c3c2bdf26845bc61320feb338b7efb47f540106a..de4de904d8724ddd965a72cb366c5a5ce4c53b06.
+Strict JSON, artifact identity, schedule cohorts, cursor/wrap behavior,
+metadata-only reconciliation, the original API contract, and all human gates
+were reconfirmed. Residual risks are resource-exhaustion failures outside the
+strict-JSON contract and D4/hardware/paid/merge gates that intentionally remain closed.
 ```
 
 ## Completed plan: local platform completion
