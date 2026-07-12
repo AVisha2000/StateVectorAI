@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAtlasOntology, useVerdicts } from '../lib/hooks.js'
 import { PageHeader, Loading } from '../lib/ui.jsx'
 import AtlasGraphSvg from '../components/atlas/AtlasGraphSvg.jsx'
@@ -24,7 +25,20 @@ export default function Atlas() {
   const [outcome, setOutcome] = useState('all')
   const [claim, setClaim] = useState('all')
   const [replication, setReplication] = useState('all')
-  const [selectedId, setSelectedId] = useState(null)
+  const [collapsed, setCollapsed] = useState(() => new Set())
+
+  // Selected node lives in the URL (?node=…) so cells are shareable / linkable
+  // and browser back/forward moves the selection.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedId = searchParams.get('node')
+  const setSelectedId = useCallback((id) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (id) next.set('node', id)
+      else next.delete('node')
+      return next
+    }, { replace: false })
+  }, [setSearchParams])
 
   // Seed fallback until GET /api/atlas/ontology ships; verdict snapshots refine
   // per-cell claim/replication where they match.
@@ -60,6 +74,22 @@ export default function Atlas() {
       return { ...d, components }
     })
   }, [filtered])
+
+  // Domain collapse state feeds both the graph (hide a domain's cells) and list.
+  const expanded = useMemo(
+    () => new Set(resolved.domains.filter((d) => !collapsed.has(d.id)).map((d) => d.id)),
+    [resolved, collapsed],
+  )
+  const toggleDomain = useCallback((domainId) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(domainId)) next.delete(domainId)
+      else next.add(domainId)
+      return next
+    })
+  }, [])
+  const collapseAll = useCallback(() => setCollapsed(new Set(resolved.domains.map((d) => d.id))), [resolved])
+  const expandAll = useCallback(() => setCollapsed(new Set()), [])
 
   if (ontologyQuery.isLoading) return <Loading label="Loading the Atlas…" />
 
@@ -115,7 +145,11 @@ export default function Atlas() {
             {REPLICATION_STATUSES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </label>
-        <span className="hint spacer">{filtered.length} of {summary.total} cells</span>
+        <div className="row spacer" style={{ gap: 8 }}>
+          <button className="btn sm" type="button" onClick={collapseAll}>Collapse all</button>
+          <button className="btn sm" type="button" onClick={expandAll}>Expand all</button>
+          <span className="hint">{filtered.length} of {summary.total} cells</span>
+        </div>
       </div>
 
       <AtlasLegend />
@@ -126,12 +160,12 @@ export default function Atlas() {
             filteredDomains.length === 0 ? (
               <div className="state">No cells match these filters.</div>
             ) : (
-              <AtlasGraphSvg resolved={{ ...resolved, domains: filteredDomains }} onSelect={setSelectedId} selectedId={selectedId} />
+              <AtlasGraphSvg resolved={{ ...resolved, domains: filteredDomains }} expanded={expanded} onSelect={setSelectedId} selectedId={selectedId} />
             )
           ) : filteredDomains.length === 0 ? (
             <div className="state">No cells match these filters.</div>
           ) : (
-            <AtlasList domains={filteredDomains} onSelect={setSelectedId} selectedId={selectedId} />
+            <AtlasList domains={filteredDomains} collapsed={collapsed} onToggleDomain={toggleDomain} onSelect={setSelectedId} selectedId={selectedId} />
           )}
         </div>
         <div className="atlas-side">

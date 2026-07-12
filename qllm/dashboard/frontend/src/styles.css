@@ -288,6 +288,12 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
 
 .atlas-list tr.atlas-group td { background:var(--surface2); padding:6px 12px; }
 .atlas-list tr.sel td { background:var(--accent-soft); }
+.atlas-group-toggle { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:2px 0; color:var(--ink2); }
+.atlas-group-toggle:hover { color:var(--ink); }
+.atlas-chevron { width:12px; font-size:10px; color:var(--muted); }
+.atlas-cell { outline:none; }
+.atlas-cell:focus-visible rect, .atlas-cell:focus-visible polygon, .atlas-cell:focus-visible ellipse {
+  stroke:var(--accent); stroke-width:3; }
 
 .atlas-kv { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; font-size:13px; }
 .atlas-kv .microlabel { display:block; margin-bottom:2px; }

@@ -46,7 +46,15 @@ function CellShape({ n, selected, onSelect }) {
     shape = <rect x={x} y={y} width={w} height={h} rx={8} {...common} />
   }
   return (
-    <g onClick={() => onSelect?.(n.id)} role="button" aria-label={n.label}>
+    <g
+      className="atlas-cell"
+      onClick={() => onSelect?.(n.id)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(n.id) } }}
+      role="button"
+      tabIndex={0}
+      aria-label={n.label}
+      aria-pressed={selected || undefined}
+    >
       {shape}
       <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle" fontSize="10" fill="#fff" style={{ pointerEvents: 'none' }}>
         {truncate(n.label)}

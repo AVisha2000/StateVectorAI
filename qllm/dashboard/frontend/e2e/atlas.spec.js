@@ -35,6 +35,44 @@ test('Atlas graph: 19 clickable cells; click opens detail with claim/replication
   await expect(detail.getByText(/no composite advantage score/i)).toBeVisible()
 })
 
+test('Atlas: ?node= deep-link selects a cell from the URL', async ({ page }) => {
+  await page.goto('/atlas?node=c_variational_swaps')
+  await expect(page.locator('.atlas-side').getByText('Variational embedding / attention / FFN / block swaps')).toBeVisible()
+})
+
+test('Atlas: selecting a cell writes it to the URL (shareable)', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByText('Quantum recurrent model representability and optimization').click()
+  await expect(page).toHaveURL(/node=c_qrnn/)
+  await expect(page.locator('.atlas-side').getByText('Claim level (map)')).toBeVisible()
+})
+
+test('Atlas: collapse all hides graph cells; expand all restores them', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const cells = page.locator('.atlas-graph-svg g[role="button"]')
+  await expect(cells).toHaveCount(19)
+  await page.getByRole('button', { name: 'Collapse all' }).click()
+  await expect(cells).toHaveCount(0)
+  await page.getByRole('button', { name: 'Expand all' }).click()
+  await expect(cells).toHaveCount(19)
+})
+
+test('Atlas: list domain header collapses its cells', async ({ page }) => {
+  await page.goto('/atlas')
+  await expect(page.getByText('Variational embedding / attention / FFN / block swaps')).toBeVisible()
+  await page.locator('.atlas-group-toggle').first().click()
+  await expect(page.getByText('Variational embedding / attention / FFN / block swaps')).toHaveCount(0)
+})
+
+test('Atlas: graph cells are keyboard-operable', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  await page.locator('.atlas-graph-svg g[role="button"]').first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/node=/)
+})
+
 test('Atlas: a classical-holds (null) cell is styled with the classical, non-green token', async ({ page }) => {
   await page.goto('/atlas')
   const chip = page.locator('.atlas-oc-classical_holds').first()
