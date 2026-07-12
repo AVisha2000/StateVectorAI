@@ -114,6 +114,30 @@ export const VERDICT_DETAIL_101 = {
   history: [VERDICTS.snapshots[0]],
 }
 
+export const STUDIES = [
+  { id: 1, name: 'qffn-multiseed', research_question: 'Does the quantum FFN hold across seeds?', evidence: { label: 'paired empirical', fair_pairs: 4, wins: 3, mean_delta_val_ppl: -0.12 } },
+]
+
+export const STUDY_1 = {
+  id: 1, name: 'qffn-multiseed', research_question: 'Does the quantum FFN hold across seeds?',
+  evidence: {
+    label: 'paired empirical', reason: 'candidate leads across seeds',
+    fair_pairs: 4, complete_pairs: 5, wins: 3, mean_delta_val_ppl: -0.12, std_delta_val_ppl: 0.08, rerun_required_pairs: 1,
+    ladder: [{ key: 'multi_seed', label: 'Multiple seeds', ok: true }, { key: 'fair_protocol', label: 'Fair protocol', ok: true }],
+    comparisons: [
+      { delta_val_ppl: -0.2, fair: true, rerun_required: false, cell: 'q4/d2' },
+      { delta_val_ppl: -0.1, fair: true, rerun_required: false, cell: 'q6/d2' },
+      { delta_val_ppl: 0.05, fair: true, rerun_required: false, cell: 'q8/d2' },
+      { delta_val_ppl: -0.15, fair: true, rerun_required: false, cell: 'q4/d3' },
+    ],
+  },
+  jobs: [
+    { study_sweep: { n_qubits: 4, n_circuit_layers: 2 }, final_run: { val_ppl: 3.4 }, status: 'done' },
+    { study_sweep: { n_qubits: 6, n_circuit_layers: 2 }, final_run: { val_ppl: 3.5 }, status: 'done' },
+  ],
+  interpretation_warnings: [{ code: 'single_task_instance', title: 'One task instance', message: 'Multi-seed, single task instance.' }],
+}
+
 export const CAPABILITIES = { metadata_only: true, full_text: false, unreviewed_preprints: true, claim_evidence_classification: false, human_review_required: true, paid_services_enabled: false, daily_cost_budget: null, llm_provider: null, embedding_provider: null, vector_store_provider: null, graph_store_provider: null, d4_human_gate_open: true }
 
 // Install stubs. Pass overrides to change/absent a route (set to null → 404).
@@ -133,6 +157,8 @@ export async function mockApi(page, overrides = {}) {
     '/jobs/7/model-graph': MODEL_GRAPH_7,
     '/jobs/7/comparison': WORKSPACE_7.comparison,
     '/scaling-tests/scale-grp': SCALING_GRP,
+    '/studies': STUDIES,
+    '/studies/1': STUDY_1,
     ...overrides,
   }
   await page.route('**/api/**', async (route) => {

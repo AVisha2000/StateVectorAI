@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => { await mockApi(page) })
 test('sidebar shows all three nav groups and every surface link', async ({ page }) => {
   await page.goto('/')
   const sidebar = page.locator('.sidebar')
-  for (const name of ['Overview', 'Discover', 'Library', 'Atlas', 'Designer', 'Bench', 'Runs', 'Verdicts', 'Datasets', 'Queue & Backends']) {
+  for (const name of ['Overview', 'Discover', 'Library', 'Atlas', 'Designer', 'Bench', 'Runs', 'Studies', 'Verdicts', 'Datasets', 'Queue & Backends']) {
     await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 })

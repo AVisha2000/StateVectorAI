@@ -33,6 +33,7 @@ test('redesign navigation groups are ordered and complete', () => {
       ['/designer', 'Designer'],
       ['/bench', 'Bench'],
       ['/runs', 'Runs'],
+      ['/studies', 'Studies'],
       ['/verdicts', 'Verdicts'],
       ['/datasets', 'Datasets'],
       ['/system', 'Queue & Backends'],

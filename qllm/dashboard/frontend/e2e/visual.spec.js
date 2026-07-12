@@ -52,6 +52,14 @@ test.describe('visual', { tag: '@visual' }, () => {
       await expect(page).toHaveScreenshot(`designer-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
+    test(`Study detail ${theme}`, async ({ page }) => {
+      await setup(page, theme)
+      await page.goto('/studies/1')
+      await expect(page.getByRole('heading', { name: 'qffn-multiseed' })).toBeVisible()
+      await expect(page.locator('.chart-wrap svg').first()).toBeVisible()
+      await expect(page).toHaveScreenshot(`study-detail-${theme}.png`, { fullPage: true, mask: mask(page) })
+    })
+
     test(`Atlas graph ${theme}`, async ({ page }) => {
       await setup(page, theme)
       await page.goto('/atlas')

@@ -141,6 +141,19 @@ export function useScalingTests() {
   return useQuery({ queryKey: ['scaling-tests'], queryFn: api.scalingTests })
 }
 
+// Multi-seed studies: the rigor view where a claim is tested across seeds.
+export function useStudies() {
+  return useQuery({ queryKey: ['studies'], queryFn: api.studies })
+}
+
+export function useStudy(id) {
+  return useQuery({
+    queryKey: ['study', id],
+    queryFn: () => api.study(id),
+    enabled: id != null && id !== '',
+  })
+}
+
 // Proposed: /atlas/ontology — the canonical curated domain→component ontology.
 // 404s until the backend ships it; the Atlas surface falls back to the seed.
 export function useAtlasOntology() {
