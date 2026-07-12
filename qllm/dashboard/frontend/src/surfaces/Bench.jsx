@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.js'
 import { usePresets, useDatasets } from '../lib/hooks.js'
@@ -27,6 +27,11 @@ export default function Bench() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  // A circuit handed over from the Designer ("Send to Bench →") prefills the
+  // quantum size and rides along as quantum_overrides on the queued job.
+  const location = useLocation()
+  const designer = location.state?.designer || null
+
   const [presetId, setPresetId] = useState('')
   const [datasetName, setDatasetName] = useState('')
   const [hypothesis, setHypothesis] = useState('')
@@ -36,8 +41,8 @@ export default function Bench() {
   const [batchSize, setBatchSize] = useState(16)
   const [seqLen, setSeqLen] = useState(64)
   const [deviceTarget, setDeviceTarget] = useState('cpu')
-  const [qubits, setQubits] = useState('4, 6, 8')
-  const [depths, setDepths] = useState('2')
+  const [qubits, setQubits] = useState(() => (designer?.overrides?.n_qubits != null ? String(designer.overrides.n_qubits) : '4, 6, 8'))
+  const [depths, setDepths] = useState(() => (designer?.overrides?.n_circuit_layers != null ? String(designer.overrides.n_circuit_layers) : '2'))
 
   // Resolve the selected preset, defaulting once presets load.
   const preset = useMemo(() => {
@@ -63,6 +68,7 @@ export default function Bench() {
     queueComparison: level.queueComparison,
     qubits: parsePositiveIntList(qubits),
     depths: parsePositiveIntList(depths),
+    quantumOverrides: designer?.overrides || null,
   }
   const estimate = estimateRuns({ ...config, rigor })
   const gpuGated = requiresGpuGate(deviceTarget)
@@ -102,6 +108,15 @@ export default function Bench() {
           </span>
         ))}
       </div>
+
+      {designer ? (
+        <div className="notice" style={{ marginTop: 14 }}>
+          From the <b>Designer</b>: <span className="mono">{designer.ansatz}</span> on{' '}
+          <span className="mono">{designer.backend}</span> ·{' '}
+          <b>{designer.overrides?.n_qubits}q</b>, depth <b>{designer.overrides?.n_circuit_layers}</b>. Prefilled below and
+          attached as <span className="mono">quantum_overrides</span> when queued.
+        </div>
+      ) : null}
 
       {/* Hypothesis */}
       <div className="card" style={{ marginTop: 14 }}>
