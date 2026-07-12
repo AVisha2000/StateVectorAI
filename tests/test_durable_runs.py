@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import sqlite3
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -22,7 +23,7 @@ from qllm.dashboard.datasets import get_dataset
 from qllm.dashboard.model_tests import model_test_payload, run_model_test
 from qllm.dashboard.model_specs import create_spec, update_spec
 from qllm.dashboard.presets import build_preset
-from qllm.dashboard.runner import ExperimentQueue
+from qllm.dashboard.runner import ExperimentQueue, _lease_heartbeat_loop
 from qllm.models.model import build_model
 from qllm.resultsdb import ResultsDB
 from qllm.train.artifacts import (
@@ -897,6 +898,219 @@ def test_claim_is_single_owner_heartbeat_and_completion_are_fenced(tmp_path):
     assert db.finish_claimed_lab_job(job_id, "wrong", status="done") is False
     assert db.finish_claimed_lab_job(job_id, owner, status="done") is True
     assert db.finish_claimed_lab_job(job_id, owner, status="done") is True
+
+
+def test_heartbeat_loop_retries_transient_sqlite_errors_without_losing_ownership():
+    stop = threading.Event()
+    ownership_lost = threading.Event()
+
+    class TransientDB:
+        calls = 0
+
+        def heartbeat_lab_job(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise sqlite3.OperationalError("database is locked")
+            stop.set()
+            return True
+
+    db = TransientDB()
+    thread = threading.Thread(
+        target=_lease_heartbeat_loop,
+        args=(db, 1, "worker", 0.15, stop, ownership_lost),
+    )
+    thread.start()
+    thread.join(timeout=1)
+    assert not thread.is_alive()
+    assert db.calls == 2
+    assert not ownership_lost.is_set()
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        False,
+        RuntimeError("unexpected"),
+        sqlite3.OperationalError("disk I/O error"),
+    ],
+)
+def test_heartbeat_loop_fences_false_and_unexpected_renewals(outcome, caplog):
+    stop = threading.Event()
+    ownership_lost = threading.Event()
+
+    class FailingDB:
+        def heartbeat_lab_job(self, *args, **kwargs):
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    thread = threading.Thread(
+        target=_lease_heartbeat_loop,
+        args=(FailingDB(), 1, "worker", 0.15, stop, ownership_lost),
+    )
+    with caplog.at_level("ERROR"):
+        thread.start()
+        thread.join(timeout=1)
+    assert not thread.is_alive()
+    assert ownership_lost.is_set()
+    if isinstance(outcome, Exception):
+        assert "Unexpected" in caplog.text
+        assert "renewing job 1 lease" in caplog.text
+
+
+def test_heartbeat_loop_stops_promptly_when_requested():
+    stop = threading.Event()
+    ownership_lost = threading.Event()
+
+    class DB:
+        def heartbeat_lab_job(self, *args, **kwargs):
+            raise AssertionError("heartbeat should not run after prompt stop")
+
+    thread = threading.Thread(
+        target=_lease_heartbeat_loop,
+        args=(DB(), 1, "worker", 30, stop, ownership_lost),
+    )
+    thread.start()
+    stop.set()
+    thread.join(timeout=0.2)
+    assert not thread.is_alive()
+    assert not ownership_lost.is_set()
+
+
+def test_exclusive_lane_blocks_exclusive_claims_but_not_cpu_work(tmp_path):
+    path = tmp_path / "exclusive-claims.db"
+    db = ResultsDB(path)
+    running = db.create_lab_job(
+        _job(run_name="running-exclusive", config={"lab.gpu_reservation.required": True})
+    )
+    assert db.claim_lab_job(running, "owner", lease_seconds=5) is not None
+    blocked = [
+        db.create_lab_job(_job(run_name="gpu-malformed", device_target="gpu")),
+        db.create_lab_job(_job(run_name="high-memory", config={"lab.resource.high_memory": True})),
+        db.create_lab_job(_job(run_name="high-band", config={"lab.resource.band": "high"})),
+        db.create_lab_job(_job(run_name="extreme-band", config={"lab.resource.band": "extreme"})),
+    ]
+    db.update_lab_job(blocked[0], config_json="{malformed")
+    malformed_standard = db.create_lab_job(
+        _job(run_name="malformed-standard", device_target="cpu", config={})
+    )
+    db.update_lab_job(malformed_standard, config_json="{malformed")
+    cpu = db.create_lab_job(_job(run_name="cpu", device_target="cpu", config={}))
+    second_connection = ResultsDB(path)
+    assert (
+        second_connection.claim_next_lab_job("malformed-worker", lease_seconds=5)["id"]
+        == malformed_standard
+    )
+    assert second_connection.claim_next_lab_job("cpu-worker", lease_seconds=5)["id"] == cpu
+    assert all(
+        ResultsDB(path).claim_lab_job(job_id, "other", lease_seconds=5) is None
+        for job_id in blocked
+    )
+
+
+def test_duplicate_run_uuid_submission_is_idempotent_for_single_and_pair_jobs(tmp_path):
+    path = tmp_path / "duplicate-lab-jobs.db"
+    run_uuid = str(uuid.uuid4())
+    job = _job(
+        run_name="single-race",
+        experiment_uuid=str(uuid.uuid4()),
+        run_uuid=run_uuid,
+    )
+
+    def submit_single(_):
+        return ResultsDB(path).create_lab_job(
+            {**job, "experiment_uuid": str(uuid.uuid4())}
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        ids = list(pool.map(submit_single, range(2)))
+    assert ids[0] == ids[1]
+    assert len(ResultsDB(path).fetch_lab_jobs()) == 1
+    retry = {
+        **job,
+        "experiment_uuid": str(uuid.uuid4()),
+        "group_id": "retry-generated-group",
+    }
+    runtime_config = {
+        **job["config"],
+        "lab.analogue.job_id": 99,
+        "lab.gpu_reservation.owner_job_id": ids[0],
+        "lab.gpu_reservation.state": "released",
+        "tracking.dashboard_db": "runtime-only.db",
+    }
+    ResultsDB(path).update_lab_job(ids[0], config_json=json.dumps(runtime_config))
+    assert ResultsDB(path).create_lab_job(retry) == ids[0]
+    conflicting_jobs = [
+        {**retry, "run_name": "conflicting-name"},
+        {**retry, "eval_every": int(retry["eval_every"]) + 1},
+        {**retry, "artifact_dir": str(tmp_path / "different-artifact")},
+        {
+            **retry,
+            "config": {**job["config"], "research.metric_type": "changed"},
+        },
+    ]
+    for conflicting in conflicting_jobs:
+        with pytest.raises(ValueError, match="conflicts with submitted run_uuid"):
+            ResultsDB(path).create_lab_job(conflicting)
+
+    db = ResultsDB(path)
+    experiment_uuid = str(uuid.uuid4())
+    primary = _job(
+        run_name="pair-primary",
+        experiment_uuid=experiment_uuid,
+        run_uuid=str(uuid.uuid4()),
+    )
+    comparison = _job(
+        run_name="pair-comparison",
+        comparison_role="baseline",
+        experiment_uuid=experiment_uuid,
+        run_uuid=str(uuid.uuid4()),
+    )
+    first_pair = db.create_lab_job_pair(primary, comparison)
+    second_pair = ResultsDB(path).create_lab_job_pair(
+        {**primary, "experiment_uuid": str(uuid.uuid4())},
+        {
+            **comparison,
+            "experiment_uuid": str(uuid.uuid4()),
+            "run_uuid": str(uuid.uuid4()),
+        },
+    )
+    assert second_pair == first_pair
+    assert len(ResultsDB(path).fetch_lab_jobs()) == 3
+
+
+def test_queue_run_uuid_retry_requires_identical_immutable_submission(tmp_path):
+    results_dir = tmp_path / "idempotent-results"
+    queue = ExperimentQueue(
+        str(tmp_path / "idempotent-queue.db"),
+        start_worker=False,
+        results_dir=results_dir,
+    )
+    run_uuid = str(uuid.uuid4())
+    submission = {
+        "preset_id": "classical-small",
+        "dataset_name": "default-text",
+        "run_name": "idempotent-run",
+        "seed": 0,
+        "steps": 2,
+        "eval_every": 1,
+        "device_target": "cpu",
+        "batch_size": 1,
+        "seq_len": 8,
+        "run_uuid": run_uuid,
+    }
+    first = queue.submit(**submission)
+    assert queue.submit(**submission)["id"] == first["id"]
+
+    conflicts = [
+        {"run_name": "changed-name"},
+        {"eval_every": 2},
+        {"batch_size": 2},
+        {"artifact_dir": str(results_dir / "different-artifact")},
+    ]
+    for override in conflicts:
+        with pytest.raises(ValueError, match="conflicts with submitted run_uuid"):
+            queue.submit(**{**submission, **override})
 
 
 def test_worker_executes_persisted_model_snapshot_and_uuid_artifact_root(

@@ -91,6 +91,23 @@ def configured_cors_origins() -> list[str]:
     ]
 
 
+def request_origin_allowed(origin: str) -> bool:
+    """Return whether an unsafe browser request may originate from *origin*."""
+    value = str(origin or "").strip().rstrip("/")
+    return bool(
+        re.fullmatch(LOOPBACK_ORIGIN_REGEX, value)
+        or value in configured_cors_origins()
+    )
+
+
+def json_media_type(content_type: str | None) -> bool:
+    """Accept JSON and structured-suffix JSON request media types."""
+    media_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or (
+        media_type.startswith("application/") and media_type.endswith("+json")
+    )
+
+
 def access_status() -> dict:
     remote = remote_access_enabled()
     return {

@@ -554,6 +554,7 @@ _OPERATIONAL_PATTERNS = (
     "lab.quantum_override.*",
     "lab.resource.*",
     "lab.reservation.*",
+    "lab.submission.*",
     "lab.study_cell.*",
     "lab.train_override.*",
     "job.run_name",

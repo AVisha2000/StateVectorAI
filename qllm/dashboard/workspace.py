@@ -1,9 +1,6 @@
 """Run-workspace payloads for the QLLM Lab UI."""
 from __future__ import annotations
 
-import json
-from collections import defaultdict
-
 from ..claims import get_claim, infer_claim_id
 from ..research_protocol import normalize_seed_axes
 from ..research_protocol import two_stream_metric_contract
@@ -17,24 +14,8 @@ from .evidence import (
 )
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
-
-
-def _decode_config(row: dict | None) -> dict:
-    if not row:
-        return {}
-    try:
-        return json.loads(row.get("config_json") or "{}")
-    except json.JSONDecodeError:
-        return {}
-
-
-def _curve(db: ResultsDB, run_key: str | None, run_uuid: str | None = None) -> dict:
-    if not run_key:
-        return {}
-    series: dict[str, list] = defaultdict(list)
-    for step in db.fetch_steps(run_key, run_uuid=run_uuid):
-        series[step["name"]].append({"step": step["step"], "value": step["value"]})
-    return dict(series)
+from ._shared import curve as _curve
+from ._shared import decode_config as _decode_config
 
 
 def _live(

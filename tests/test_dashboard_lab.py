@@ -960,6 +960,30 @@ def test_queue_missing_classical_analogue_after_quantum_job(tmp_path):
     assert primary["config"]["lab.analogue.state"] == "queued"
     assert enrich_job(primary, db)["analogue_state"] == "queued"
 
+    retried = q.submit(
+        "quantum-ffn-4q",
+        "default-text",
+        "solo-quantum",
+        4,
+        3,
+        1,
+        run_uuid=job["run_uuid"],
+    )
+    assert retried["id"] == job["id"]
+    assert retried["compare_to_job_id"] == twin["id"]
+    with pytest.raises(ValueError, match="conflicts with submitted run_uuid"):
+        q.submit(
+            "quantum-ffn-4q",
+            "default-text",
+            "solo-quantum",
+            4,
+            3,
+            1,
+            queue_classical_comparison=True,
+            run_uuid=job["run_uuid"],
+        )
+    assert len(q.list()) == 2
+
 
 def test_queue_applies_quantum_overrides_to_primary_job(tmp_path):
     q = ExperimentQueue(str(tmp_path / "results.db"), start_worker=False)

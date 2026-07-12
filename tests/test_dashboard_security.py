@@ -327,6 +327,101 @@ def test_remote_mode_blocks_direct_url_imports_but_keeps_dataset_ids(
     server.QUEUE.close()
 
 
+def test_api_mutation_request_policy_and_payload_error_classification(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("QLLM_DB", str(tmp_path / "server.db"))
+    monkeypatch.setenv("QLLM_RESULTS", str(tmp_path / "results"))
+    monkeypatch.setenv("QLLM_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("QLLM_DISABLE_WORKER", "1")
+    monkeypatch.delitem(sys.modules, "qllm.dashboard.server", raising=False)
+    server = importlib.import_module("qllm.dashboard.server")
+    calls = []
+
+    def fake_submit(**kwargs):
+        calls.append(kwargs)
+        return {"queued": True}
+
+    monkeypatch.setattr(server.QUEUE, "submit", fake_submit)
+    client = TestClient(server.app)
+
+    cross_site = client.post(
+        "/api/jobs",
+        content='{"preset_id":"classical-small"}',
+        headers={
+            "Content-Type": "text/plain",
+            "Origin": "https://evil.example",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+    assert cross_site.status_code == 403
+    assert calls == []
+
+    hostile_origin = client.post(
+        "/api/jobs",
+        json={"preset_id": "classical-small"},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert hostile_origin.status_code == 403
+    assert calls == []
+
+    wrong_media_type = client.post(
+        "/api/jobs",
+        content='{"preset_id":"classical-small"}',
+        headers={"Content-Type": "text/plain"},
+    )
+    assert wrong_media_type.status_code == 415
+    assert calls == []
+
+    bodyless_cross_site = client.post(
+        "/api/jobs/1/cancel", headers={"Sec-Fetch-Site": "cross-site"}
+    )
+    assert bodyless_cross_site.status_code == 403
+    assert calls == []
+
+    accepted = client.post(
+        "/api/jobs",
+        json={"preset_id": "classical-small"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json() == {"queued": True}
+    assert len(calls) == 1
+
+    monkeypatch.setenv("QLLM_ALLOW_REMOTE", "1")
+    monkeypatch.setenv("QLLM_CORS_ORIGINS", '["https://allowed.example"]')
+    allowlisted_remote = client.post(
+        "/api/jobs",
+        json={"preset_id": "classical-small"},
+        headers={
+            "Origin": "https://allowed.example",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+    assert allowlisted_remote.status_code == 200
+    assert len(calls) == 2
+    monkeypatch.setenv("QLLM_ALLOW_REMOTE", "0")
+    monkeypatch.setenv("QLLM_CORS_ORIGINS", "[]")
+
+    def invalid_submit(**_kwargs):
+        raise ValueError("invalid request")
+
+    monkeypatch.setattr(server.QUEUE, "submit", invalid_submit)
+    invalid = client.post("/api/jobs", json={"preset_id": "classical-small"})
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "invalid request"
+
+    def broken_submit(**_kwargs):
+        raise RuntimeError("unexpected implementation detail")
+
+    monkeypatch.setattr(server.QUEUE, "submit", broken_submit)
+    broken = client.post("/api/jobs", json={"preset_id": "classical-small"})
+    assert broken.status_code == 500
+    assert broken.json()["detail"] == "Internal server error."
+    assert "unexpected implementation detail" not in broken.text
+    server.QUEUE.close()
+
+
 def test_frontend_mount_skips_missing_or_partial_build(tmp_path):
     dist = tmp_path / "dist"
     dist.mkdir()

@@ -133,6 +133,40 @@ def test_frontend_changes_run_behavior_tests_before_build() -> None:
 @pytest.mark.parametrize(
     "path",
     [
+        "qllm/dashboard/server.py",
+        "qllm/dashboard/security.py",
+        "qllm/dashboard/runner.py",
+        "qllm/dashboard/verdicts.py",
+        "qllm/dashboard/diagnostics.py",
+        "qllm/dashboard/live_stream.py",
+    ],
+)
+def test_dashboard_backend_changes_run_complete_contract_bundle(path: str) -> None:
+    checks = verifier.select_checks(
+        [path], Path(__file__).resolve().parents[1]
+    )
+    dashboard = next(check for check in checks if check.id == "dashboard-tests")
+    assert dashboard.argv[0:4] == (
+        verifier._project_python(Path(__file__).resolve().parents[1]),
+        "-m",
+        "pytest",
+        "-q",
+    )
+    assert dashboard.argv[4:] == verifier.DASHBOARD_BACKEND_TESTS
+
+
+def test_safe_environment_uses_short_repo_local_temp_root(tmp_path: Path) -> None:
+    environment = verifier._safe_environment(tmp_path)
+    expected = tmp_path / ".tmp" / "v"
+    assert Path(environment["TMP"]) == expected
+    assert environment["TEMP"] == environment["TMP"]
+    assert environment["TMPDIR"] == environment["TMP"]
+    assert expected.is_dir()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
         "pyproject.toml",
         "requirements.txt",
         "requirements-cpu.txt",

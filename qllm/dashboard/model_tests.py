@@ -16,35 +16,9 @@ from ..models.model import build_model
 from ..resultsdb import ResultsDB
 from ..train.loop import generate_outcome
 from .analogues import config_from_flat_payload
+from ._shared import artifact_dir as _artifact_dir
+from ._shared import decode_config as _decode_config
 from .security import resolve_data_path, resolve_within
-
-
-def _decode_config(job: dict) -> dict:
-    config = job.get("config")
-    if config is not None:
-        return config
-    try:
-        return json.loads(job.get("config_json") or "{}")
-    except json.JSONDecodeError:
-        return {}
-
-
-def _artifact_dir(results_dir: str | Path, job: dict) -> Path:
-    root = Path(results_dir).resolve()
-    trusted = job.get("artifact_dir")
-    if trusted:
-        return resolve_within(root, trusted, label="persisted artifact directory")
-    checkpoint = job.get("checkpoint_path")
-    if checkpoint:
-        safe_checkpoint = resolve_within(
-            root, checkpoint, label="persisted checkpoint"
-        )
-        return resolve_within(
-            root,
-            safe_checkpoint.parent.parent,
-            label="checkpoint artifact directory",
-        )
-    return resolve_within(root, str(job["run_name"]), label="legacy run artifact")
 
 
 def model_test_payload(

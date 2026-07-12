@@ -297,3 +297,22 @@ def test_advantage_report_scorecard_and_forbidden_composites(tmp_path):
     assert valid["diagnostics"]["kernel_gap"] == 0.4
     with pytest.raises(ValueError, match="assessment.level"):
         build_verdict_snapshot(_payload(assessment={"level": {"bad": True}}))
+
+
+@pytest.mark.parametrize(
+    "forbidden_payload",
+    [
+        {"nested": {"AdVaNtAgE_sCoRe": 1}},
+        {"items": [{"composite_advantage_score": 1}]},
+        {"composite_score": 1},
+    ],
+)
+def test_resultsdb_rejects_nested_forbidden_score_keys_before_persisting(
+    tmp_path, forbidden_payload
+):
+    db = ResultsDB(tmp_path / "results.db")
+    snapshot = build_verdict_snapshot(_payload(diagnostics={"kernel_gap": 0.4}))
+    snapshot["diagnostics"] = forbidden_payload
+    with pytest.raises(ValueError, match="forbidden key"):
+        db.append_verdict_snapshot(snapshot)
+    assert db.list_latest_verdict_snapshots() == []

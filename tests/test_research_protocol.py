@@ -357,6 +357,32 @@ def _comparison_fixture(*, candidate_config, baseline_config, complete=True):
     )
 
 
+def test_submission_identity_metadata_is_an_allowed_operational_mismatch():
+    candidate, baseline = _comparison_fixture(
+        candidate_config={
+            "train.lr": 0.1,
+            "lab.submission.comparison_mode": "paired",
+        },
+        baseline_config={
+            "train.lr": 0.1,
+            "lab.submission.comparison_mode": "single",
+        },
+    )
+    report = evaluate_fairness(
+        candidate,
+        baseline,
+        schema={"required_equal": ["train.lr"]},
+    )
+    mismatch = next(
+        row
+        for row in report["mismatches"]
+        if row["path"] == "lab.submission.comparison_mode"
+    )
+    assert mismatch["allowed"] is True
+    assert mismatch["category"] == "operational"
+    assert report["valid"] is True
+
+
 def test_claim_specific_fairness_retains_allowed_and_disallowed_mismatches():
     candidate, baseline = _comparison_fixture(
         candidate_config={

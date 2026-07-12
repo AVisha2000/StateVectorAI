@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import math
 import os
 import socket
+import sqlite3
 import threading
 import time
 import traceback
@@ -42,6 +44,49 @@ from .model_specs import config_payload, create_spec
 from .presets import apply_quantum_overrides, build_preset
 from .resources import quantum_resource_estimate
 from .security import resolve_data_path, resolve_within
+
+
+logger = logging.getLogger(__name__)
+
+
+def _transient_sqlite_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).casefold()
+    return "locked" in message or "busy" in message
+
+
+def _lease_heartbeat_loop(
+    db: ResultsDB,
+    job_id: int,
+    worker_id: str,
+    lease_seconds: float,
+    stop: threading.Event,
+    ownership_lost: threading.Event,
+) -> None:
+    """Renew a claimed job lease until stopped or ownership is no longer safe."""
+    interval = max(0.05, min(lease_seconds / 3.0, 30.0))
+    while not stop.wait(interval):
+        try:
+            renewed = db.heartbeat_lab_job(
+                job_id,
+                worker_id,
+                lease_seconds=lease_seconds,
+            )
+        except sqlite3.OperationalError as exc:
+            if _transient_sqlite_error(exc):
+                # Lock contention is transient; a later renewal still proves
+                # whether this worker owns the lease.
+                logger.warning("Transient SQLite failure renewing job %s lease", job_id)
+                continue
+            logger.exception("Unexpected SQLite failure renewing job %s lease", job_id)
+            ownership_lost.set()
+            return
+        except Exception:
+            logger.exception("Unexpected failure renewing job %s lease", job_id)
+            ownership_lost.set()
+            return
+        if not renewed:
+            ownership_lost.set()
+            return
 
 
 def _compatible_seed_request(snapshot: dict | None, cfg) -> dict | None:
@@ -306,6 +351,9 @@ class ExperimentQueue:
         job_config["research.seed_axes"] = axes
         job_config["lab.config_snapshot_version"] = 1
         job_config["lab.checkpoint_every"] = checkpoint_every
+        job_config["lab.submission.comparison_mode"] = (
+            "paired" if wants_comparison else "single"
+        )
         if resume_from:
             job_config["lab.resume_from"] = str(resume_from)
         if artifact_dir:
@@ -378,6 +426,7 @@ class ExperimentQueue:
             twin_config["research.metric_type"] = resolved_metric_type
             twin_config["lab.config_snapshot_version"] = 1
             twin_config["lab.checkpoint_every"] = checkpoint_every
+            twin_config["lab.submission.comparison_mode"] = "paired"
             twin_config["research.seed_axes"] = normalize_seed_axes(
                 seed,
                 generator_seed=twin_cfg.data.gen_seed,
@@ -435,21 +484,9 @@ class ExperimentQueue:
         else:
             existing = db.get_lab_job_by_run_uuid(run_uuid)
             if existing is not None:
-                expected = (
-                    preset_id,
-                    dataset_name,
-                    seed,
-                    steps,
-                )
-                actual = (
-                    existing["preset_id"],
-                    existing["dataset_name"],
-                    int(existing["seed"]),
-                    int(existing["steps"]),
-                )
-                if actual != expected:
+                if not db.lab_job_submission_matches(existing, primary_job):
                     raise ValueError(
-                        "Existing dashboard job conflicts with resumed run_uuid."
+                        "Existing dashboard job conflicts with submitted run_uuid."
                     )
                 if existing["status"] in ("error", "cancelled") and resume_from:
                     db.requeue_lab_job_from_checkpoint(
@@ -622,6 +659,7 @@ class ExperimentQueue:
         )
         twin_config = to_flat_dict(twin_cfg)
         twin_config["lab.config_snapshot_version"] = 1
+        twin_config["lab.submission.comparison_mode"] = "post_hoc_baseline"
         twin_config.update({
             key: value
             for key, value in (job.get("config") or {}).items()
@@ -660,6 +698,7 @@ class ExperimentQueue:
             )
         )
         candidate_config = dict(job.get("config") or {})
+        candidate_config.setdefault("lab.submission.comparison_mode", "single")
         if {"n_qubits", "n_circuit_layers"} <= set(source_overrides):
             candidate_config["lab.study_cell.n_qubits"] = source_overrides[
                 "n_qubits"
@@ -983,18 +1022,18 @@ class ExperimentQueue:
         heartbeat_stop = threading.Event()
         ownership_lost = threading.Event()
 
-        def heartbeat_loop() -> None:
-            interval = max(0.05, min(self.lease_seconds / 3.0, 30.0))
-            while not heartbeat_stop.wait(interval):
-                if not db.heartbeat_lab_job(
-                    job_id,
-                    self.worker_id,
-                    lease_seconds=self.lease_seconds,
-                ):
-                    ownership_lost.set()
-                    return
-
-        heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        heartbeat_thread = threading.Thread(
+            target=_lease_heartbeat_loop,
+            args=(
+                db,
+                job_id,
+                self.worker_id,
+                self.lease_seconds,
+                heartbeat_stop,
+                ownership_lost,
+            ),
+            daemon=True,
+        )
         heartbeat_thread.start()
         try:
             try:

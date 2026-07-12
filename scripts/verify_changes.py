@@ -36,6 +36,16 @@ BENCHMARK_TESTS = (
     "tests/test_recurrent.py",
     "tests/test_two_stream.py",
 )
+DASHBOARD_BACKEND_TESTS = (
+    "tests/test_dashboard_lab.py",
+    "tests/test_dashboard_security.py",
+    "tests/test_openapi_contract.py",
+    "tests/test_dashboard_verdicts.py",
+    "tests/test_dashboard_diagnostics.py",
+    "tests/test_dashboard_stream.py",
+    "tests/test_dashboard_helpers.py",
+    "tests/test_durable_runs.py",
+)
 
 
 class VerificationError(RuntimeError):
@@ -299,11 +309,14 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
             )
         )
     if dashboard_backend_changed:
+        available = tuple(
+            path for path in DASHBOARD_BACKEND_TESTS if (root / path).is_file()
+        )
         checks.append(
             Check(
                 "dashboard-tests",
-                (python, "-m", "pytest", "-q", "tests/test_dashboard_lab.py"),
-                "Dashboard API or queue code changed.",
+                (python, "-m", "pytest", "-q", *available),
+                "Dashboard API, security, queue, or generated contract code changed.",
             )
         )
     if dependency_changed:
@@ -498,7 +511,9 @@ def build_plan(repo: Path, changes: Sequence[Change] | None = None) -> dict[str,
 
 def _safe_environment(repo: Path) -> dict[str, str]:
     environment = os.environ.copy()
-    temp_root = repo / ".tmp" / "verify-changes" / "tmp"
+    # Keep this deliberately short: pytest appends user/test names and some
+    # generated cache filenames otherwise cross the legacy Windows path limit.
+    temp_root = repo / ".tmp" / "v"
     temp_root.mkdir(parents=True, exist_ok=True)
     environment.update(
         {

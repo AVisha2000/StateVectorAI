@@ -1,9 +1,8 @@
 """GPU reservation metadata for local dashboard jobs."""
 from __future__ import annotations
 
-import json
-
 from ..resultsdb import ResultsDB
+from ._shared import decode_config as _decode_config
 
 ACTIVE_STATES = {"queued", "running"}
 HIGH_MEMORY_BANDS = {"high", "extreme"}
@@ -46,16 +45,6 @@ def update_reservation_state(config: dict, state: str, job_id: int | None = None
         if job_id is not None and state == "active":
             out["lab.gpu_reservation.owner_job_id"] = int(job_id)
     return out
-
-
-def _decode_config(job: dict) -> dict:
-    config = job.get("config")
-    if config is not None:
-        return config
-    try:
-        return json.loads(job.get("config_json") or "{}")
-    except json.JSONDecodeError:
-        return {}
 
 
 def job_reservation(job: dict) -> dict:

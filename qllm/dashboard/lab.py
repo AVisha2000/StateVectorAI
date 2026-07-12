@@ -1,7 +1,6 @@
 """Workflow-oriented lab summaries for the dashboard."""
 from __future__ import annotations
 
-import json
 from collections import Counter
 
 from ..claims import get_claim, infer_claim_id
@@ -22,6 +21,9 @@ from .evidence import (
     run_resource_payload,
 )
 from .gpu_reservation import gpu_reservation_status, job_reservation
+from ._shared import decode_config as _decode_config
+from ._shared import job_variant as _job_variant
+from ._shared import quantum_scale as _quantum_scale
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 from .verdicts import comparison_verdict_snapshot
@@ -74,35 +76,6 @@ PAIRABLE_VAL_PPL_METRIC_TYPES = frozenset({
 })
 
 
-def _quantum_scale(job: dict) -> dict | None:
-    config = job.get("config") or {}
-    try:
-        qubits = int(
-            config.get("lab.quantum_override.n_qubits")
-            if config.get("lab.quantum_override.n_qubits") is not None
-            else config.get("lab.study_cell.n_qubits")
-        )
-        depth = int(
-            config.get("lab.quantum_override.n_circuit_layers")
-            if config.get("lab.quantum_override.n_circuit_layers") is not None
-            else config.get("lab.study_cell.n_circuit_layers")
-        )
-    except (TypeError, ValueError):
-        return None
-    return {"n_qubits": qubits, "n_circuit_layers": depth}
-
-
-def _job_variant(job: dict) -> str:
-    if job.get("run_key"):
-        parts = str(job["run_key"]).split("/")
-        if len(parts) >= 2:
-            return parts[1]
-    scale = _quantum_scale(job)
-    if scale:
-        return f"{job['preset_id']}-q{scale['n_qubits']}-d{scale['n_circuit_layers']}"
-    return job["preset_id"]
-
-
 def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
     return db.get_run(
         "lab",
@@ -116,12 +89,7 @@ def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
 
 def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
     out = dict(job)
-    config = out.get("config")
-    if config is None:
-        try:
-            config = json.loads(out.get("config_json") or "{}")
-        except json.JSONDecodeError:
-            config = {}
+    config = _decode_config(out)
     out["config"] = config
     try:
         preset = preset_meta(out["preset_id"])
@@ -346,10 +314,7 @@ def _leaderboard_highlights(db: ResultsDB) -> list[dict]:
     grouped: dict[tuple[str, str], dict] = {}
     for raw in rows:
         row = dict(raw)
-        try:
-            config = json.loads(row.get("config_json") or "{}")
-        except json.JSONDecodeError:
-            config = {}
+        config = _decode_config(row)
         contract = two_stream_metric_contract(
             suite=row.get("suite", ""),
             config=config,

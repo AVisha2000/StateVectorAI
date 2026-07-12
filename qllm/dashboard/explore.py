@@ -1,7 +1,6 @@
 """Research-map payloads for the Quantum Advantage cockpit."""
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from typing import Any
 
@@ -16,13 +15,8 @@ from .evidence import (
     job_durability_payload,
     run_resource_payload,
 )
-
-
-def _decode_config(row: dict) -> dict:
-    try:
-        return json.loads(row.get("config_json") or "{}")
-    except json.JSONDecodeError:
-        return {}
+from ._shared import decode_config as _decode_config
+from ._shared import job_variant as _job_variant
 
 
 def _slug(value: str) -> str:
@@ -262,22 +256,6 @@ def _all_run_items(db: ResultsDB) -> list[dict]:
 
 def _all_job_items(db: ResultsDB) -> list[dict]:
     return [_job_item(row) for row in db.fetch_lab_jobs(limit=500)]
-
-
-def _job_variant(job: dict) -> str:
-    if job.get("run_key"):
-        parts = str(job["run_key"]).split("/")
-        if len(parts) >= 2:
-            return parts[1]
-    config = _decode_config(job)
-    q = config.get("lab.quantum_override.n_qubits")
-    d = config.get("lab.quantum_override.n_circuit_layers")
-    if q is None or d is None:
-        q = config.get("lab.study_cell.n_qubits")
-        d = config.get("lab.study_cell.n_circuit_layers")
-    if q is not None and d is not None:
-        return f"{job['preset_id']}-q{q}-d{d}"
-    return job["preset_id"]
 
 
 def _lab_final_run(db: ResultsDB, job: dict) -> dict | None:

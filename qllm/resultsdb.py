@@ -648,6 +648,9 @@ class ResultsDB:
         missing = sorted(required - set(snapshot))
         if missing:
             raise ValueError(f"Verdict snapshot is missing required fields: {missing}")
+        forbidden = self._find_forbidden_verdict_key(snapshot)
+        if forbidden is not None:
+            raise ValueError(f"Verdict snapshot contains forbidden key: {forbidden}")
         content = {key: snapshot[key] for key in sorted(required)}
         for key in ("assessment_level", "assessment_status", "source_job_id", "source_study_id", "source_run_id"):
             if key in snapshot:
@@ -687,6 +690,28 @@ class ResultsDB:
             )
             row = con.execute("SELECT * FROM verdict_snapshots WHERE id=?", (cur.lastrowid,)).fetchone()
         return self._decode_verdict_snapshot(dict(row))
+
+    @staticmethod
+    def _find_forbidden_verdict_key(value: object) -> str | None:
+        """Return the first forbidden score key in a nested JSON-like value."""
+        forbidden = {
+            "advantage_score",
+            "composite_score",
+            "composite_advantage_score",
+        }
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if str(key).casefold() in forbidden:
+                    return str(key)
+                found = ResultsDB._find_forbidden_verdict_key(nested)
+                if found is not None:
+                    return found
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                found = ResultsDB._find_forbidden_verdict_key(nested)
+                if found is not None:
+                    return found
+        return None
 
     def list_latest_verdict_snapshots(self, limit: int = 100) -> list[dict]:
         """Return at most 100 latest revisions, one per stable verdict key."""
@@ -1127,6 +1152,108 @@ class ResultsDB:
     def create_lab_job(self, job: dict) -> int:
         return self.create_lab_jobs([job])[0]
 
+    _LAB_JOB_RUNTIME_CONFIG_KEYS = frozenset(
+        {
+            "lab.analogue.analogue_model_spec_id",
+            "lab.analogue.job_id",
+            "lab.analogue.role",
+            "lab.analogue.source_job_id",
+            "lab.analogue.state",
+            "lab.artifact_dir",
+            "lab.gpu_reservation.owner_job_id",
+            "lab.gpu_reservation.state",
+        }
+    )
+
+    @staticmethod
+    def _lab_job_config(job: dict) -> dict | None:
+        config = job.get("config")
+        if config is None:
+            try:
+                config = json.loads(job.get("config_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                return None
+        return config if isinstance(config, dict) else None
+
+    @classmethod
+    def _lab_job_config_identity(
+        cls,
+        job: dict,
+        *,
+        ignore_submission_mode: bool = False,
+    ) -> tuple[bool, str]:
+        config = cls._lab_job_config(job)
+        if config is None:
+            return False, ""
+        immutable = {}
+        for raw_key, value in config.items():
+            key = str(raw_key)
+            if (
+                key in cls._LAB_JOB_RUNTIME_CONFIG_KEYS
+                or (
+                    ignore_submission_mode
+                    and key == "lab.submission.comparison_mode"
+                )
+                or key.startswith("tracking.dashboard_")
+                or key.endswith("reservation.job_id")
+                or key.endswith("reservation.owner_job_id")
+                or key.endswith("reservation.state")
+            ):
+                continue
+            immutable[key] = value
+        try:
+            return True, json.dumps(
+                immutable,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError):
+            return False, ""
+
+    @classmethod
+    def lab_job_submission_matches(
+        cls,
+        existing: dict,
+        job: dict,
+        *,
+        match_run_uuid: bool = True,
+        match_artifact_dir: bool = True,
+    ) -> bool:
+        """Verify that an existing row denotes the same immutable submission."""
+        expected = {
+            "preset_id": job["preset_id"],
+            "dataset_name": job["dataset_name"],
+            "run_name": job["run_name"],
+            "seed": int(job["seed"]),
+            "steps": int(job["steps"]),
+            "eval_every": int(job["eval_every"]),
+            "device_target": job.get("device_target", "auto"),
+            "parent_run_uuid": job.get("parent_run_uuid"),
+        }
+        if match_run_uuid:
+            expected["run_uuid"] = job["run_uuid"]
+        if match_artifact_dir:
+            expected["artifact_dir"] = job.get("artifact_dir")
+        existing_payload = cls._lab_job_config(existing)
+        legacy_submission = bool(
+            existing_payload is not None
+            and "lab.submission.comparison_mode" not in existing_payload
+        )
+        existing_config = cls._lab_job_config_identity(
+            existing,
+            ignore_submission_mode=legacy_submission,
+        )
+        submitted_config = cls._lab_job_config_identity(
+            job,
+            ignore_submission_mode=legacy_submission,
+        )
+        return (
+            all(existing.get(key) == value for key, value in expected.items())
+            and existing_config[0]
+            and submitted_config[0]
+            and existing_config == submitted_config
+        )
+
     @staticmethod
     def _insert_lab_job(
         con: sqlite3.Connection, job: dict, now: str
@@ -1186,13 +1313,60 @@ class ResultsDB:
             )
             prepared.append(item)
         ids: list[int] = []
+        pair_linked = len(prepared) == 2 and all(
+            bool(item.get("_pair_link")) for item in prepared
+        )
         with self._conn() as con:
             con.execute("BEGIN IMMEDIATE")
+            if len(prepared) == 1:
+                job = prepared[0]
+                existing = con.execute(
+                    "SELECT * FROM lab_jobs WHERE run_uuid=?", (job["run_uuid"],)
+                ).fetchone()
+                if existing is not None:
+                    existing_job = dict(existing)
+                    if not self.lab_job_submission_matches(existing_job, job):
+                        raise ValueError(
+                            "Existing dashboard job conflicts with submitted run_uuid."
+                        )
+                    return [int(existing_job["id"])]
+            elif pair_linked:
+                primary, comparison = prepared
+                existing = con.execute(
+                    "SELECT * FROM lab_jobs WHERE run_uuid=?",
+                    (primary["run_uuid"],),
+                ).fetchone()
+                if existing is not None:
+                    existing_primary = dict(existing)
+                    comparison_id = existing_primary.get("compare_to_job_id")
+                    existing_comparison = (
+                        con.execute(
+                            "SELECT * FROM lab_jobs WHERE id=?",
+                            (comparison_id,),
+                        ).fetchone()
+                        if comparison_id is not None
+                        else None
+                    )
+                    if (
+                        not self.lab_job_submission_matches(
+                            existing_primary,
+                            primary,
+                        )
+                        or existing_comparison is None
+                        or not self.lab_job_submission_matches(
+                            dict(existing_comparison),
+                            comparison,
+                            match_run_uuid=False,
+                            match_artifact_dir=False,
+                        )
+                    ):
+                        raise ValueError(
+                            "Existing dashboard job pair conflicts with submitted run_uuid."
+                        )
+                    return [int(existing_primary["id"]), int(existing_comparison["id"])]
             for job in prepared:
                 ids.append(self._insert_lab_job(con, job, now))
-            if len(prepared) == 2 and all(
-                bool(item.get("_pair_link")) for item in prepared
-            ):
+            if pair_linked:
                 primary_id, comparison_id = ids
                 primary_config = dict(prepared[0].get("config") or {})
                 comparison_config = dict(prepared[1].get("config") or {})
@@ -1396,6 +1570,19 @@ class ResultsDB:
         return changed == 1
 
     # ---- durable SQLite-authoritative worker claims ----
+    @staticmethod
+    def _exclusive_lab_job_sql(alias: str) -> str:
+        """SQL predicate for work that occupies the single exclusive lane."""
+        prefix = f"{alias}." if alias else ""
+        return (
+            f"LOWER(COALESCE({prefix}device_target, ''))='gpu' OR CASE WHEN "
+            f"json_valid(COALESCE({prefix}config_json, '')) THEN ("
+            f"COALESCE(json_extract({prefix}config_json, '$.\"lab.gpu_reservation.required\"'), 0)=1 "
+            f"OR COALESCE(json_extract({prefix}config_json, '$.\"lab.resource.high_memory\"'), 0)=1 "
+            f"OR LOWER(COALESCE(json_extract({prefix}config_json, '$.\"lab.resource.band\"'), '')) "
+            "IN ('high', 'extreme')) ELSE 0 END"
+        )
+
     def claim_next_lab_job(
         self, worker_id: str, *, lease_seconds: float = 300.0
     ) -> dict | None:
@@ -1405,11 +1592,18 @@ class ResultsDB:
         if not math.isfinite(lease) or lease <= 0:
             raise ValueError("lease_seconds must be finite and positive.")
         now = time.time()
+        queued_exclusive = self._exclusive_lab_job_sql("queued")
+        running_exclusive = self._exclusive_lab_job_sql("running")
         with self._conn() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT id FROM lab_jobs WHERE status='queued' "
-                "AND COALESCE(cancel_requested, 0)=0 ORDER BY id LIMIT 1"
+                "SELECT queued.id FROM lab_jobs AS queued WHERE queued.status='queued' "
+                "AND COALESCE(queued.cancel_requested, 0)=0 AND (NOT ("
+                + queued_exclusive
+                + ") OR NOT EXISTS (SELECT 1 FROM lab_jobs AS running "
+                "WHERE running.status='running' AND ("
+                + running_exclusive
+                + "))) ORDER BY queued.id LIMIT 1"
             ).fetchone()
             if row is None:
                 return None
@@ -1454,6 +1648,8 @@ class ResultsDB:
         if not math.isfinite(lease) or lease <= 0:
             raise ValueError("lease_seconds must be finite and positive.")
         now = time.time()
+        queued_exclusive = self._exclusive_lab_job_sql("")
+        running_exclusive = self._exclusive_lab_job_sql("running")
         with self._conn() as con:
             con.execute("BEGIN IMMEDIATE")
             changed = con.execute(
@@ -1462,7 +1658,12 @@ class ResultsDB:
                 "experiment_uuid=COALESCE(experiment_uuid, ?), "
                 "run_uuid=COALESCE(run_uuid, ?), updated_ts=?, error=NULL "
                 "WHERE id=? AND status='queued' "
-                "AND COALESCE(cancel_requested, 0)=0",
+                "AND COALESCE(cancel_requested, 0)=0 AND (NOT ("
+                + queued_exclusive
+                + ") OR NOT EXISTS (SELECT 1 FROM lab_jobs AS running "
+                "WHERE running.status='running' AND ("
+                + running_exclusive
+                + ")))",
                 (
                     worker_id,
                     now,

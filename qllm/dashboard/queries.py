@@ -13,6 +13,7 @@ from ..claims import get_claim, infer_claim_id
 from ..research_protocol import two_stream_metric_contract
 from ..research_protocol import normalize_seed_axes
 from ..resultsdb import ResultsDB
+from ._shared import curve as _curve
 from .model_graph import uses_quantum_config
 from .evidence import interpretation_warnings, run_resource_payload
 
@@ -220,14 +221,6 @@ def run_detail(db: ResultsDB, run_id: int) -> dict:
                f"{run['seed']}/{run['steps']}")
     run["steps_curve"] = _curve(db, run_key, run.get("run_uuid"))
     return run
-
-
-def _curve(db: ResultsDB, run_key: str, run_uuid: str | None = None) -> dict:
-    steps = db.fetch_steps(run_key, run_uuid=run_uuid)
-    series: dict[str, list] = defaultdict(list)
-    for s in steps:
-        series[s["name"]].append({"step": s["step"], "value": s["value"]})
-    return series
 
 
 def live_runs(db: ResultsDB) -> list[dict]:

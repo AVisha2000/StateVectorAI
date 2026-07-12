@@ -10,6 +10,7 @@ project writes directly. Run:
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 from pathlib import Path
 
@@ -66,7 +67,9 @@ from .security import (
     client_access_allowed,
     configured_cors_origins,
     is_hf_hub_dataset_id,
+    json_media_type,
     remote_access_enabled,
+    request_origin_allowed,
     resolve_data_path,
     resolve_web_asset,
 )
@@ -91,6 +94,7 @@ DB_PATH = os.environ.get("QLLM_DB", "results/qllm_results.db")
 RESULTS_DIR = Path(os.environ.get("QLLM_RESULTS", "results"))
 DATA_DIR = Path(os.environ.get("QLLM_DATA", "data"))
 FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="QLLM Dashboard", version="0.1")
 app.add_middleware(
@@ -111,6 +115,32 @@ async def enforce_local_request_access(request: Request, call_next):
             status_code=403,
             content={"detail": "Dashboard access is restricted to loopback clients."},
         )
+    if request.url.path.startswith("/api/") and request.method in {
+        "POST",
+        "PATCH",
+        "PUT",
+        "DELETE",
+    }:
+        origin = request.headers.get("origin")
+        origin_allowed = bool(origin and request_origin_allowed(origin))
+        if (
+            request.headers.get("sec-fetch-site", "").lower() == "cross-site"
+            and not origin_allowed
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-site API mutation requests are not allowed."},
+            )
+        if origin and not origin_allowed:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "API mutation origin is not allowed."},
+            )
+        if await request.body() and not json_media_type(request.headers.get("content-type")):
+            return JSONResponse(
+                status_code=415,
+                content={"detail": "API mutation request bodies must use application/json."},
+            )
     return await call_next(request)
 
 
@@ -129,7 +159,10 @@ RESEARCH_SERVICE = build_research_service(db)
 
 
 def _payload_error(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    logger.exception("Unexpected dashboard API error")
+    return HTTPException(status_code=500, detail="Internal server error.")
 
 
 @app.get("/api/health")

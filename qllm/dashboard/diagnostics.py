@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from ..quantum.metrics import gradient_variance_scaling_fit
 from ..resultsdb import ResultsDB
+from ._shared import artifact_dir as _artifact_dir
 from .security import resolve_within
 
 
@@ -90,20 +91,6 @@ def _response_dict(payload: DiagnosticsPayload) -> dict[str, Any]:
     if hasattr(payload, "model_dump"):
         return payload.model_dump(mode="json")
     return payload.dict()
-
-
-def _artifact_dir(results_dir: str | Path, job: Mapping[str, Any]) -> Path:
-    root = Path(results_dir).resolve()
-    artifact_dir = job.get("artifact_dir")
-    if artifact_dir:
-        return resolve_within(root, artifact_dir, label="persisted artifact directory")
-    checkpoint = job.get("checkpoint_path")
-    if checkpoint:
-        safe_checkpoint = resolve_within(root, checkpoint, label="persisted checkpoint")
-        return resolve_within(
-            root, safe_checkpoint.parent.parent, label="checkpoint artifact directory"
-        )
-    return resolve_within(root, str(job["run_name"]), label="legacy run artifact")
 
 
 def _identity_value(value: object) -> str | None:

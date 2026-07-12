@@ -5,6 +5,67 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
+## Active plan: backend audit hardening
+
+Owner: Codex backend track
+Started: 2026-07-12
+Objective: implement the P0 and requested P1 hardening findings in
+`docs/BACKEND_AUDIT.md` without changing research conclusions, frontend code,
+or the local-only trust boundary.
+
+Scope: mutation-request CSRF defenses, lease-heartbeat resilience, shared
+dashboard helpers, GPU/high-memory claim exclusivity, idempotent submission,
+400-vs-500 error classification, DB-layer forbidden-score enforcement, and
+dashboard verification routing. `qllm/dashboard/frontend/**`, GPU/QPU runs,
+claim promotion, dependency/environment changes, commits, pushes, and merges
+are excluded.
+
+Acceptance evidence:
+
+- Cross-site-shaped or non-JSON mutation requests are rejected before route
+  side effects; valid local JSON mutations retain their current contract.
+- Transient SQLite heartbeat failures retry without losing ownership; unexpected
+  heartbeat failures set `ownership_lost` instead of silently killing renewal.
+- Config decoding, curve projection, job variant selection, and artifact-root
+  resolution use shared helpers with identical behavior across dashboard views.
+- A second worker cannot claim a GPU/high-memory job while another such job is
+  running; CPU work remains claimable.
+- Concurrent duplicate `run_uuid` submission returns the existing job, expected
+  client errors remain HTTP 400, and unexpected server failures become HTTP 500.
+- Forbidden composite/advantage score keys are rejected by `ResultsDB` itself.
+- Dashboard source changes select security, OpenAPI, verdict, diagnostics,
+  stream, and lab tests in `scripts/verify_changes.py`.
+- Focused tests, `scripts/dump_openapi.py --check`, change-aware verification,
+  and the full CPU suite pass with fresh output.
+
+Progress:
+
+- [x] Rebase `backend-enhancements` onto latest `origin/main` and read the audit,
+  scoped instructions, and dashboard/runner/verification skills.
+- [x] Implement and verify P0 M1, M3, and T1.
+- [x] Implement and verify P1 M2, L1, L2, L6, and TG3.
+- [x] Run broad CPU-only verification and obtain a clean GPT-5.6 Sol Ultra
+  read-only verifier verdict.
+
+Decisions and residuals:
+
+- Submission identity ignores only runtime lease, dashboard-tracking, artifact
+  mirror, and comparison-topology metadata. New jobs persist immutable
+  `lab.submission.comparison_mode`; legacy rows without it use a deliberately
+  permissive compatibility fallback.
+- Explicitly configured remote CORS origins remain usable for JSON mutations;
+  default loopback mode still rejects hostile Origin/Sec-Fetch-Site requests.
+- The verifier temp root is short enough for legacy Windows path limits. A
+  transient OneDrive `WinError 5` was isolated by rerunning the identical
+  affected-module command under a writable `%LOCALAPPDATA%` temp root.
+- Exact focused, full-suite, OpenAPI, and CPU queue-smoke results are reported
+  in the final handoff from the frozen worktree diff.
+
+Human gates: no GPU/QPU execution, paid services, environment changes, claim
+promotion, artifact rewrites, commits, pushes, or merges without explicit user
+approval. No frontend contract edit is planned; any discovered UI contract need
+will be logged in `docs/BUILD_COORDINATION.md` instead.
+
 ## Active plan: UI redesign Phase 2 — Bench, Run detail, Verdicts, diagnostics viz
 
 Owner: apex (Claude Code, Opus 4.8) · branch `ui-redesign`
