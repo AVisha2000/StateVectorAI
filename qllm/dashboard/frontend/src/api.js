@@ -95,4 +95,5 @@ export const api = {
   atlasOntology: () => get('/atlas/ontology'),
   researchCapabilities: () => get('/research/capabilities'),
   arxivScan: (payload = {}) => post('/discover/arxiv/scan', payload),
+  designerCircuit: (payload) => post('/designer/circuit', payload),
 }
