@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useJobs, useVerdicts, isNotYetBuilt } from '../lib/hooks.js'
+import { useJobs, useVerdicts, useStudies, isNotYetBuilt } from '../lib/hooks.js'
 import { PageHeader, Loading, ErrorState, StatusTag, rowActivation } from '../lib/ui.jsx'
+import { fmtNum, DASH } from '../lib/format.js'
 
 // Recent snapshots first (higher id = newer append-only revision).
 function latestVerdicts(data, n = 5) {
@@ -51,6 +52,61 @@ function LatestVerdicts() {
         <p className="hint" style={{ padding: '0 16px 12px' }}>
           Claim level and replication are shown distinctly; positive claims are <b>candidates</b>, not established results,
           until human-promoted on the Verdict.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+// Multi-seed studies in progress — the rigor track, distinct from single runs.
+function ActiveStudies() {
+  const { data, isLoading, isError, error } = useStudies()
+  const studies = useMemo(() => {
+    const list = Array.isArray(data) ? data : data?.studies ?? []
+    return list.slice(0, 5)
+  }, [data])
+  const storeMissing = isError && isNotYetBuilt(error)
+
+  return (
+    <div className="card">
+      <div className="hd">
+        <h3>Multi-seed studies</h3>
+        <Link className="more" to="/studies">Studies →</Link>
+      </div>
+      <div className="bd scroll-x" style={{ padding: '4px 16px 8px' }}>
+        {isLoading ? (
+          <Loading label="Loading studies…" />
+        ) : storeMissing || studies.length === 0 ? (
+          <div className="hint" style={{ padding: '12px 0' }}>
+            {storeMissing
+              ? 'Studies aren’t reachable yet — multi-seed replications will appear here.'
+              : 'No studies yet. Queue a full study on the Bench to test a claim across seeds.'}
+          </div>
+        ) : (
+          <table className="data">
+            <thead>
+              <tr><th>Study</th><th>Evidence</th><th className="right-td">Fair pairs</th><th className="right-td">Mean Δ ppl</th><th className="right-td" /></tr>
+            </thead>
+            <tbody>
+              {studies.map((s) => {
+                const e = s.evidence || {}
+                return (
+                  <tr key={s.id} className="click">
+                    <td>{s.name || `#${s.id}`}</td>
+                    <td>{e.label ? <span className="tag plain">{e.label}</span> : <span className="hint">pending</span>}</td>
+                    <td className="right-td num">{Number.isFinite(e.fair_pairs) ? e.fair_pairs : DASH}</td>
+                    <td className="right-td num">{fmtNum(e.mean_delta_val_ppl, 3)}</td>
+                    <td className="right-td"><Link className="btn sm" to={`/studies/${s.id}`}>Open →</Link></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {studies.length ? (
+        <p className="hint" style={{ padding: '0 16px 12px' }}>
+          Replication across seeds, not a single run — the spread is reported, and no composite advantage score is produced.
         </p>
       ) : null}
     </div>
@@ -138,6 +194,10 @@ export default function Overview() {
             </div>
 
             <LatestVerdicts />
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <ActiveStudies />
           </div>
         </>
       )}
