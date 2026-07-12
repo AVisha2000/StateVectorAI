@@ -5,6 +5,132 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
+## Active plan: UI redesign Phase 2 — Bench, Run detail, Verdicts, diagnostics viz
+
+Owner: apex (Claude Code, Opus 4.8) · branch `ui-redesign`
+Started: 2026-07-11
+Objective: turn the scaffolded Bench / Verdicts surfaces and the placeholder
+`/runs/:id` route into real, data-bound surfaces, plus reusable diagnostics
+charts, honoring verification-first integrity (no composite advantage score,
+diagnostics labeled as diagnostics, claim classification stays backend-owned).
+
+Scope: `qllm/dashboard/frontend/**` only. Non-goals (backend-blocked, tracked in
+docs/BUILD_COORDINATION.md): SSE swap of the poll interval (`/stream/jobs`),
+OpenAPI type codegen, and the persistent `/verdicts` + `/jobs/{id}/diagnostics`
+stores — the UI is built to light up when these ship and degrade gracefully now.
+
+Key facts (from backend-shape inventory):
+- Claim ladder is backend-owned. Runtime `classify_claim` vocabulary
+  (`empirical/quantum-inspired/smoke/weak/fragile/...`) differs from
+  RESEARCH_MAP.yaml `claim_levels` (`untested→formal`); no mapping exists.
+  Render `evidence_ladder.steps[]` + `verdict`/`claim` verbatim; never hardcode.
+- `/jobs/{id}/comparison` is single-seed (`paired_stats/equivalence/power` null);
+  no real seed-band here. `seedBand` helper reserved for study/verdict-store data.
+- Diagnostics available today via `/jobs/{id}/model-tests` →
+  `summary.quantum_diagnostics` (grad_var_*, meyer_wallach_q, expressibility_kl +
+  per-metric `availability`); per-step `grad_norm_ratio` is in the `curve`.
+  SNR + gradient-variance scaling-fit are NOT computed for dashboard jobs yet.
+
+Acceptance evidence:
+
+- `npm test` + `npm run build` green in qllm/dashboard/frontend.
+- Bench queues a real CPU job via POST /api/jobs; `/runs/:id` renders run detail
+  with diagnostics labeled as diagnostics; Verdicts renders a backend-driven
+  scorecard + ladder with no composite score; all surfaces show calm
+  loading / empty / not-yet-built states; both themes at desktop + narrow width.
+
+Progress:
+
+- [x] API status surfacing + proposed-endpoint hooks (graceful 404)
+- [x] Pure curve helpers (mergeCurve/mergeComparison/seedBand/logLinearFit) + tests
+- [x] Reusable chart components (ComparisonCurve, TrainabilityChart, ScalingChart, SeedBandChart)
+- [x] Run detail surface (RunDetail.jsx) + clickable Runs rows + `/runs/:id` route
+- [x] Verdicts surface (list + `/verdicts/:id` detail) + Scaling view (`/runs/scaling/:groupId`)
+- [x] Bench surface with real POST /api/jobs queueing (CPU-default, GPU-gated)
+- [x] Verify: npm test, npm run build clean, browser QA (routing + graceful states + both themes)
+- [x] Post UI log note to docs/BUILD_COORDINATION.md on main (`3a6678d`)
+- [x] Wire `/api/stream/jobs` SSE (change-token dedupe → invalidate; polling fallback)
+- [x] Align to shipped contracts: diagnostics per-dimension `{status,value,reason}`;
+      persistent `/verdicts` + `/verdicts/{id}` store (canonical claim vs derived
+      assessment kept distinct); `/status` five-field shape (System running KPI)
+- [ ] Remaining backend-blocked: OpenAPI type codegen once `openapi.json` reaches `main`
+
+Decisions: render backend claim data verbatim (evidence_ladder/verdict/claim);
+no composite advantage score in the scorecard; wall-clock labeled simulator cost;
+default Bench device_target to CPU (GPU stays human-gated); Verdicts detail
+derives from a job's single-seed comparison until the persistent verdict store
+ships; diagnostics read summary.quantum_diagnostics today, degrade to
+"awaiting backend" for SNR/scaling-fit.
+
+Human gates: no GPU runs, no merge to main, no claim-bearing RESULTS.md edits.
+Backend real-data QA not run — fastapi/jax/pennylane not installed in this
+environment (no venv); reported as an environment limitation, not a product gap.
+
+Latest validation:
+
+    npm test                → 54 pass / 0 fail (node --test)
+    npm run build           → built in ~3.1s, dist emitted, no errors
+    browser (dev server, no backend): shell + all new routes render, legacy
+      /launch→/bench redirect works, Verdicts store→comparison fallback,
+      graceful empty/error states everywhere, no console errors, both themes
+    Branch `ui-redesign` pushed to origin (`ad2a7c1`, force-with-lease over the
+      pre-rebase Phase 1 tip). Backend endpoints live on `backend-enhancements`,
+      not yet on `main`, so real-data wiring is contract-verified, not run here.
+
+### Phase 3 — Atlas (in progress, `a858ab0`)
+
+- Slice A (model + seed ontology + list) and Slice B (Cytoscape graph) shipped.
+- Data: `src/lib/atlasOntology.seed.js` transcribes RESEARCH_MAP's 19 areas
+  verbatim (status/claim/replication), grouped into 6 domains — a labeled
+  placeholder pending the backend `/api/atlas/ontology` (requested in the UI log).
+  `atlasModel` joins to the live `/verdicts` store; `outcome_class` is a color
+  bucket from RESEARCH_MAP `status` only (never a verdict, no composite score);
+  `claim_level` (map ladder) and `replication_status` stay separate; null /
+  "no advantage found" cells are first-class (own `--null` token, counted).
+- Verified: `npm test` 71/71, build clean; the List view + summary + filters +
+  node detail render correctly in-browser (nulls first-class confirmed).
+- **Graph caveat:** the Cytoscape graph's element/style transforms are
+  unit-tested and code-split, but its **canvas rendering could not be visually
+  verified in this sandbox browser** — cytoscape's renderer emits nothing (even
+  under `forceRender`) while a hand-drawn canvas paints/reads back fine, and the
+  screenshot tool times out. Environment limitation, not a logic defect. The
+  List is the default, verified render path; the graph needs a real-browser check.
+- Not done (deferred/gated): Slice C polish (URL deep-link/expand-collapse UI),
+  Slice D static-export helper, and the **human-gated public Atlas export**
+  (internet exposure — out of scope until scoped with the user).
+- **Graph resolution:** the cytoscape graph was rebuilt as hand-authored SVG
+  (`atlasSvgLayout.js` + `AtlasGraphSvg.jsx`); cytoscape dependency removed
+  entirely. Verified in-browser (19 clickable cells, correct shapes/colors,
+  click→detail with claim/replication distinct). Graph now the equal of the List.
+
+### Phase 4 — research loop (Library shipped; copilot human-gated)
+
+- `Library` surface built (`7d52c5e`): consumes the backend's shipped, ungated
+  bounded arXiv metadata scan (`POST /discover/arxiv/scan`) + the D4 capability
+  gate (`GET /research/capabilities`), rendered as an honest boundary panel.
+  `npm test` 68/68, build clean, verified in-browser (graceful when the service
+  isn't reachable). Papers table + quota display.
+- **Blocked on a human gate:** the Discover copilot / vault synthesis needs a
+  paid LLM + embedding provider and a per-day cost budget (AGENTS.md human gate),
+  and the integration is backend-owned. User approved *pursuing* it; still needs
+  the specific provider + budget named and keys configured before the backend
+  enables it. Frontend Discover UI will consume it once exposed.
+
+### Phase 4 Discover + Phase 5 Designer — shipped
+
+- **Discover** (`e202fcd`): capability-aware surface; copilot + idea queue stay
+  disabled (no spend) until the paid provider is approved. Points to the working
+  Library scan and to Bench/Designer.
+- **Designer** (`905ed3d`): parameterized-ansatz circuit editor over registry.py
+  families (hardware_efficient/reuploading/ising) with a hand-authored SVG circuit
+  view; live properties (gates/params/entangling/depth); classical↔quantum toggle;
+  Send-to-Bench carries `quantum_overrides`; Validate consumes the proposed
+  `/designer/circuit` round-trip gracefully. Verified in-browser (ansatz switch
+  re-renders, params update). npm test 73/73.
+- **All ten surfaces are now real.** Remaining backend/human-gated items:
+  `/designer/circuit` round-trip (requested), the paid research copilot (D4),
+  OpenAPI codegen once `openapi.json` reaches `main`, and the public Atlas export.
+
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 
 Owner: parent agent
