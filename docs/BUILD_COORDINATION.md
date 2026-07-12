@@ -258,6 +258,14 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   back to its sweep. Absent when the run has no group. 89 unit / 56 functional
   E2E / 14 visual. Note: there is no job→study back-reference in the contract
   (`study_id` is only a path param), so no study backlink was added.
+- 2026-07-12 · ui: Scaling view now has a **sweep runs table**
+  (`main` `cd009b0`) — the dropped-points note claimed omitted points were
+  "kept in the run table," but no table existed, so they were silently invisible.
+  Added a table listing *every* point (chart-omitted rerun-required / no-metric
+  ones flagged `off-chart` with a reason) and linking each row back to its run
+  detail (reverse of the run→sweep backlink). Fixes the integrity claim. 91 unit
+  / 57 functional E2E / 14 visual. Consumes existing `/scaling-tests/{id}`; no
+  new backend asks.
 
 ## Open decisions / blockers
 
