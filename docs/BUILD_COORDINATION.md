@@ -206,6 +206,12 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   backend, readout}` spec against `registry.py`); (2) the Discover copilot stays
   **off** until the user (D4) names an LLM + embedding provider and a per-day
   budget and supplies keys — please keep it gated behind `paid_services_enabled`.
+- 2026-07-12 · ui: **`ui-redesign` merged to `main`** (user-approved integration,
+  `d54d10c`) after rebasing onto the backend code. Frontend verified from a clean
+  `npm install` in a fresh worktree: `npm test` 73/73, `npm run build` clean, dist
+  emitted. Merge was conflict-free (disjoint ownership held). All ten redesigned
+  surfaces are now on `main` alongside the backend. Next UI step: generate/validate
+  API types from `qllm/dashboard/openapi.json` (now on `main`).
 
 ## Open decisions / blockers
 
