@@ -270,6 +270,23 @@ def _config(job: Mapping[str, Any]) -> Mapping[str, Any]:
     return decoded if isinstance(decoded, Mapping) else {}
 
 
+def _reject_nonfinite_json_constant(value: str) -> object:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _json_numbers_are_finite(value: object) -> bool:
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, float) and not math.isfinite(current):
+            return False
+        if isinstance(current, Mapping):
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple)):
+            pending.extend(current)
+    return True
+
+
 def _cohort_config(job: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, str | None]:
     """Decode cohort config without treating absent or invalid evidence as empty."""
     raw = job.get("config_json")
@@ -281,11 +298,13 @@ def _cohort_config(job: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, st
     if not isinstance(raw, str):
         return None, "job config_json is not a JSON string"
     try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
+        decoded = json.loads(raw, parse_constant=_reject_nonfinite_json_constant)
+    except (json.JSONDecodeError, ValueError, RecursionError):
         return None, "job config_json is malformed"
     if not isinstance(decoded, Mapping):
         return None, "job config_json must decode to a JSON object"
+    if not _json_numbers_are_finite(decoded):
+        return None, "job config_json contains non-finite numbers"
     return decoded, None
 
 
@@ -353,7 +372,12 @@ def _cohort_identity(
         "config": _without_qubit_axes(config),
         "summary": _summary_protocol(summary),
     }
-    encoded = json.dumps(protocol, sort_keys=True, separators=(",", ":"), default=str)
+    try:
+        encoded = json.dumps(
+            protocol, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError, RecursionError):
+        return None, "job cohort protocol is not finite JSON"
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), None
 
 

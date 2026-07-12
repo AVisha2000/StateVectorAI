@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import qllm.dashboard.diagnostics as diagnostics_module
 from qllm.dashboard.diagnostics import DIMENSION_NAMES, diagnostics_payload
 from qllm.resultsdb import ResultsDB
 
@@ -288,6 +289,56 @@ def test_scaling_fit_rejects_target_with_malformed_config_json(tmp_path):
     assert scaling["provenance"]["config_source"] == "lab_jobs.config_json"
 
 
+@pytest.mark.parametrize(
+    ("raw_config", "expected_reason"),
+    [
+        ('{"value": NaN}', "job config_json is malformed"),
+        ('{"value": Infinity}', "job config_json is malformed"),
+        ('{"value": 1e999}', "job config_json contains non-finite numbers"),
+    ],
+)
+def test_scaling_fit_rejects_nonfinite_target_config(
+    tmp_path, raw_config, expected_reason
+):
+    db = ResultsDB(tmp_path / "results.db")
+    job = _job(db, tmp_path / "artifacts", group_id="sweep")
+    _write_summary(job, {"quantum_diagnostics": _diagnostics()})
+    with db._conn() as con:
+        con.execute(
+            "UPDATE lab_jobs SET config_json=? WHERE id=?", (raw_config, job["id"])
+        )
+
+    scaling = diagnostics_payload(db, job["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "unavailable"
+    assert scaling["reason"] == expected_reason
+    assert scaling["provenance"]["config_validation"] == "failed"
+
+
+def test_scaling_fit_isolates_recursive_config_decode(tmp_path, monkeypatch):
+    db = ResultsDB(tmp_path / "results.db")
+    job = _job(db, tmp_path / "artifacts", group_id="sweep")
+    _write_summary(job, {"quantum_diagnostics": _diagnostics()})
+    trigger = '{"trigger": "recursion"}'
+    with db._conn() as con:
+        con.execute(
+            "UPDATE lab_jobs SET config_json=? WHERE id=?", (trigger, job["id"])
+        )
+    real_loads = diagnostics_module.json.loads
+
+    def recursive_loads(value, *args, **kwargs):
+        if value == trigger:
+            raise RecursionError("bounded decoder failure")
+        return real_loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(diagnostics_module.json, "loads", recursive_loads)
+
+    scaling = diagnostics_payload(db, job["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "unavailable"
+    assert scaling["reason"] == "job config_json is malformed"
+
+
 def test_scaling_fit_excludes_candidate_with_malformed_config_json(tmp_path):
     db = ResultsDB(tmp_path / "results.db")
     first = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=2)
@@ -304,6 +355,31 @@ def test_scaling_fit_excludes_candidate_with_malformed_config_json(tmp_path):
 
     assert scaling["status"] == "measured"
     assert scaling["provenance"]["persisted_rows"] == 2
+    assert scaling["provenance"]["qubit_counts"] == [2, 4]
+    assert scaling["provenance"]["excluded_malformed_config_rows"] == 1
+
+
+@pytest.mark.parametrize(
+    "raw_config", ['{"value": NaN}', '{"value": Infinity}', '{"value": 1e999}']
+)
+def test_scaling_fit_excludes_nonfinite_candidate_config(tmp_path, raw_config):
+    db = ResultsDB(tmp_path / "results.db")
+    first = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=2)
+    second = _job(db, tmp_path / "artifacts", group_id="sweep", qubits=4)
+    invalid = _job(
+        db, tmp_path / "artifacts", group_id="sweep", qubits=8,
+        name_suffix="-nonfinite",
+    )
+    for job, variance in ((first, 0.25), (second, 0.0625), (invalid, 1000.0)):
+        _write_summary(job, {"quantum_diagnostics": _diagnostics(variance)})
+    with db._conn() as con:
+        con.execute(
+            "UPDATE lab_jobs SET config_json=? WHERE id=?", (raw_config, invalid["id"])
+        )
+
+    scaling = diagnostics_payload(db, first["id"], tmp_path / "artifacts")["diagnostics"]["scaling_fit"]
+
+    assert scaling["status"] == "measured"
     assert scaling["provenance"]["qubit_counts"] == [2, 4]
     assert scaling["provenance"]["excluded_malformed_config_rows"] == 1
 

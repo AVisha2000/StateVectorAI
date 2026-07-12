@@ -895,6 +895,8 @@ Progress:
   longer depends on comparison-read order.
 - [x] Close the second Ultra pass: make cohorts schedule/config strict and make
   verdict reconciliation cursor-driven and metadata-only.
+- [x] Close the third Ultra pass: reject non-standard and non-finite cohort JSON
+  plus bounded decoder failures for both target and peer rows.
 - [ ] Run every requested focused/full CPU check, obtain a fresh verifier verdict,
   and commit authorized deliverables without merging the feature branch.
 
@@ -1036,6 +1038,14 @@ python scripts/queue_smoke.py --url http://127.0.0.1:8181 --steps 1
   --eval-every 1 --device-target cpu --timeout 180
 PASS: isolated job 1 completed on CPU at step 1 with both checkpoints and no
 error; the temporary server was stopped and port 8181 confirmed free.
+gpt-5.6-sol Ultra strict-cohort verification
+REMEDIATION REQUIRED: all cursor/metadata/original-contract items passed; the
+verifier reproduced Python JSON acceptance of NaN, Infinity, and overflowed
+exponents in cohort config.
+python -m pytest -q tests/test_dashboard_diagnostics.py
+  --basetemp .tmp/pytest-diagnostics-strict-json
+PASS: 26 passed, covering non-standard constants, overflowed non-finite values,
+decoder recursion, target rejection, and peer exclusion.
 ```
 
 ## Completed plan: local platform completion
