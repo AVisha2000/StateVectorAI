@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -23,6 +24,8 @@ from typing import Any, Iterable, Sequence
 
 STATE_RELATIVE_PATH = Path(".tmp") / "verify-changes" / "state.json"
 MAX_CAPTURE_CHARS = 12_000
+DEFAULT_CHECK_TIMEOUT_SECONDS = 600
+FULL_SUITE_TIMEOUT_SECONDS = 900
 AGENT_TESTS = (
     "tests/test_agent_configuration.py",
     "tests/test_verify_changes.py",
@@ -44,6 +47,10 @@ DASHBOARD_BACKEND_TESTS = (
     "tests/test_dashboard_diagnostics.py",
     "tests/test_dashboard_stream.py",
     "tests/test_dashboard_helpers.py",
+    "tests/test_dashboard_status.py",
+    "tests/test_dashboard_routes.py",
+    "tests/test_dashboard_designer.py",
+    "tests/test_dashboard_atlas.py",
     "tests/test_durable_runs.py",
 )
 
@@ -64,6 +71,7 @@ class Check:
     id: str
     argv: tuple[str, ...]
     reason: str
+    timeout_seconds: int | None = None
 
 
 def _normalize_path(value: str) -> str:
@@ -165,6 +173,7 @@ def classify_human_gates(paths: Sequence[str]) -> list[dict[str, Any]]:
     """Return path-based gates that automation is not authorized to approve."""
     buckets: dict[str, set[str]] = {
         "research_claim": set(),
+        "research_ontology": set(),
         "gpu": set(),
         "qpu": set(),
         "publish": set(),
@@ -182,6 +191,9 @@ def classify_human_gates(paths: Sequence[str]) -> list[dict[str, Any]]:
             or lowered.startswith("docs/") and any(word in name for word in ("result", "claim", "evidence"))
         ):
             buckets["research_claim"].add(normalized)
+
+        if lowered == "docs/atlas_ontology.yaml":
+            buckets["research_ontology"].add(normalized)
 
         if (
             lowered == "gpu_queue.md"
@@ -208,6 +220,7 @@ def classify_human_gates(paths: Sequence[str]) -> list[dict[str, Any]]:
 
     reasons = {
         "research_claim": "Evidence and quantum-advantage claim changes require human review.",
+        "research_ontology": "Curated Atlas research groupings require human review.",
         "gpu": "GPU queue, spend, and execution changes require human approval.",
         "qpu": "QPU or hardware execution changes require human approval.",
         "publish": "Publishing, release, deployment, push, and merge changes require human approval.",
@@ -407,6 +420,7 @@ def select_checks(paths: Sequence[str], repo: Path | None = None) -> list[Check]
                 "python-tests",
                 (python, "-m", "pytest", "-q"),
                 "Core model, data, training, or dependency code changed.",
+                timeout_seconds=FULL_SUITE_TIMEOUT_SECONDS,
             )
         )
     else:
@@ -511,9 +525,11 @@ def build_plan(repo: Path, changes: Sequence[Change] | None = None) -> dict[str,
 
 def _safe_environment(repo: Path) -> dict[str, str]:
     environment = os.environ.copy()
-    # Keep this deliberately short: pytest appends user/test names and some
-    # generated cache filenames otherwise cross the legacy Windows path limit.
-    temp_root = repo / ".tmp" / "v"
+    # Keep test writes outside synced worktrees and paths short enough for
+    # legacy Windows limits. The repo token prevents concurrent projects from
+    # sharing one pytest base directory.
+    repo_token = hashlib.sha256(str(repo.resolve()).encode("utf-8")).hexdigest()[:10]
+    temp_root = Path(tempfile.gettempdir()) / f"qllm-v-{repo_token}"
     temp_root.mkdir(parents=True, exist_ok=True)
     environment.update(
         {
@@ -549,12 +565,20 @@ def _trim_output(value: str) -> str:
     return value[:half] + "\n... verification output truncated ...\n" + value[-half:]
 
 
-def run_plan(plan: dict[str, Any], timeout: int = 600) -> dict[str, Any]:
+def _check_timeout(raw_check: dict[str, Any], override: int | None) -> int:
+    if override is not None:
+        return override
+    configured = raw_check.get("timeout_seconds")
+    return int(configured) if configured is not None else DEFAULT_CHECK_TIMEOUT_SECONDS
+
+
+def run_plan(plan: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
     repo = Path(plan["repo"])
     environment = _safe_environment(repo)
     results: list[dict[str, Any]] = []
     for raw_check in plan["checks"]:
         argv = _resolve_argv(raw_check["argv"])
+        check_timeout = _check_timeout(raw_check, timeout)
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -565,7 +589,7 @@ def run_plan(plan: dict[str, Any], timeout: int = 600) -> dict[str, Any]:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 check=False,
-                timeout=timeout,
+                timeout=check_timeout,
             )
             returncode = completed.returncode
             output = _trim_output(completed.stdout or "")
@@ -580,7 +604,7 @@ def run_plan(plan: dict[str, Any], timeout: int = 600) -> dict[str, Any]:
             if isinstance(raw_output, bytes):
                 raw_output = raw_output.decode("utf-8", errors="replace")
             output = _trim_output(raw_output)
-            error = f"check exceeded {timeout} seconds"
+            error = f"check exceeded {check_timeout} seconds"
 
         results.append(
             {
@@ -667,7 +691,7 @@ def run_hook(
     repo: Path,
     hook_input: dict[str, Any] | None = None,
     *,
-    timeout: int = 600,
+    timeout: int | None = None,
     state_path: Path | None = None,
     changes: Sequence[Change] | None = None,
 ) -> dict[str, Any]:
@@ -769,7 +793,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="repository root")
     parser.add_argument("--json", action="store_true", help="emit JSON (hook always does)")
-    parser.add_argument("--timeout", type=int, default=600, help="seconds allowed per check")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        help="override the bounded timeout policy for every selected check",
+    )
     parser.add_argument(
         "--state-file",
         type=Path,
@@ -786,7 +814,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("choose exactly one mode: --plan, --run, or --hook")
     if args.mode is not None and selected_flags and args.mode != mode:
         raise SystemExit("positional mode conflicts with selected mode flag")
-    if args.timeout < 1:
+    if args.timeout is not None and args.timeout < 1:
         raise SystemExit("--timeout must be positive")
     repo = args.repo.resolve()
     try:

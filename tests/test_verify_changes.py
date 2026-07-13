@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -89,6 +90,29 @@ def test_research_plans_are_not_mistaken_for_claim_updates() -> None:
     assert gates == []
 
 
+def test_atlas_ontology_changes_require_human_review(tmp_path: Path) -> None:
+    gates = verifier.classify_human_gates(["docs/ATLAS_ONTOLOGY.yaml"])
+    assert gates == [
+        {
+            "kind": "research_ontology",
+            "paths": ["docs/ATLAS_ONTOLOGY.yaml"],
+            "reason": "Curated Atlas research groupings require human review.",
+        }
+    ]
+    result = verifier.run_plan(
+        {
+            "repo": str(tmp_path),
+            "fingerprint": "atlas-review",
+            "paths": ["docs/ATLAS_ONTOLOGY.yaml"],
+            "checks": [],
+            "human_gates": gates,
+            "policy": {},
+        }
+    )
+    assert result["status"] == "human_review_required"
+    assert result["ok"] is False
+
+
 def test_benchmarks_configs_scripts_and_mixed_tests_get_focused_checks() -> None:
     root = Path(__file__).resolve().parents[1]
     checks = verifier.select_checks(
@@ -139,6 +163,9 @@ def test_frontend_changes_run_behavior_tests_before_build() -> None:
         "qllm/dashboard/verdicts.py",
         "qllm/dashboard/diagnostics.py",
         "qllm/dashboard/live_stream.py",
+        "qllm/dashboard/status.py",
+        "qllm/dashboard/designer.py",
+        "qllm/dashboard/atlas.py",
     ],
 )
 def test_dashboard_backend_changes_run_complete_contract_bundle(path: str) -> None:
@@ -155,13 +182,56 @@ def test_dashboard_backend_changes_run_complete_contract_bundle(path: str) -> No
     assert dashboard.argv[4:] == verifier.DASHBOARD_BACKEND_TESTS
 
 
-def test_safe_environment_uses_short_repo_local_temp_root(tmp_path: Path) -> None:
+def test_safe_environment_uses_short_system_temp_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system_temp = tmp_path / "system-temp"
+    monkeypatch.setattr(verifier.tempfile, "gettempdir", lambda: str(system_temp))
     environment = verifier._safe_environment(tmp_path)
-    expected = tmp_path / ".tmp" / "v"
-    assert Path(environment["TMP"]) == expected
+    selected = Path(environment["TMP"])
+    assert selected.parent == system_temp
+    assert selected.name.startswith("qllm-v-")
     assert environment["TEMP"] == environment["TMP"]
     assert environment["TMPDIR"] == environment["TMP"]
-    assert expected.is_dir()
+    assert selected.is_dir()
+
+
+def test_run_plan_uses_per_check_timeouts_and_honors_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: list[int] = []
+
+    def completed(*args, timeout: int, **kwargs):
+        observed.append(timeout)
+        return subprocess.CompletedProcess(args[0], 0, stdout="")
+
+    monkeypatch.setattr(verifier.subprocess, "run", completed)
+    plan = {
+        "repo": str(tmp_path),
+        "fingerprint": "timeouts",
+        "paths": [],
+        "checks": [
+            {"id": "focused", "argv": ["python", "-V"], "reason": "focused"},
+            {
+                "id": "python-tests",
+                "argv": ["python", "-m", "pytest", "-q"],
+                "reason": "full suite",
+                "timeout_seconds": verifier.FULL_SUITE_TIMEOUT_SECONDS,
+            },
+        ],
+        "human_gates": [],
+        "policy": {},
+    }
+
+    assert verifier.run_plan(plan)["status"] == "passed"
+    assert observed == [
+        verifier.DEFAULT_CHECK_TIMEOUT_SECONDS,
+        verifier.FULL_SUITE_TIMEOUT_SECONDS,
+    ]
+
+    observed.clear()
+    assert verifier.run_plan(plan, timeout=37)["status"] == "passed"
+    assert observed == [37, 37]
 
 
 @pytest.mark.parametrize(
@@ -250,3 +320,5 @@ def test_public_mode_flags_are_supported() -> None:
     assert parser.parse_args(["--run"]).run is True
     assert parser.parse_args(["--hook"]).hook is True
     assert parser.parse_args(["--hook", "--hook-platform", "claude"]).hook_platform == "claude"
+    assert parser.parse_args(["--run"]).timeout is None
+    assert parser.parse_args(["--run", "--timeout", "37"]).timeout == 37

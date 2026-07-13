@@ -679,6 +679,75 @@ def test_additive_step_migration_preserves_legacy_and_isolates_run_uuids(tmp_pat
     ]
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_concurrent_resultsdb_initialization_converges_atomically(tmp_path, legacy):
+    path = tmp_path / ("legacy-race.db" if legacy else "fresh-race.db")
+    if legacy:
+        with sqlite3.connect(path) as con:
+            con.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    suite TEXT NOT NULL
+                );
+                CREATE TABLE lab_jobs (
+                    id INTEGER PRIMARY KEY,
+                    status TEXT NOT NULL
+                );
+                CREATE TABLE lab_datasets (
+                    name TEXT PRIMARY KEY
+                );
+                CREATE TABLE live_runs (
+                    run_key TEXT PRIMARY KEY
+                );
+                CREATE TABLE run_results (
+                    run_uuid TEXT PRIMARY KEY
+                );
+                INSERT INTO runs(id, suite) VALUES (7, 'preserved');
+                INSERT INTO lab_jobs(id, status) VALUES (9, 'queued');
+                """
+            )
+
+    workers = 8
+    barrier = threading.Barrier(workers)
+
+    def initialize(_worker):
+        barrier.wait(timeout=10)
+        ResultsDB(path)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(initialize, range(workers)))
+
+    with sqlite3.connect(path) as con:
+        job_columns = {row[1] for row in con.execute("PRAGMA table_info(lab_jobs)")}
+        run_columns = {row[1] for row in con.execute("PRAGMA table_info(runs)")}
+        indexes = {
+            row[1]
+            for table in ("lab_jobs", "runs")
+            for row in con.execute(f"PRAGMA index_list({table})")
+        }
+        assert {
+            "run_uuid",
+            "worker_id",
+            "lease_expires_ts",
+            "checkpoint_path",
+        } <= job_columns
+        assert {"experiment_uuid", "run_uuid", "manifest_hash"} <= run_columns
+        assert {
+            "idx_lab_jobs_run_uuid",
+            "idx_runs_run_uuid",
+            "idx_lab_jobs_status_id",
+            "idx_lab_jobs_status_lease",
+        } <= indexes
+        if legacy:
+            assert con.execute("SELECT id, suite FROM runs").fetchall() == [
+                (7, "preserved")
+            ]
+            assert con.execute("SELECT id, status FROM lab_jobs").fetchall() == [
+                (9, "queued")
+            ]
+
+
 def test_concurrent_step_retries_are_idempotent_and_progress_is_monotonic(tmp_path):
     path = tmp_path / "step-race.db"
     db = ResultsDB(path)

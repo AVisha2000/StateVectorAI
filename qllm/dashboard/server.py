@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
@@ -24,7 +24,15 @@ from ..config import QuantumConfig
 from ..registry import supported_choices_payload
 from ..research_service import ResearchQuotaExceeded, ResearchServiceError
 from . import queries as Q
+from .atlas import AtlasOntologyError, AtlasOntologyResponse, atlas_ontology_response
 from .datasets import import_hf_text_dataset, list_datasets
+from .designer import (
+    DesignerCircuitCapabilitiesResponse,
+    DesignerCircuitRequest,
+    DesignerCircuitValidationResponse,
+    designer_circuit_capabilities,
+    validate_designer_circuit,
+)
 from .diagnostics import DiagnosticsPayload, diagnostics_payload
 from .explore import domain_payload, explore_payload, result_dashboard_payload
 from .lab import (
@@ -62,14 +70,13 @@ from .research import (
 )
 from .runner import ExperimentQueue
 from .security import (
+    DashboardAccessMiddleware,
     LOOPBACK_ORIGIN_REGEX,
+    MAX_API_MUTATION_BODY_BYTES,
     access_status,
-    client_access_allowed,
     configured_cors_origins,
     is_hf_hub_dataset_id,
-    json_media_type,
     remote_access_enabled,
-    request_origin_allowed,
     resolve_data_path,
     resolve_web_asset,
 )
@@ -104,44 +111,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=["Accept", "Authorization", "Content-Type"],
 )
-
-
-@app.middleware("http")
-async def enforce_local_request_access(request: Request, call_next):
-    """Keep direct ``uvicorn ...server:app`` launches local by default."""
-    client_host = request.client.host if request.client else None
-    if not client_access_allowed(client_host):
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "Dashboard access is restricted to loopback clients."},
-        )
-    if request.url.path.startswith("/api/") and request.method in {
-        "POST",
-        "PATCH",
-        "PUT",
-        "DELETE",
-    }:
-        origin = request.headers.get("origin")
-        origin_allowed = bool(origin and request_origin_allowed(origin))
-        if (
-            request.headers.get("sec-fetch-site", "").lower() == "cross-site"
-            and not origin_allowed
-        ):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Cross-site API mutation requests are not allowed."},
-            )
-        if origin and not origin_allowed:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "API mutation origin is not allowed."},
-            )
-        if await request.body() and not json_media_type(request.headers.get("content-type")):
-            return JSONResponse(
-                status_code=415,
-                content={"detail": "API mutation request bodies must use application/json."},
-            )
-    return await call_next(request)
+app.add_middleware(
+    DashboardAccessMiddleware,
+    max_body_bytes=MAX_API_MUTATION_BODY_BYTES,
+)
 
 
 def db() -> ResultsDB:
@@ -219,6 +192,42 @@ def api_config_choices() -> dict:
     payload = supported_choices_payload()
     payload["quantum_default"] = dataclasses.asdict(QuantumConfig())
     return payload
+
+
+@app.get(
+    "/api/atlas/ontology",
+    response_model=AtlasOntologyResponse,
+)
+def api_atlas_ontology() -> AtlasOntologyResponse:
+    try:
+        return atlas_ontology_response()
+    except AtlasOntologyError as exc:
+        logger.exception("Invalid Atlas ontology configuration")
+        raise HTTPException(
+            status_code=500,
+            detail="Atlas ontology configuration is invalid.",
+        ) from exc
+
+
+@app.get(
+    "/api/designer/circuit",
+    response_model=DesignerCircuitCapabilitiesResponse,
+)
+def api_designer_circuit_capabilities() -> DesignerCircuitCapabilitiesResponse:
+    return designer_circuit_capabilities()
+
+
+@app.post(
+    "/api/designer/circuit",
+    response_model=DesignerCircuitValidationResponse,
+)
+def api_validate_designer_circuit(
+    payload: DesignerCircuitRequest,
+) -> DesignerCircuitValidationResponse:
+    try:
+        return validate_designer_circuit(payload)
+    except Exception as exc:
+        raise _payload_error(exc) from exc
 
 
 @app.get("/api/claims")

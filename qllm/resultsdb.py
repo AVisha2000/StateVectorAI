@@ -268,6 +268,10 @@ class ResultsDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as con:
             con.executescript(_SCHEMA)
+            # Re-check every additive migration while holding the write lock.
+            # Concurrent first-open callers then serialize and observe the
+            # schema produced by the previous caller instead of racing ALTERs.
+            con.execute("BEGIN IMMEDIATE")
             self._ensure_lab_dataset_columns(con)
             self._ensure_lab_job_columns(con)
             self._ensure_run_identity_columns(con)

@@ -33,6 +33,7 @@ from qllm.research_protocol import (
     resource_normalized_delta,
     sign_flip_test,
     two_stream_metric_contract,
+    with_legacy_assessment_alias,
 )
 
 
@@ -86,14 +87,16 @@ def test_single_run_is_downgraded_to_anecdote():
         metric_name="validation perplexity",
     )
     assert verdict["label"] == "single-run candidate better"
-    assert verdict["claim_level"] == "anecdote"
+    assert verdict["assessment_level"] == "anecdote"
+    assert "claim_level" not in verdict
+    assert with_legacy_assessment_alias(verdict)["claim_level"] == "anecdote"
 
 
 def test_unfair_protocol_rejects_claim():
     unfair = dict(FAIR, same_seed=False)
     verdict = classify_claim(fairness=unfair, single_delta=1.0)
     assert verdict["label"] == "insufficient fairness"
-    assert verdict["claim_level"] == "invalid"
+    assert verdict["assessment_level"] == "invalid"
 
 
 def test_paired_stats_can_support_empirical_edge():
@@ -122,7 +125,7 @@ def test_paired_stats_can_support_empirical_edge():
         analogue_ladder={"required_complete": True, "missing_required": []},
     )
     assert verdict["label"] == "paired empirical edge"
-    assert verdict["claim_level"] == "empirical"
+    assert verdict["assessment_level"] == "empirical"
 
 
 def test_dequantization_gap_downgrades_paired_edge():
@@ -138,7 +141,7 @@ def test_dequantization_gap_downgrades_paired_edge():
         dequantization_gap=-0.01,
     )
     assert verdict["label"] == "matched by classical surrogate"
-    assert verdict["claim_level"] == "quantum-inspired"
+    assert verdict["assessment_level"] == "quantum-inspired"
 
 
 def test_resource_ledger_covers_required_quantum_fields(tiny_quantum_cfg):

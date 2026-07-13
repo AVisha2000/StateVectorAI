@@ -64,6 +64,782 @@
         "title": "ArxivScanResponse",
         "type": "object"
       },
+      "AtlasCell": {
+        "additionalProperties": false,
+        "properties": {
+          "advantage_target": {
+            "title": "Advantage Target",
+            "type": "string"
+          },
+          "advantage_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Advantage Targets",
+            "type": "array"
+          },
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "head_to_head",
+              "quantum_only",
+              "suggested",
+              "unexplored"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pipeline_stage": {
+            "title": "Pipeline Stage",
+            "type": "string"
+          },
+          "pipeline_stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pipeline Stages",
+            "type": "array"
+          },
+          "portfolio": {
+            "title": "Portfolio",
+            "type": "string"
+          },
+          "quantum_resource": {
+            "title": "Quantum Resource",
+            "type": "string"
+          },
+          "quantum_resources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Quantum Resources",
+            "type": "array"
+          },
+          "seed_claim_level": {
+            "title": "Seed Claim Level",
+            "type": "string"
+          },
+          "seed_replication_status": {
+            "title": "Seed Replication Status",
+            "type": "string"
+          },
+          "seed_status": {
+            "title": "Seed Status",
+            "type": "string"
+          },
+          "verdict_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AtlasVerdictRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "area_id",
+          "label",
+          "kind",
+          "portfolio",
+          "pipeline_stage",
+          "quantum_resource",
+          "advantage_target",
+          "pipeline_stages",
+          "quantum_resources",
+          "advantage_targets",
+          "seed_status",
+          "seed_claim_level",
+          "seed_replication_status"
+        ],
+        "title": "AtlasCell",
+        "type": "object"
+      },
+      "AtlasDomain": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/AtlasCell"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description",
+          "cells"
+        ],
+        "title": "AtlasDomain",
+        "type": "object"
+      },
+      "AtlasOntologyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claim_levels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Claim Levels",
+            "type": "array"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/AtlasDomain"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "ontology_updated": {
+            "title": "Ontology Updated",
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/AtlasRelation"
+            },
+            "title": "Relations",
+            "type": "array"
+          },
+          "replication_statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Replication Statuses",
+            "type": "array"
+          },
+          "research_map_schema_version": {
+            "title": "Research Map Schema Version",
+            "type": "integer"
+          },
+          "research_map_updated": {
+            "title": "Research Map Updated",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "const": "backend-canonical",
+            "default": "backend-canonical",
+            "title": "Source",
+            "type": "string"
+          },
+          "status_values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Status Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "ontology_updated",
+          "research_map_schema_version",
+          "research_map_updated",
+          "note",
+          "claim_levels",
+          "replication_statuses",
+          "status_values",
+          "domains",
+          "relations"
+        ],
+        "title": "AtlasOntologyResponse",
+        "type": "object"
+      },
+      "AtlasRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "from_cell": {
+            "title": "From Cell",
+            "type": "string"
+          },
+          "to_cell": {
+            "title": "To Cell",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_cell",
+          "to_cell",
+          "type"
+        ],
+        "title": "AtlasRelation",
+        "type": "object"
+      },
+      "AtlasVerdictRef": {
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Kind"
+          },
+          "verdict_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Key"
+          }
+        },
+        "title": "AtlasVerdictRef",
+        "type": "object"
+      },
+      "DesignerBounds": {
+        "additionalProperties": false,
+        "properties": {
+          "maximum": {
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minimum",
+          "maximum"
+        ],
+        "title": "DesignerBounds",
+        "type": "object"
+      },
+      "DesignerCircuitCapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "choices": {
+            "$ref": "#/components/schemas/DesignerCircuitChoices"
+          },
+          "client_estimates_authoritative": {
+            "const": false,
+            "default": false,
+            "title": "Client Estimates Authoritative",
+            "type": "boolean"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/DesignerCircuitConstraints"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/DesignerCircuitSpec"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "side_effect_free": {
+            "const": true,
+            "default": true,
+            "title": "Side Effect Free",
+            "type": "boolean"
+          },
+          "validation_only": {
+            "const": true,
+            "default": true,
+            "title": "Validation Only",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "choices",
+          "defaults",
+          "constraints",
+          "warnings"
+        ],
+        "title": "DesignerCircuitCapabilitiesResponse",
+        "type": "object"
+      },
+      "DesignerCircuitChoices": {
+        "additionalProperties": false,
+        "properties": {
+          "architecture": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Architecture",
+            "type": "array"
+          },
+          "backend": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Backend",
+            "type": "array"
+          },
+          "circuit_ansatz": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Circuit Ansatz",
+            "type": "array"
+          },
+          "qrnn_only_ansatz": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Qrnn Only Ansatz",
+            "type": "array"
+          },
+          "readout": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readout",
+            "type": "array"
+          }
+        },
+        "required": [
+          "architecture",
+          "circuit_ansatz",
+          "qrnn_only_ansatz",
+          "backend",
+          "readout"
+        ],
+        "title": "DesignerCircuitChoices",
+        "type": "object"
+      },
+      "DesignerCircuitConstraints": {
+        "additionalProperties": false,
+        "properties": {
+          "n_circuit_layers": {
+            "$ref": "#/components/schemas/DesignerBounds"
+          },
+          "n_qubits": {
+            "$ref": "#/components/schemas/DesignerBounds"
+          },
+          "qrnn_only_ansatz_requires_architecture": {
+            "title": "Qrnn Only Ansatz Requires Architecture",
+            "type": "string"
+          },
+          "tensorcircuit_mps_requires": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tensorcircuit Mps Requires",
+            "type": "array"
+          }
+        },
+        "required": [
+          "n_qubits",
+          "n_circuit_layers",
+          "qrnn_only_ansatz_requires_architecture",
+          "tensorcircuit_mps_requires"
+        ],
+        "title": "DesignerCircuitConstraints",
+        "type": "object"
+      },
+      "DesignerCircuitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ansatz": {
+            "title": "Ansatz",
+            "type": "string"
+          },
+          "architecture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Architecture"
+          },
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "entangling_gates": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entangling Gates"
+          },
+          "mps_max_bond_dimension": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mps Max Bond Dimension"
+          },
+          "n_circuit_layers": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "N Circuit Layers",
+            "type": "integer"
+          },
+          "n_qubits": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "N Qubits",
+            "type": "integer"
+          },
+          "readout": {
+            "title": "Readout",
+            "type": "string"
+          },
+          "trainable_params": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trainable Params"
+          }
+        },
+        "required": [
+          "ansatz",
+          "n_qubits",
+          "n_circuit_layers",
+          "backend",
+          "readout"
+        ],
+        "title": "DesignerCircuitRequest",
+        "type": "object"
+      },
+      "DesignerCircuitSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "ansatz": {
+            "title": "Ansatz",
+            "type": "string"
+          },
+          "architecture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Architecture"
+          },
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "diff_method": {
+            "title": "Diff Method",
+            "type": "string"
+          },
+          "mps_max_bond_dimension": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mps Max Bond Dimension"
+          },
+          "n_circuit_layers": {
+            "title": "N Circuit Layers",
+            "type": "integer"
+          },
+          "n_qubits": {
+            "title": "N Qubits",
+            "type": "integer"
+          },
+          "readout": {
+            "title": "Readout",
+            "type": "string"
+          },
+          "shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shots"
+          }
+        },
+        "required": [
+          "ansatz",
+          "n_qubits",
+          "n_circuit_layers",
+          "backend",
+          "readout",
+          "architecture",
+          "device",
+          "diff_method",
+          "shots",
+          "mps_max_bond_dimension"
+        ],
+        "title": "DesignerCircuitSpec",
+        "type": "object"
+      },
+      "DesignerCircuitValidationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "client_estimates": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DesignerClientEstimateReview"
+            },
+            "title": "Client Estimates",
+            "type": "object"
+          },
+          "derived": {
+            "$ref": "#/components/schemas/DesignerDerivedProperties"
+          },
+          "ignored_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Fields",
+            "type": "array"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/DesignerCircuitSpec"
+          },
+          "valid": {
+            "const": true,
+            "default": true,
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "validation_only": {
+            "const": true,
+            "default": true,
+            "title": "Validation Only",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "spec",
+          "derived",
+          "ignored_fields",
+          "client_estimates",
+          "warnings"
+        ],
+        "title": "DesignerCircuitValidationResponse",
+        "type": "object"
+      },
+      "DesignerClientEstimateReview": {
+        "additionalProperties": false,
+        "properties": {
+          "authoritative": {
+            "const": false,
+            "default": false,
+            "title": "Authoritative",
+            "type": "boolean"
+          },
+          "matches_derived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matches Derived"
+          },
+          "supplied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplied"
+          }
+        },
+        "required": [
+          "supplied"
+        ],
+        "title": "DesignerClientEstimateReview",
+        "type": "object"
+      },
+      "DesignerDerivedMetric": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "derived",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "status",
+          "scope"
+        ],
+        "title": "DesignerDerivedMetric",
+        "type": "object"
+      },
+      "DesignerDerivedProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "circuit_weight_shape": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Circuit Weight Shape",
+            "type": "array"
+          },
+          "entangling_gates": {
+            "$ref": "#/components/schemas/DesignerDerivedMetric"
+          },
+          "readout_features": {
+            "$ref": "#/components/schemas/DesignerDerivedMetric"
+          },
+          "trainable_circuit_parameters": {
+            "$ref": "#/components/schemas/DesignerDerivedMetric"
+          }
+        },
+        "required": [
+          "circuit_weight_shape",
+          "trainable_circuit_parameters",
+          "readout_features",
+          "entangling_gates"
+        ],
+        "title": "DesignerDerivedProperties",
+        "type": "object"
+      },
       "DiagnosticDimension": {
         "additionalProperties": false,
         "description": "One persisted mechanism or trainability observation.",
@@ -812,6 +1588,24 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/atlas/ontology": {
+      "get": {
+        "operationId": "api_atlas_ontology_api_atlas_ontology_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasOntologyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api Atlas Ontology"
+      }
+    },
     "/api/claims": {
       "get": {
         "operationId": "api_claims_api_claims_get",
@@ -959,6 +1753,60 @@
           }
         },
         "summary": "Api Import Hf"
+      }
+    },
+    "/api/designer/circuit": {
+      "get": {
+        "operationId": "api_designer_circuit_capabilities_api_designer_circuit_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesignerCircuitCapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api Designer Circuit Capabilities"
+      },
+      "post": {
+        "operationId": "api_validate_designer_circuit_api_designer_circuit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesignerCircuitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesignerCircuitValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Validate Designer Circuit"
       }
     },
     "/api/discover/arxiv/scan": {

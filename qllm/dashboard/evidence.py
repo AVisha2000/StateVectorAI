@@ -375,9 +375,15 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
         label = "promising run"
         reason = "single fair run improves, but study/control evidence is still required"
 
+    assessment_level = (
+        verdict.get("assessment_level")
+        or verdict.get("claim_level")
+        or "run"
+    )
     return {
         "label": label,
-        "claim_level": verdict.get("claim_level") or "run",
+        "assessment_level": assessment_level,
+        "claim_level": assessment_level,
         "claim_id": payload.get("claim_id"),
         "assessment_status": payload.get("assessment_status") or verdict.get("assessment_status"),
         "reason": reason,

@@ -137,6 +137,26 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   D4 provider/spend and all GPU/QPU, claim-promotion, environment, and branch-
   merge gates remain closed.
 
+- 2026-07-12 · backend: Audit P2 hardening is implemented on
+  `backend-enhancements`: additive SQLite migrations serialize concurrent
+  first-open, mutating API bodies have a streamed 1 MiB ceiling, all 60 API
+  method/path pairs have exact-status HTTP coverage, `status.py` is hermetic,
+  and derived classifications now use `assessment_level` with a boundary-only
+  legacy alias. Final selected evidence: dashboard `306 passed, 1 skipped`;
+  full CPU suite `663 passed, 1 skipped`; isolated CPU queue smoke completed job
+  `1` at step `1` with a durable checkpoint.
+- 2026-07-12 · backend: `GET/POST /designer/circuit` and
+  `GET /atlas/ontology` are implemented with typed OpenAPI. Designer is
+  validation-only, registry-backed, and rejects unsupported QRNN/backend/MPS
+  intent; client gate/parameter estimates are non-authoritative. Atlas covers
+  all 19 map areas and 10 map-owned relations while loading status, claim, and
+  replication only from `RESEARCH_MAP.yaml`. **UI follow-up:** remove
+  `readout: all`; send explicit `architecture: qrnn` for Ising; provide a
+  bounded MPS bond dimension or hide that choice; and forward
+  ansatz/backend/readout when Bench gains full Designer fidelity. The user
+  approved the six Atlas display groupings and retained trusted-local L5 dataset
+  imports on 2026-07-13. D4 stays closed.
+
 ## Log — from UI (Claude appends here)
 
 - 2026-07-11 · ui: Phase 1 foundation shipped on `ui-redesign` (`9c8b26f`): new

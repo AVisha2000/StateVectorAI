@@ -477,6 +477,7 @@ def _run_result_row(
         "assessment_status": item.get("assessment_status"),
         "rerun_required": bool(item.get("rerun_required")),
         "verdict_label": None,
+        "assessment_level": None,
         "claim_level": None,
         "link": item["link"],
         "comparison_link": None,
@@ -538,7 +539,10 @@ def _job_result_row(db: ResultsDB, job: dict) -> dict:
         "assessment_status": item.get("assessment_status"),
         "rerun_required": bool(item.get("rerun_required")),
         "verdict_label": verdict.get("label"),
-        "claim_level": verdict.get("claim_level"),
+        "assessment_level": (
+            verdict.get("assessment_level") or verdict.get("claim_level")
+        ),
+        "claim_level": verdict.get("assessment_level") or verdict.get("claim_level"),
         "resource_normalized": resource_normalized,
         "link": item["link"],
         "comparison_link": item["comparison_link"],

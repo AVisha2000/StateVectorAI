@@ -1380,6 +1380,7 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     assert comparison["fairness"]["same_preprocessing"] is True
     assert comparison["fairness"]["matched_config_fields"]["train.batch_size"] is True
     assert comparison["verdict"]["label"] == "single-run candidate better"
+    assert comparison["verdict"]["assessment_level"] == "anecdote"
     assert comparison["verdict"]["claim_level"] == "anecdote"
     assert comparison["resource_normalized"]["improvement"] == pytest.approx(0.5)
     assert comparison["resource_normalized"]["improvement_per_extra_second"] == pytest.approx(1 / 3)
@@ -1389,6 +1390,7 @@ def test_workspace_payload_includes_job_metadata_and_comparison_deltas(tmp_path)
     assert "single_seed" in {row["code"] for row in comparison["interpretation_warnings"]}
     ladder = comparison["evidence_ladder"]
     assert ladder["label"] in {"promising run", "cost-aware promising run"}
+    assert ladder["assessment_level"] == ladder["claim_level"] == "anecdote"
     by_key = {step["key"]: step for step in ladder["steps"]}
     assert by_key["matched_baseline"]["ok"] is True
     assert by_key["fair_protocol"]["ok"] is True
@@ -1496,6 +1498,7 @@ def test_result_dashboard_payload_surfaces_cards_cost_and_verdicts(tmp_path):
     assert qrow["resource"]["n_qubits"] == 4
     assert qrow["resource"]["resource_band"] in {"low", "medium", "high", "extreme", "classical"}
     assert qrow["verdict_label"] == "single-run candidate better"
+    assert qrow["assessment_level"] == "anecdote"
     assert qrow["claim_level"] == "anecdote"
     assert qrow["claim_id"] == "variational_component_swaps"
     assert qrow["metric_type"] == "validation_perplexity"
@@ -1539,6 +1542,8 @@ def test_historical_two_stream_rows_are_visible_but_never_promoted(tmp_path):
     )
     assert historical_row["rerun_required"] is True
     assert historical_row["metric_type"] == "teacher_forced_side_information"
+    assert historical_row["assessment_level"] is None
+    assert historical_row["claim_level"] is None
     assert payload["protocol_warnings"]
     champion = next(
         card for card in payload["summaries"]

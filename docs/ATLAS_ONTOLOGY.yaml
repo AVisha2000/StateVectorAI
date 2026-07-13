@@ -1,0 +1,152 @@
+schema_version: 1
+updated: 2026-07-12
+purpose: >-
+  Curated display grouping for the QLLM Atlas. This file owns only domain,
+  cell, and primary-dimension placement metadata. Status, claim level,
+  replication status, labels, and relations always come from RESEARCH_MAP.yaml.
+relation_source: research_map
+
+domains:
+  - id: lm_components
+    label: Language-model components
+    description: Quantum components embedded in otherwise classical language models.
+    cells:
+      - id: c_variational_swaps
+        area_id: variational_component_swaps
+        kind: head_to_head
+        pipeline_stage: representation
+        quantum_resource: interference
+        advantage_target: predictive_quality
+      - id: c_two_stream
+        area_id: two_stream_conditioning
+        kind: head_to_head
+        pipeline_stage: representation
+        quantum_resource: interference
+        advantage_target: predictive_quality
+      - id: c_unitary_transplant
+        area_id: unitary_weight_transplant
+        kind: head_to_head
+        pipeline_stage: model
+        quantum_resource: interference
+        advantage_target: parameter_efficiency
+
+  - id: sequence_memory
+    label: Sequence and memory models
+    description: Recurrent mechanisms and tasks where state or context is central.
+    cells:
+      - id: c_qrnn
+        area_id: qrnn_representability_and_training
+        kind: head_to_head
+        pipeline_stage: model
+        quantum_resource: quantum_memory
+        advantage_target: memory_efficiency
+      - id: c_monitored_memory
+        area_id: monitored_quantum_memory
+        kind: head_to_head
+        pipeline_stage: data_acquisition
+        quantum_resource: quantum_memory
+        advantage_target: memory_efficiency
+      - id: c_parity_memory
+        area_id: heuristic_parity_memory
+        kind: head_to_head
+        pipeline_stage: data_acquisition
+        quantum_resource: interference
+        advantage_target: memory_efficiency
+      - id: c_theorem_faithful
+        area_id: theorem_faithful_contextual_sequence_learning
+        kind: unexplored
+        pipeline_stage: data_acquisition
+        quantum_resource: contextuality
+        advantage_target: memory_efficiency
+
+  - id: interference_generation
+    label: Interference and generation
+    description: Output, cancellation, and generative mechanisms based on interference.
+    cells:
+      - id: c_interference_head
+        area_id: interference_output_head
+        kind: head_to_head
+        pipeline_stage: inference
+        quantum_resource: interference
+        advantage_target: expressivity_or_depth
+      - id: c_sequential_interference
+        area_id: sequential_interference
+        kind: head_to_head
+        pipeline_stage: generation
+        quantum_resource: interference
+        advantage_target: predictive_quality
+      - id: c_generative
+        area_id: quantum_generative_models
+        kind: unexplored
+        pipeline_stage: generation
+        quantum_resource: interference
+        advantage_target: sample_complexity
+
+  - id: kernels_features
+    label: Kernels and feature maps
+    description: Quantum feature acquisition and its strongest classical explanations.
+    cells:
+      - id: c_kernel_geometry
+        area_id: kernel_geometry_controls
+        kind: head_to_head
+        pipeline_stage: representation
+        quantum_resource: interference
+        advantage_target: sample_complexity
+      - id: c_projected_kernels
+        area_id: projected_quantum_kernels
+        kind: unexplored
+        pipeline_stage: representation
+        quantum_resource: measurement
+        advantage_target: sample_complexity
+      - id: c_shadow_models
+        area_id: post_variational_shadow_models
+        kind: unexplored
+        pipeline_stage: representation
+        quantum_resource: quantum_data_access
+        advantage_target: sample_complexity
+
+  - id: trainability
+    label: Trainability and training
+    description: Diagnostics and methods for optimization under realistic constraints.
+    cells:
+      - id: c_barren_plateau
+        area_id: barren_plateau_scaling
+        kind: head_to_head
+        pipeline_stage: training
+        quantum_resource: entanglement
+        advantage_target: training_time
+      - id: c_hardware_training
+        area_id: hardware_feasible_training_methods
+        kind: head_to_head
+        pipeline_stage: training
+        quantum_resource: measurement
+        advantage_target: training_time
+
+  - id: frontier_paradigms
+    label: Frontier quantum-native paradigms
+    description: Settings with quantum data, channels, or fault-tolerant primitives.
+    cells:
+      - id: c_coherent_data
+        area_id: coherent_quantum_data_learning
+        kind: quantum_only
+        pipeline_stage: data_acquisition
+        quantum_resource: quantum_data_access
+        advantage_target: sample_complexity
+      - id: c_reservoir
+        area_id: quantum_reservoir_and_dynamic_circuits
+        kind: unexplored
+        pipeline_stage: model
+        quantum_resource: quantum_memory
+        advantage_target: training_time
+      - id: c_fault_tolerant
+        area_id: fault_tolerant_ml_primitives
+        kind: quantum_only
+        pipeline_stage: training
+        quantum_resource: amplitude_estimation
+        advantage_target: query_complexity
+      - id: c_communication_limited
+        area_id: communication_limited_quantum_learning
+        kind: quantum_only
+        pipeline_stage: data_acquisition
+        quantum_resource: entanglement
+        advantage_target: communication_complexity

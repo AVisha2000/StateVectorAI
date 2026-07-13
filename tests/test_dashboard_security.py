@@ -373,11 +373,49 @@ def test_api_mutation_request_policy_and_payload_error_classification(
     assert wrong_media_type.status_code == 415
     assert calls == []
 
+    declared_oversized = client.post(
+        "/api/jobs",
+        content=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(server.MAX_API_MUTATION_BODY_BYTES + 1),
+        },
+    )
+    assert declared_oversized.status_code == 413
+    assert calls == []
+
+    base_payload = b'{"preset_id":"classical-small"}'
+    exact_limit_payload = base_payload + b" " * (
+        server.MAX_API_MUTATION_BODY_BYTES - len(base_payload)
+    )
+    exact_limit = client.post(
+        "/api/jobs",
+        content=exact_limit_payload,
+        headers={"Content-Type": "application/json"},
+    )
+    assert exact_limit.status_code == 200
+    assert len(calls) == 1
+
+    def oversized_chunks():
+        yield base_payload
+        yield b" " * server.MAX_API_MUTATION_BODY_BYTES
+
+    chunked_oversized = client.post(
+        "/api/jobs",
+        content=oversized_chunks(),
+        headers={
+            "Content-Type": "application/json",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+    assert chunked_oversized.status_code == 413
+    assert len(calls) == 1
+
     bodyless_cross_site = client.post(
         "/api/jobs/1/cancel", headers={"Sec-Fetch-Site": "cross-site"}
     )
     assert bodyless_cross_site.status_code == 403
-    assert calls == []
+    assert len(calls) == 1
 
     accepted = client.post(
         "/api/jobs",
@@ -386,7 +424,7 @@ def test_api_mutation_request_policy_and_payload_error_classification(
     )
     assert accepted.status_code == 200
     assert accepted.json() == {"queued": True}
-    assert len(calls) == 1
+    assert len(calls) == 2
 
     monkeypatch.setenv("QLLM_ALLOW_REMOTE", "1")
     monkeypatch.setenv("QLLM_CORS_ORIGINS", '["https://allowed.example"]')
@@ -399,7 +437,7 @@ def test_api_mutation_request_policy_and_payload_error_classification(
         },
     )
     assert allowlisted_remote.status_code == 200
-    assert len(calls) == 2
+    assert len(calls) == 3
     monkeypatch.setenv("QLLM_ALLOW_REMOTE", "0")
     monkeypatch.setenv("QLLM_CORS_ORIGINS", "[]")
 

@@ -16,6 +16,7 @@ from ..research_protocol import (
     paired_power_plan,
     paired_stats,
     practical_equivalence,
+    with_legacy_assessment_alias,
 )
 from ..resultsdb import ResultsDB
 from .datasets import get_dataset
@@ -524,7 +525,7 @@ def _evidence_for_jobs(
             for row in unique
         ]
         ladder = _aggregate_analogue_ladders(ladders)
-        verdict = (
+        verdict = with_legacy_assessment_alias(
             classify_claim(
                 fairness={
                     "same_dataset": True,
@@ -544,7 +545,7 @@ def _evidence_for_jobs(
             )
             if stats else {
                 "label": "incomplete",
-                "claim_level": "incomplete",
+                "assessment_level": "incomplete",
                 "assessment_status": "incomplete",
                 "reason": "no unique fair paired observations",
             }

@@ -30,6 +30,8 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     assert "/api/verdicts/{verdict_id}" in document["paths"]
     assert "/api/research/capabilities" in document["paths"]
     assert "/api/discover/arxiv/scan" in document["paths"]
+    assert set(document["paths"]["/api/atlas/ontology"]) == {"get"}
+    assert set(document["paths"]["/api/designer/circuit"]) == {"get", "post"}
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
 
@@ -46,6 +48,31 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     assert status_schema["properties"]["gpu_available"]["type"] == "boolean"
     for key in ("queued", "running", "runs"):
         assert status_schema["properties"][key]["type"] == "integer"
+
+    designer_request = document["components"]["schemas"][
+        "DesignerCircuitRequest"
+    ]
+    assert designer_request["additionalProperties"] is False
+    assert set(designer_request["required"]) == {
+        "ansatz",
+        "n_qubits",
+        "n_circuit_layers",
+        "backend",
+        "readout",
+    }
+
+    atlas_cell = document["components"]["schemas"]["AtlasCell"]
+    assert atlas_cell["additionalProperties"] is False
+    assert {
+        "seed_status",
+        "seed_claim_level",
+        "seed_replication_status",
+    } <= set(atlas_cell["required"])
+    assert not {
+        "advantage_score",
+        "composite_score",
+        "composite_advantage_score",
+    } & set(atlas_cell["properties"])
 
     stream_response = document["paths"]["/api/stream/jobs"]["get"]["responses"]["200"]
     assert "text/event-stream" in stream_response["content"]

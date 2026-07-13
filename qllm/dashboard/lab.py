@@ -11,6 +11,7 @@ from ..research_protocol import (
     normalize_seed_axes,
     resource_normalized_delta,
     two_stream_metric_contract,
+    with_legacy_assessment_alias,
 )
 from ..resultsdb import ResultsDB
 from .analogues import analogue_status_for_job
@@ -163,6 +164,7 @@ def verdict_for_comparison(payload: dict, metric_type: str | None = None) -> dic
     if metric_type not in PAIRABLE_VAL_PPL_METRIC_TYPES:
         return {
             "label": "unsupported metric",
+            "assessment_level": "descriptive",
             "claim_level": "descriptive",
             "assessment_status": "unsupported",
             "reason": (
@@ -185,6 +187,7 @@ def verdict_for_comparison(payload: dict, metric_type: str | None = None) -> dic
         single_delta=-float(delta),  # val_ppl is lower-is-better.
         metric_name="validation perplexity",
     )
+    verdict = with_legacy_assessment_alias(verdict)
     verdict["fairness"] = flags
     return verdict
 
@@ -243,10 +246,11 @@ def comparison_research_payload(
     if metric_contract and metric_contract["rerun_required"]:
         verdict = {
             "label": "rerun required",
-            "claim_level": "invalid",
+            "assessment_level": "invalid",
             "assessment_status": "rerun_required",
             "reason": metric_contract["limitation"],
         }
+        verdict = with_legacy_assessment_alias(verdict)
     payload["fairness"] = verdict.get("fairness") or fairness_flags(
         payload.get("candidate"), payload.get("baseline")
     )

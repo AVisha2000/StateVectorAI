@@ -244,7 +244,7 @@ def comparison_verdict_snapshot(db: ResultsDB, payload: Mapping[str, Any]) -> di
         "source_id": str(source_id),
         "claim_id": claim_id,
         "assessment": {
-            "level": verdict.get("claim_level"),
+            "level": verdict.get("assessment_level") or verdict.get("claim_level"),
             "status": payload.get("assessment_status") or verdict.get("assessment_status"),
         },
         "source_job_id": candidate_job.get("id"),

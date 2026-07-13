@@ -8,6 +8,10 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 
 LOOPBACK_ORIGIN_REGEX = (
     r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$"
@@ -16,6 +20,8 @@ _HF_HUB_DATASET_ID = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?"
     r"(?:/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?)?$"
 )
+MAX_API_MUTATION_BODY_BYTES = 1024 * 1024
+_MUTATION_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
 
 
 def _truthy(value: str | None) -> bool:
@@ -106,6 +112,147 @@ def json_media_type(content_type: str | None) -> bool:
     return media_type == "application/json" or (
         media_type.startswith("application/") and media_type.endswith("+json")
     )
+
+
+class DashboardAccessMiddleware:
+    """Enforce the local trust boundary before buffering bounded JSON bodies."""
+
+    def __init__(self, app: ASGIApp, *, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        client_host = client[0] if client else None
+        if not client_access_allowed(client_host):
+            await self._reject(
+                scope,
+                receive,
+                send,
+                403,
+                "Dashboard access is restricted to loopback clients.",
+            )
+            return
+
+        path = str(scope.get("path", ""))
+        method = str(scope.get("method", "GET")).upper()
+        if not path.startswith("/api/") or method not in _MUTATION_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        origin = headers.get("origin")
+        origin_allowed = bool(origin and request_origin_allowed(origin))
+        if (
+            headers.get("sec-fetch-site", "").lower() == "cross-site"
+            and not origin_allowed
+        ):
+            await self._reject(
+                scope,
+                receive,
+                send,
+                403,
+                "Cross-site API mutation requests are not allowed.",
+            )
+            return
+        if origin and not origin_allowed:
+            await self._reject(
+                scope,
+                receive,
+                send,
+                403,
+                "API mutation origin is not allowed.",
+            )
+            return
+
+        content_length = self._content_length(headers.get("content-length"))
+        if content_length and not json_media_type(headers.get("content-type")):
+            await self._reject(
+                scope,
+                receive,
+                send,
+                415,
+                "API mutation request bodies must use application/json.",
+            )
+            return
+        if content_length is not None and content_length > self.max_body_bytes:
+            await self._too_large(scope, receive, send)
+            return
+
+        messages: list[Message] = []
+        received = 0
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] == "http.disconnect":
+                break
+            if message["type"] != "http.request":
+                continue
+            received += len(message.get("body", b""))
+            if received > self.max_body_bytes:
+                await self._too_large(scope, receive, send)
+                return
+            if not message.get("more_body", False):
+                break
+
+        if received and not json_media_type(headers.get("content-type")):
+            await self._reject(
+                scope,
+                receive,
+                send,
+                415,
+                "API mutation request bodies must use application/json.",
+            )
+            return
+
+        message_index = 0
+
+        async def replay_receive() -> Message:
+            nonlocal message_index
+            if message_index < len(messages):
+                message = messages[message_index]
+                message_index += 1
+                return message
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+    @staticmethod
+    def _content_length(raw: str | None) -> int | None:
+        try:
+            value = int(raw) if raw is not None else None
+        except ValueError:
+            return None
+        return value if value is None or value >= 0 else None
+
+    async def _too_large(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        await self._reject(
+            scope,
+            receive,
+            send,
+            413,
+            f"API mutation request bodies are limited to {self.max_body_bytes} bytes.",
+        )
+
+    @staticmethod
+    async def _reject(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        status_code: int,
+        detail: str,
+    ) -> None:
+        await JSONResponse(status_code=status_code, content={"detail": detail})(
+            scope, receive, send
+        )
 
 
 def access_status() -> dict:

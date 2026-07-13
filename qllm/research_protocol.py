@@ -1218,6 +1218,20 @@ def _coerce_stats(value: PairedStats | Mapping[str, Any]) -> PairedStats:
     return PairedStats(**{key: item for key, item in value.items() if key in fields})
 
 
+def with_legacy_assessment_alias(
+    assessment: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Add the deprecated dashboard ``claim_level`` assessment alias.
+
+    Canonical claim-ledger levels never pass through this helper. It exists
+    only while older dashboard consumers migrate to ``assessment_level``.
+    """
+    payload = dict(assessment)
+    if "assessment_level" in payload and "claim_level" not in payload:
+        payload["claim_level"] = payload["assessment_level"]
+    return payload
+
+
 def classify_claim(
     *,
     fairness: dict,
@@ -1245,7 +1259,7 @@ def classify_claim(
     if not all(bool(fairness.get(k)) for k in required):
         return {
             "label": "insufficient fairness",
-            "claim_level": "invalid",
+            "assessment_level": "invalid",
             "assessment_status": "invalid",
             "reason": "protocol fields do not match",
             "metric": metric_name,
@@ -1253,7 +1267,7 @@ def classify_claim(
     if fairness.get("valid") is False:
         return {
             "label": "insufficient fairness",
-            "claim_level": "invalid",
+            "assessment_level": "invalid",
             "assessment_status": "invalid",
             "reason": "one or more undisclosed protocol mismatches remain",
             "metric": metric_name,
@@ -1263,7 +1277,7 @@ def classify_claim(
         if single_delta is None:
             return {
                 "label": "incomplete",
-                "claim_level": "incomplete",
+                "assessment_level": "incomplete",
                 "assessment_status": "incomplete",
                 "reason": f"{metric_name} is unavailable",
                 "metric": metric_name,
@@ -1271,7 +1285,7 @@ def classify_claim(
         if single_delta > 0:
             return {
                 "label": "single-run candidate better",
-                "claim_level": "anecdote",
+                "assessment_level": "anecdote",
                 "assessment_status": "smoke",
                 "reason": "one fair pair is useful smoke evidence, not an advantage claim",
                 "metric": metric_name,
@@ -1279,14 +1293,14 @@ def classify_claim(
         if single_delta < 0:
             return {
                 "label": "single-run baseline better",
-                "claim_level": "no evidence",
+                "assessment_level": "no evidence",
                 "assessment_status": "negative",
                 "reason": "baseline is better on this fair pair",
                 "metric": metric_name,
             }
         return {
             "label": "single-run tie",
-            "claim_level": "no evidence",
+            "assessment_level": "no evidence",
             "assessment_status": "equivalent_or_inconclusive",
             "reason": "candidate and baseline tie on this fair pair",
             "metric": metric_name,
@@ -1302,7 +1316,7 @@ def classify_claim(
     ):
         return {
             "label": "practically equivalent",
-            "claim_level": "no evidence",
+            "assessment_level": "no evidence",
             "assessment_status": "equivalent",
             "reason": "the paired mean-effect interval is fully inside the predeclared negligible range",
             "n_pairs": stats.n_pairs,
@@ -1311,7 +1325,7 @@ def classify_claim(
     if stats.mean_improvement <= 0.0:
         return {
             "label": "no evidence",
-            "claim_level": "none",
+            "assessment_level": "none",
             "assessment_status": "negative",
             "reason": "paired mean improvement is not positive",
             "n_pairs": stats.n_pairs,
@@ -1320,7 +1334,7 @@ def classify_claim(
     if stats.n_pairs < edge_minimum or stats.pilot_only:
         return {
             "label": "paired smoke only",
-            "claim_level": "smoke",
+            "assessment_level": "smoke",
             "assessment_status": "pilot_only" if stats.n_pairs <= 3 else "underpowered",
             "reason": f"needs at least {edge_minimum} paired runs before paired empirical claims",
             "n_pairs": stats.n_pairs,
@@ -1330,7 +1344,7 @@ def classify_claim(
     if power and not bool(power.get("adequately_powered")):
         return {
             "label": "underpowered paired result",
-            "claim_level": "smoke",
+            "assessment_level": "smoke",
             "assessment_status": "underpowered",
             "reason": "observed pairs do not meet the pilot-variance power plan",
             "n_pairs": stats.n_pairs,
@@ -1340,7 +1354,7 @@ def classify_claim(
     if not stats.significant:
         return {
             "label": "positive but not significant",
-            "claim_level": "weak",
+            "assessment_level": "weak",
             "assessment_status": "inconclusive",
             "reason": "paired improvement is positive but confidence interval or p-value is weak",
             "n_pairs": stats.n_pairs,
@@ -1349,7 +1363,7 @@ def classify_claim(
     if dequantization_gap is not None and dequantization_gap <= 0.0:
         return {
             "label": "matched by classical surrogate",
-            "claim_level": "quantum-inspired",
+            "assessment_level": "quantum-inspired",
             "assessment_status": "classically_explained",
             "reason": "an architecture-aware classical surrogate matches or beats the candidate",
             "n_pairs": stats.n_pairs,
@@ -1358,7 +1372,7 @@ def classify_claim(
     if hardware_gap is not None and hardware_gap > stats.mean_improvement:
         return {
             "label": "hardware gap exceeds edge",
-            "claim_level": "fragile",
+            "assessment_level": "fragile",
             "assessment_status": "fragile",
             "reason": "hardware/noise degradation is larger than the measured edge",
             "n_pairs": stats.n_pairs,
@@ -1367,7 +1381,7 @@ def classify_claim(
     if equivalence is None:
         return {
             "label": "missing practical threshold",
-            "claim_level": "weak",
+            "assessment_level": "weak",
             "assessment_status": "blocked",
             "reason": "a predeclared practical-equivalence margin is required before an empirical-edge assessment",
             "n_pairs": stats.n_pairs,
@@ -1376,7 +1390,7 @@ def classify_claim(
     if equivalence.get("status") != "candidate_meaningfully_better":
         return {
             "label": "positive but below practical threshold",
-            "claim_level": "weak",
+            "assessment_level": "weak",
             "assessment_status": "inconclusive",
             "reason": "statistical support does not clear the predeclared practical margin",
             "n_pairs": stats.n_pairs,
@@ -1385,7 +1399,7 @@ def classify_claim(
     if power is None:
         return {
             "label": "missing power plan",
-            "claim_level": "weak",
+            "assessment_level": "weak",
             "assessment_status": "blocked",
             "reason": "pilot-variance power planning is required before an empirical-edge assessment",
             "n_pairs": stats.n_pairs,
@@ -1394,7 +1408,7 @@ def classify_claim(
     if not bool(power.get("adequately_powered")):
         return {
             "label": "underpowered paired result",
-            "claim_level": "smoke",
+            "assessment_level": "smoke",
             "assessment_status": "underpowered",
             "reason": "observed pairs do not meet the pilot-variance power plan",
             "n_pairs": stats.n_pairs,
@@ -1404,7 +1418,7 @@ def classify_claim(
     if analogue_ladder is None or not bool(analogue_ladder.get("required_complete")):
         return {
             "label": "incomplete analogue ladder",
-            "claim_level": "weak",
+            "assessment_level": "weak",
             "assessment_status": "blocked",
             "reason": "required classical/control analogue evidence is missing or unresolved",
             "missing_analogue_rungs": list(
@@ -1415,7 +1429,7 @@ def classify_claim(
         }
     return {
         "label": "paired empirical edge",
-        "claim_level": "empirical",
+        "assessment_level": "empirical",
         "assessment_status": "paired_empirical_edge",
         "reason": "fair paired runs show a statistically supported candidate edge",
         "n_pairs": stats.n_pairs,

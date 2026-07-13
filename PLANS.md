@@ -5,7 +5,117 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
-## Active plan: backend audit hardening
+## Active plan: backend hardening and research contracts
+
+Owner: Codex backend track
+Started: 2026-07-12
+Objective: finish the remaining dashboard hardening and coverage work, then
+ship strict Designer validation and a claim-safe Atlas ontology API without
+changing frontend-owned files or promoting research claims.
+
+Scope: concurrent additive SQLite migrations, bounded mutation request bodies,
+hermetic environment-status tests, API route-contract coverage, Designer
+circuit validation, Atlas ontology serving, OpenAPI snapshots, and backend
+coordination evidence. `qllm/dashboard/frontend/**`, GPU/QPU work, paid
+services, dependency/environment changes, claim promotion, artifact rewrites,
+commits, pushes, and merges are excluded.
+
+Acceptance evidence:
+
+- Concurrent fresh and legacy `ResultsDB` construction converges on one schema
+  and index set without errors or row rewrites.
+- Mutating `/api/*` bodies are bounded while streaming; declared and chunked
+  oversized requests return HTTP 413 before route side effects, and existing
+  access, origin, and JSON media-type policy remains intact.
+- Environment-status branches and every FastAPI API method/path pair have
+  hermetic tests that fail when an uncovered route is added.
+- Designer choices come from the canonical registry and validation rejects
+  unsupported backend/ansatz/readout combinations without constructing or
+  queueing a model.
+- Atlas grouping and relation metadata is schema-validated while claim level,
+  claim status, and replication status remain separate values loaded from the
+  canonical research map.
+- Derived result classification uses `assessment_level`; the legacy dashboard
+  `claim_level` alias remains boundary-only and cannot collide with the
+  canonical claim ledger in verdict storage.
+- Focused tests, OpenAPI snapshot checks, change-aware verification, the full
+  CPU suite, CPU-only queue smoke, and a fresh verifier review pass.
+
+Progress:
+
+- [x] Rebase `backend-enhancements` onto current `origin/main` and refresh the
+  scoped dashboard/workflow/verification instructions.
+- [x] Make additive `ResultsDB` migrations concurrency-safe and test fresh and
+  legacy first-open races.
+- [x] Enforce bounded mutating API bodies without weakening local-only access.
+- [x] Add status and API route-contract coverage.
+- [x] Add strict Designer validation and regenerate OpenAPI.
+- [x] Rename derived classifier output to `assessment_level` while retaining a
+  compatibility-only dashboard alias.
+- [x] Add the validated Atlas ontology service; the six display groupings were
+  approved while map-owned evidence fields stay non-overridable.
+- [x] Run focused, change-aware, full CPU, OpenAPI, and queue-smoke checks; update
+  the backend log.
+- [ ] Obtain a fresh independent review of the final documented diff.
+
+Decisions:
+
+- The mutation-body limit is fixed at 1 MiB and applies only to state-changing
+  `/api/*` requests; it is intentionally enforced before JSON parsing.
+- Designer validation is advisory and side-effect-free. It never reports
+  advantage and does not trust client-computed parameter or gate estimates.
+- Atlas status and evidence dimensions remain sourced from
+  `docs/RESEARCH_MAP.yaml`; ontology metadata cannot promote them.
+- Loopback dataset imports retain trusted-local file and URL support. The user
+  accepted this L5 policy behind the strengthened local access boundary.
+- Verification child processes use a short repository-keyed system temp root,
+  avoiding synced-worktree atomic-write failures without changing dependencies.
+
+Human gates: no GPU/QPU execution, paid service, environment change, claim
+promotion, artifact rewrite, frontend edit, commit, push, or merge is
+authorized by this plan. Atlas research grouping/relations require explicit
+review before delivery; that review was approved by the user on 2026-07-13.
+D4 remains stopped pending provider and daily budget.
+
+Latest validation:
+
+```text
+pytest -q tests/test_durable_runs.py -k concurrent_resultsdb_initialization_converges_atomically
+PASS: 2 passed.
+pytest -q tests/test_dashboard_security.py
+PASS: 15 passed, 1 skipped; one dependency deprecation warning.
+pytest -q tests/test_dashboard_status.py tests/test_dashboard_routes.py
+PASS: 78 tests across hermetic status branches and all 60 API route pairs.
+pytest -q tests/test_dashboard_designer.py
+PASS: 19 passed, including QRNN/MPS applicability and derivation checks.
+pytest -q tests/test_dashboard_atlas.py
+PASS: 11 passed across exact map coverage, non-overridable evidence fields,
+dimension validation, live relations, and the typed HTTP contract.
+pytest -q tests/test_research_protocol.py tests/test_dashboard_verdicts.py
+PASS: 38 passed; assessment and canonical claim levels remain distinct.
+python scripts/dump_openapi.py --check
+PASS: committed snapshot is current.
+pytest -q tests/test_verify_changes.py
+PASS: 39 passed; normal checks retain 600 seconds, the full suite receives 900,
+explicit overrides win, and Atlas ontology changes trigger human review.
+pytest -q tests/test_durable_runs.py::test_warm_start_manifest_is_honest_and_its_checkpoint_resumes
+  --basetemp %LOCALAPPDATA%/Temp/qllm-warm-start-regression
+PASS: 1 passed after isolating a transient OneDrive `WinError 5`; verifier child
+temp roots now use the same short OS-local strategy.
+python scripts/verify_changes.py --run
+CHECKS PASS: agent setup; 56 agent tests; dashboard bundle 306 passed, 1
+skipped; full CPU suite 663 passed, 1 skipped with 48 known dependency/JAX
+warnings. Overall status is `human_review_required` for the Atlas ontology gate
+approved by the user on 2026-07-13.
+pytest -q --basetemp .tmp/pytest-full-final
+PASS: 663 passed, 1 skipped; 48 known dependency/JAX warnings.
+python scripts/queue_smoke.py --url http://127.0.0.1:8877 --steps 1
+  --eval-every 1 --device-target cpu
+PASS: isolated loopback job 1 completed step 1 with a durable checkpoint; the
+temporary server was stopped afterward.
+```
+
+## Completed plan: backend audit hardening
 
 Owner: Codex backend track
 Started: 2026-07-12
