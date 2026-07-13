@@ -9,6 +9,9 @@ const THEMES = ['light', 'dark']
 
 async function setup(page, theme) {
   await page.addInitScript((t) => localStorage.setItem('qllm-theme', t), theme)
+  // UI transitions are gated behind prefers-reduced-motion, so emulating it
+  // makes every snapshot capture the deterministic end state.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockApi(page)
 }
 
