@@ -291,9 +291,8 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
 .atlas-group-toggle { display:inline-flex; align-items:center; gap:8px; background:none; border:0; padding:2px 0; color:var(--ink2); }
 .atlas-group-toggle:hover { color:var(--ink); }
 .atlas-chevron { width:12px; font-size:10px; color:var(--muted); }
-.atlas-cell { outline:none; }
-.atlas-cell:focus-visible rect, .atlas-cell:focus-visible polygon, .atlas-cell:focus-visible ellipse {
-  stroke:var(--accent); stroke-width:3; }
+.atlas-cell { outline:none; cursor:pointer; }
+.atlas-cell:focus-visible .atlas-cell-face { stroke:var(--accent); stroke-width:3; }
 
 .atlas-kv { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; font-size:13px; }
 .atlas-kv .microlabel { display:block; margin-bottom:2px; }
@@ -302,10 +301,42 @@ select.mini:focus-visible, input.mini:focus-visible, textarea.bench-hyp:focus-vi
   border-radius:10px; background:var(--surface); }
 .atlas-legend-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
-/* hand-authored SVG graph (theme-aware via CSS vars, renders everywhere) */
-.atlas-graph-svg { overflow:auto; max-height:660px; padding:8px; }
+/* hand-authored SVG research map (theme-aware via CSS vars, renders everywhere).
+   Emphasis is additive-only: nothing drops below its resting style on hover or
+   selection — null outcomes stay as prominent as positive ones. */
+.atlas-graph-svg { overflow:hidden; position:relative; padding:0; }
 .atlas-graph-svg text { user-select:none; }
-.atlas-graph-svg g[role="button"]:hover { filter:brightness(1.08); }
+.atlas-map-controls { position:absolute; top:10px; right:10px; display:flex; gap:6px; z-index:2; }
+.atlas-map-frame { outline:none; }
+.atlas-map-frame:focus-visible { box-shadow:inset 0 0 0 2px var(--accent-soft); }
+.atlas-graticule { cursor:grab; }
+.atlas-map-viewport.dragging .atlas-graticule { cursor:grabbing; }
+.atlas-map-viewport.dragging { transition:none !important; }
+.atlas-hull { fill:var(--surface2); fill-opacity:.55; stroke:var(--hair); stroke-width:1.25; }
+.atlas-hull.sel { stroke:var(--accent); stroke-width:1.5; }
+.atlas-hull-label { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; fill:var(--muted); }
+.atlas-seal rect { fill:var(--surface2); stroke:var(--hair); }
+.atlas-seal text { font-size:10.5px; font-weight:600; fill:var(--ink2); }
+.atlas-cell-back { fill:var(--surface); }
+.atlas-node-oc-quantum_candidate .atlas-cell-face, .atlas-node-oc-quantum_only .atlas-cell-face { fill:var(--q-soft); stroke:var(--q); }
+.atlas-node-oc-classical_holds .atlas-cell-face { fill:var(--c-soft); stroke:var(--c); }
+.atlas-node-oc-open .atlas-cell-face { fill:var(--warn-soft); stroke:var(--warn); }
+.atlas-node-oc-suggested .atlas-cell-face { fill:var(--accent-soft); stroke:var(--accent); }
+.atlas-node-oc-unexplored .atlas-cell-face { fill:var(--null-soft); stroke:var(--null); }
+.atlas-node-title { fill:var(--ink); font-size:10.5px; font-weight:600; }
+.atlas-node-stage { fill:var(--muted); font-size:8.5px; font-family:var(--mono); }
+.atlas-sel-ring { fill:none; stroke:var(--accent); stroke-width:2; }
+.atlas-route { stroke:var(--accent); fill:none; stroke-width:1.5; opacity:.6; }
+.atlas-route.hot { opacity:1; stroke-width:2; }
+.atlas-route-hit { stroke:transparent; stroke-width:12; fill:none; }
+.atlas-route-label rect { fill:var(--surface); stroke:var(--hair); }
+.atlas-route-label text { font-size:9px; fill:var(--ink2); font-family:var(--mono); }
+@media (prefers-reduced-motion: no-preference) {
+  .atlas-map-viewport { transition:transform 240ms cubic-bezier(.2,.8,.2,1); }
+  .atlas-cell { transition:transform 300ms ease; }
+  .atlas-cell-body { transition:transform .16s ease; }
+  .atlas-cell:hover .atlas-cell-body { transform:translateY(-1px); }
+}
 
 /* ---- Designer ---- */
 .zoombar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:8px 12px; border:1px solid var(--hair);

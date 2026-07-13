@@ -19,6 +19,12 @@ export default function AtlasLegend() {
         <span className="microlabel" style={{ marginLeft: 12 }}>Cell type → shape</span>
         <span className="hint">▭ head-to-head · ⬡ quantum-only · ◇ suggested · ○ unexplored</span>
       </div>
+      <div className="atlas-legend-row">
+        <span className="microlabel">Territory = domain</span>
+        <span className="hint">soft outline around each domain's cells</span>
+        <span className="microlabel" style={{ marginLeft: 12 }}>Routes → relation type</span>
+        <span className="hint">dashed + chevron = associative (motivates, related, …) · solid + bar = constrains / must-not-conflate</span>
+      </div>
     </div>
   )
 }

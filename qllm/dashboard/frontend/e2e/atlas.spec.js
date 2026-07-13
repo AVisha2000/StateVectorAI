@@ -93,3 +93,83 @@ test('Atlas: a classical-holds (null) cell is styled with the classical, non-gre
   // classical blue, never the good/green token
   expect(color).not.toBe('rgb(63, 191, 63)')
 })
+
+// ---- research-map upgrade (force-cluster layout, territories, routes, zoom) --
+
+test('Atlas map: zoom toolbar zooms and resets (data-zoom reflects the level)', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const frame = page.locator('.atlas-map-frame')
+  await expect(frame).toHaveAttribute('data-zoom', '1.00')
+  await page.locator('.atlas-zoom-in').click()
+  await expect(frame).not.toHaveAttribute('data-zoom', '1.00')
+  await page.locator('.atlas-zoom-reset').click()
+  await expect(frame).toHaveAttribute('data-zoom', '1.00')
+})
+
+test('Atlas map: selection ring never overwrites the claim/replication border', async ({ page }) => {
+  await page.goto('/atlas?node=c_variational_swaps')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  await expect(page.locator('.atlas-sel-ring')).toHaveCount(1)
+  const cell = page.locator('[data-cell-id="c_variational_swaps"]')
+  await expect(cell).toHaveAttribute('aria-pressed', 'true')
+  // the outcome/claim border on the face survives selection (integrity fix)
+  const stroke = await cell.locator('.atlas-cell-face').evaluate((el) => getComputedStyle(el).stroke)
+  const ring = await page.locator('.atlas-sel-ring').evaluate((el) => getComputedStyle(el).stroke)
+  expect(stroke).not.toBe(ring)
+})
+
+test('Atlas map: domain territories render; collapse swaps hulls for inert seals', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  await expect(page.locator('.atlas-hull')).toHaveCount(6)
+  await page.getByRole('button', { name: 'Collapse all' }).click()
+  await expect(page.locator('.atlas-hull')).toHaveCount(0)
+  await expect(page.locator('.atlas-seal')).toHaveCount(6)
+  // seals are inert — the role=button count contract stays 0 when collapsed
+  await expect(page.locator('.atlas-graph-svg g[role="button"]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Expand all' }).click()
+  await expect(page.locator('.atlas-hull')).toHaveCount(6)
+})
+
+test('Atlas map: typed routes render with dash + terminal semantics', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const routes = page.locator('.atlas-route')
+  await expect(routes).toHaveCount(10) // the canonical ontology's relations
+  // association-like routes are dashed with a chevron
+  const dashed = page.locator('.atlas-route[data-relation="motivates"]').first()
+  await expect(dashed).toHaveAttribute('stroke-dasharray', '6 4')
+  // constraint-like routes are solid with an inhibition bar
+  const solid = page.locator('.atlas-route[data-relation="constrains"]').first()
+  await expect(solid).not.toHaveAttribute('stroke-dasharray', /./)
+  await expect(solid).toHaveAttribute('marker-end', 'url(#atlas-bar)')
+})
+
+test('Atlas map: null-outcome cards keep full resting prominence in the new skin', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const face = page.locator('.atlas-node-oc-classical_holds .atlas-cell-face').first()
+  await expect(face).toBeVisible()
+  const { stroke, opacity } = await face.evaluate((el) => {
+    const cs = getComputedStyle(el)
+    return { stroke: cs.stroke, opacity: cs.opacity }
+  })
+  expect(opacity).toBe('1') // never dimmed by default
+  expect(stroke).not.toBe('rgb(63, 191, 63)') // never green
+})
+
+test('Atlas map: keyboard zoom on the frame; Enter on a cell still selects', async ({ page }) => {
+  await page.goto('/atlas')
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const frame = page.locator('.atlas-map-frame')
+  await frame.focus()
+  await page.keyboard.press('+')
+  await expect(frame).not.toHaveAttribute('data-zoom', '1.00')
+  await page.keyboard.press('0')
+  await expect(frame).toHaveAttribute('data-zoom', '1.00')
+  // frame-level keys must not swallow cell activation
+  await page.locator('.atlas-graph-svg g[role="button"]').first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/node=/)
+})
