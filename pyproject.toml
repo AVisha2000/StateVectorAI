@@ -9,23 +9,23 @@ description = "Modular quantum-classical hybrid language modeling in JAX/Flax"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "jax>=0.10,<0.11",
+    "jax>=0.10.2,<0.11",
     "flax>=0.12",
     "optax>=0.2.4",
     "pennylane==0.45.*",
     "pennylane-lightning==0.45.*",
-    "numpy>=2.0",
+    "numpy>=2.4.6",
     "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
-tracking = ["mlflow>=3"]
-plots = ["matplotlib>=3.8"]
+tracking = ["mlflow>=3.14.0"]
+plots = ["matplotlib>=3.11.0"]
 tc = ["tensorcircuit-ng==1.7.0"]
 mps = ["tensorcircuit-ng==1.7.0"]
-dashboard = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
+dashboard = ["fastapi>=0.139.0", "uvicorn>=0.51.0", "httpx>=0.27"]
 hf = ["datasets>=2.20"]
-dev = ["pytest>=8", "hypothesis>=6", "matplotlib>=3.8", "mlflow>=3"]
+dev = ["pytest>=9.1.1", "hypothesis>=6.156.6", "matplotlib>=3.11.0", "mlflow>=3.14.0"]
 
 [tool.setuptools.packages.find]
 include = ["qllm*"]
