@@ -3,9 +3,14 @@ import { mockApi } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await mockApi(page) })
 
-test('Atlas list: seed-ontology notice, all outcome tiles, 19 cells', async ({ page }) => {
+// The default mock serves the canonical backend ontology (captured verbatim
+// from /api/atlas/ontology), so these tests exercise the shipped contract.
+const LIVE_SWAPS_LABEL = 'Variational quantum embedding, attention, FFN, and full-block swaps'
+
+test('Atlas list: live canonical ontology, all outcome tiles, 19 cells', async ({ page }) => {
   await page.goto('/atlas')
-  await expect(page.getByText(/frontend seed ontology/i)).toBeVisible()
+  // live data → no seed-fallback notice
+  await expect(page.getByText(/seed ontology/i)).toHaveCount(0)
   // every outcome bucket has a summary tile, nulls included at full weight
   for (const label of ['Quantum candidate', 'Quantum-only paradigm', 'Classical holds · no advantage', 'Open · gated', 'Unexplored']) {
     await expect(page.locator('.atlas-summary-tile', { hasText: label })).toBeVisible()
@@ -14,6 +19,13 @@ test('Atlas list: seed-ontology notice, all outcome tiles, 19 cells', async ({ p
   // legend spells out the four encoding channels
   await expect(page.getByText(/Claim level → border width/i)).toBeVisible()
   await expect(page.getByText(/Replication → border style/i)).toBeVisible()
+})
+
+test('Atlas falls back to the bundled seed when the live ontology is absent', async ({ page }) => {
+  await mockApi(page, { '/atlas/ontology': null })
+  await page.goto('/atlas')
+  await expect(page.getByText(/bundled seed ontology/i)).toBeVisible()
+  await expect(page.getByText('19 of 19 cells')).toBeVisible() // seed still renders the full map
 })
 
 test('Atlas filters by claim level', async ({ page }) => {
@@ -37,7 +49,7 @@ test('Atlas graph: 19 clickable cells; click opens detail with claim/replication
 
 test('Atlas: ?node= deep-link selects a cell from the URL', async ({ page }) => {
   await page.goto('/atlas?node=c_variational_swaps')
-  await expect(page.locator('.atlas-side').getByText('Variational embedding / attention / FFN / block swaps')).toBeVisible()
+  await expect(page.locator('.atlas-side').getByText(LIVE_SWAPS_LABEL)).toBeVisible()
 })
 
 test('Atlas: selecting a cell writes it to the URL (shareable)', async ({ page }) => {
@@ -60,9 +72,9 @@ test('Atlas: collapse all hides graph cells; expand all restores them', async ({
 
 test('Atlas: list domain header collapses its cells', async ({ page }) => {
   await page.goto('/atlas')
-  await expect(page.getByText('Variational embedding / attention / FFN / block swaps')).toBeVisible()
+  await expect(page.getByText(LIVE_SWAPS_LABEL)).toBeVisible()
   await page.locator('.atlas-group-toggle').first().click()
-  await expect(page.getByText('Variational embedding / attention / FFN / block swaps')).toHaveCount(0)
+  await expect(page.getByText(LIVE_SWAPS_LABEL)).toHaveCount(0)
 })
 
 test('Atlas: graph cells are keyboard-operable', async ({ page }) => {

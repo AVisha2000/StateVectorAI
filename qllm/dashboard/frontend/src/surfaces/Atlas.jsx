@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useAtlasOntology, useVerdicts } from '../lib/hooks.js'
+import { useAtlasOntology, useVerdicts, isNotYetBuilt } from '../lib/hooks.js'
 import { PageHeader, Loading } from '../lib/ui.jsx'
 import AtlasGraphSvg from '../components/atlas/AtlasGraphSvg.jsx'
 import { ATLAS_SEED } from '../lib/atlasOntology.seed.js'
@@ -40,10 +40,16 @@ export default function Atlas() {
     }, { replace: false })
   }, [setSearchParams])
 
-  // Seed fallback until GET /api/atlas/ontology ships; verdict snapshots refine
-  // per-cell claim/replication where they match.
+  // GET /api/atlas/ontology is the canonical map (shipped); the bundled seed is
+  // an offline/older-backend fallback. Verdict snapshots refine per-cell
+  // claim/replication where they match.
   const ontology = ontologyQuery.data || ATLAS_SEED
   const usingSeed = !ontologyQuery.data
+  const liveFailed = usingSeed && ontologyQuery.error && !isNotYetBuilt(ontologyQuery.error)
+  // Prefer the live vocabularies (claim ladder / replication statuses) so the
+  // filters can't drift from the backend's canonical lists.
+  const claimLevels = ontology.claim_levels?.length ? ontology.claim_levels : CLAIM_LEVELS
+  const replicationStatuses = ontology.replication_statuses?.length ? ontology.replication_statuses : REPLICATION_STATUSES
   const snapshots = Array.isArray(verdictData?.snapshots) ? verdictData.snapshots : []
 
   const resolved = useMemo(() => resolveOntology(ontology, snapshots, null), [ontology, snapshots])
@@ -107,10 +113,16 @@ export default function Atlas() {
       />
 
       {usingSeed ? (
-        <div className="notice" style={{ marginTop: 14 }}>
-          Rendering the <b>frontend seed ontology</b> (placeholder) — the curated domain→component map is not yet served at
-          <span className="mono"> /api/atlas/ontology</span>. Per-cell claim level and replication still come from the live
-          <span className="mono"> /verdicts</span> store when a snapshot matches.
+        <div className={`notice${liveFailed ? ' crit' : ''}`} style={{ marginTop: 14 }}>
+          {liveFailed ? (
+            <>The canonical ontology at <span className="mono">/api/atlas/ontology</span> <b>failed to load</b> — showing the
+            bundled frontend seed as a fallback. Check the backend's Atlas configuration.</>
+          ) : (
+            <>Showing the <b>bundled seed ontology</b> — the canonical map at <span className="mono">/api/atlas/ontology</span>{' '}
+            could not be fetched from this backend build.</>
+          )}{' '}
+          Per-cell claim level and replication still come from the live <span className="mono">/verdicts</span> store when a
+          snapshot matches.
         </div>
       ) : null}
 
@@ -135,14 +147,14 @@ export default function Atlas() {
           <span className="microlabel">Claim</span>
           <select className="mini" value={claim} onChange={(e) => setClaim(e.target.value)}>
             <option value="all">all</option>
-            {CLAIM_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+            {claimLevels.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         </label>
         <label className="row" style={{ gap: 6 }}>
           <span className="microlabel">Replication</span>
           <select className="mini" value={replication} onChange={(e) => setReplication(e.target.value)}>
             <option value="all">all</option>
-            {REPLICATION_STATUSES.map((r) => <option key={r} value={r}>{r}</option>)}
+            {replicationStatuses.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </label>
         <div className="row spacer" style={{ gap: 8 }}>

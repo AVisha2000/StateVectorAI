@@ -1,6 +1,8 @@
 // Deterministic mock backend for the E2E tests. The app fetches `/api/...`;
 // each test installs these stubs via page.route so no FastAPI/GPU is needed and
 // runs stay hermetic. Shapes mirror qllm/dashboard/openapi.json.
+import { ATLAS_ONTOLOGY } from './atlasOntology.fixture.js'
+export { ATLAS_ONTOLOGY }
 
 export const JOBS = [
   { id: 7, run_name: 'qrnn-s42', status: 'running', comparison_role: 'candidate', preset_id: 'quantum-ffn-4q', dataset_name: 'monitored_ising', seed: 42, steps: 2000, model_family: 'qrnn', analogue_state: 'linked', device_target: 'cpu', comparison_state: 'available', uses_quantum: true, claim: { label: 'paired empirical' } },
@@ -154,6 +156,47 @@ export const STUDY_1_WORKSPACES = {
 
 export const CAPABILITIES = { metadata_only: true, full_text: false, unreviewed_preprints: true, claim_evidence_classification: false, human_review_required: true, paid_services_enabled: false, daily_cost_budget: null, llm_provider: null, embedding_provider: null, vector_store_provider: null, graph_store_provider: null, d4_human_gate_open: true }
 
+// GET /designer/circuit — registry-backed capabilities (mirrors designer.py).
+export const DESIGNER_CAPABILITIES = {
+  schema_version: 1, validation_only: true, side_effect_free: true, client_estimates_authoritative: false,
+  choices: {
+    architecture: ['qrnn'],
+    circuit_ansatz: ['hardware_efficient', 'reuploading'],
+    qrnn_only_ansatz: ['ising'],
+    backend: ['pennylane', 'tensorcircuit', 'tensorcircuit_mps'],
+    readout: ['z', 'zz'],
+  },
+  defaults: { ansatz: 'reuploading', n_qubits: 4, n_circuit_layers: 2, backend: 'pennylane', readout: 'z', architecture: null, device: 'default.qubit', diff_method: 'backprop', shots: null, mps_max_bond_dimension: null },
+  constraints: {
+    n_qubits: { minimum: 1, maximum: 12 },
+    n_circuit_layers: { minimum: 1, maximum: 8 },
+    qrnn_only_ansatz_requires_architecture: 'qrnn',
+    tensorcircuit_mps_requires: ['mps_max_bond_dimension'],
+  },
+  warnings: [
+    'Validation never constructs a circuit, model, backend, job, or device.',
+    'Circuit properties and diagnostics are not evidence of quantum advantage.',
+  ],
+}
+
+// POST /designer/circuit — a successful validation (derived values authoritative).
+export const DESIGNER_VALIDATION = {
+  schema_version: 1, valid: true, validation_only: true,
+  spec: { ansatz: 'hardware_efficient', n_qubits: 4, n_circuit_layers: 2, backend: 'pennylane', readout: 'z', architecture: null, device: 'default.qubit', diff_method: 'backprop', shots: null, mps_max_bond_dimension: null },
+  derived: {
+    circuit_weight_shape: [2, 4, 3],
+    trainable_circuit_parameters: { status: 'derived', value: 24, scope: 'Variational circuit parameters only; surrounding model excluded.' },
+    readout_features: { status: 'derived', value: 4, scope: 'Per-circuit expectation-value feature width.' },
+    entangling_gates: { status: 'unavailable', scope: 'Backend-level circuit decomposition.', reason: 'The canonical config selects an ansatz family, not a stable compiled gate list.' },
+  },
+  ignored_fields: [],
+  client_estimates: { trainable_params: { supplied: 8, authoritative: false, matches_derived: false }, entangling_gates: { supplied: 6, authoritative: false } },
+  warnings: [
+    'Validation only: no circuit, model, backend, job, or device was constructed.',
+    'The client trainable_params estimate was ignored because it does not match the registry-backed circuit parameter shape.',
+  ],
+}
+
 // Install stubs. Pass overrides to change/absent a route (set to null → 404).
 export async function mockApi(page, overrides = {}) {
   const table = {
@@ -174,6 +217,8 @@ export async function mockApi(page, overrides = {}) {
     '/studies': STUDIES,
     '/studies/1': STUDY_1,
     ...STUDY_1_WORKSPACES,
+    '/atlas/ontology': ATLAS_ONTOLOGY,
+    '/designer/circuit': DESIGNER_CAPABILITIES, // GET; POST handled below
     ...overrides,
   }
   await page.route('**/api/**', async (route) => {
@@ -185,6 +230,14 @@ export async function mockApi(page, overrides = {}) {
     }
     if (method === 'POST' && path === '/discover/arxiv/scan') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(overrides['/discover/arxiv/scan'] ?? ARXIV_SCAN) })
+    }
+    if (method === 'POST' && path === '/designer/circuit') {
+      // Overridable: pass { 'POST /designer/circuit': {status, body} } to test
+      // a registry rejection; null on the GET key 404s both verbs.
+      const custom = overrides['POST /designer/circuit']
+      if (custom) return route.fulfill({ status: custom.status ?? 200, contentType: 'application/json', body: JSON.stringify(custom.body) })
+      if (table['/designer/circuit'] === null) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'not found' }) })
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DESIGNER_VALIDATION) })
     }
     const body = table[path]
     if (body === undefined || body === null) {

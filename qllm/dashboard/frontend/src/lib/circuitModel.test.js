@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   ansatzCircuit, gateCount, paramCount, entanglingCount, circuitDepth,
-  toBenchSpec, toQuantumOverrides, ANSATZE, BACKENDS,
+  toBenchSpec, toQuantumOverrides, designerConstraints,
+  ANSATZE, BACKENDS, READOUTS,
 } from './circuitModel.js'
 
 test('hardware_efficient: RY per qubit + CNOT ladder per layer', () => {
@@ -43,4 +44,37 @@ test('toBenchSpec / toQuantumOverrides expose only registry-meaningful knobs', (
 test('registry option lists match registry.py', () => {
   assert.deepEqual([...ANSATZE], ['hardware_efficient', 'reuploading', 'ising'])
   assert.deepEqual([...BACKENDS], ['pennylane', 'tensorcircuit', 'tensorcircuit_mps'])
+  assert.deepEqual([...READOUTS], ['z', 'zz']) // READOUT_TYPES — 'all' is not a registry readout
+})
+
+test('designerConstraints: ising is QRNN-only with pinned compatibility values', () => {
+  const r = designerConstraints({ ansatz: 'ising', backend: 'tensorcircuit' })
+  assert.equal(r.architecture, 'qrnn')
+  assert.equal(r.backendLocked, 'pennylane')
+  assert.equal(r.readoutLocked, 'z')
+  assert.equal(r.needsBondDim, false) // qrnn pins pennylane, so no MPS bond dim
+  const open = designerConstraints({ ansatz: 'reuploading', backend: 'pennylane' })
+  assert.deepEqual(open, { architecture: null, backendLocked: null, readoutLocked: null, needsBondDim: false })
+})
+
+test('designerConstraints: tensorcircuit_mps requires a bond dimension', () => {
+  const r = designerConstraints({ ansatz: 'hardware_efficient', backend: 'tensorcircuit_mps' })
+  assert.equal(r.needsBondDim, true)
+  assert.equal(designerConstraints({ ansatz: 'hardware_efficient', backend: 'tensorcircuit' }).needsBondDim, false)
+})
+
+test('toBenchSpec: ising emits architecture=qrnn with pennylane/z compat values', () => {
+  const spec = toBenchSpec(ansatzCircuit('ising', 4, 2), { backend: 'tensorcircuit', readout: 'zz' })
+  assert.equal(spec.architecture, 'qrnn')
+  assert.equal(spec.backend, 'pennylane') // compatibility value, not the requested backend
+  assert.equal(spec.readout, 'z')
+  assert.equal(spec.mps_max_bond_dimension, null)
+})
+
+test('toBenchSpec: bond dimension rides only with tensorcircuit_mps', () => {
+  const c = ansatzCircuit('reuploading', 4, 2)
+  const mps = toBenchSpec(c, { backend: 'tensorcircuit_mps', readout: 'z', mpsMaxBondDimension: 32 })
+  assert.equal(mps.mps_max_bond_dimension, 32)
+  const exact = toBenchSpec(c, { backend: 'pennylane', readout: 'z', mpsMaxBondDimension: 32 })
+  assert.equal(exact.mps_max_bond_dimension, null) // backend rejects it outside mps
 })
