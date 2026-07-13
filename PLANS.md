@@ -1210,6 +1210,55 @@ INTERPRETATION: one seed and one optimization step support no performance
   conclusion, positive or negative.
 ```
 
+### 2026-07-14 execution: R1 fair CPU pair + three-pair variance pilot (pilot-only)
+
+Executed per the packet above, fully isolated
+(`%LOCALAPPDATA%\Temp\qllm-r1-causal-pair-isolated\{results.sqlite,artifacts}`,
+`--no-mlflow`, `--device-target cpu`, suite `two-stream-causal-v2`, dataset
+text, 1500 steps, eval_every 750, arms quantum-bias / classical-bias / none).
+Commands:
+
+    .venv\Scripts\python.exe benchmarks\two_stream_probe.py --suite two-stream-causal-v2 ^
+      --dataset text --variants quantum-bias classical-bias none --seeds 0 --steps 1500 ^
+      --results-db <iso>\results.sqlite --out-dir <iso>\artifacts ^
+      --device-target cpu --no-mlflow --dashboard
+    # then --seeds 0 1 2 (seed-0 cells skipped via completed-cell dedup)
+
+Recorded val_ppl (candidate 25,701 params; control 25,841 = ~0.5% larger,
+conservative; ablation 25,217):
+
+| seed | quantum-bias | classical-bias | none | delta (q - c) |
+| --- | --- | --- | --- | --- |
+| 0 | 8.9716 | 9.8266 | 10.1706 | -0.8550 |
+| 1 | 8.8751 | 9.6609 | 9.7371 | -0.7858 |
+| 2 | 9.6814 | 9.9992 | 10.4499 | -0.3178 |
+
+Descriptive pilot statistics (NOT a claim, NOT confirmatory): paired
+delta mean -0.6529, sd 0.2922, candidate lower in 3/3 pairs; both
+conditioned arms beat no-conditioning in all seeds. Per protocol
+(RESEARCH_PROGRAM.md; evidence-checklist), three pairs remain pilot-only
+regardless of nominal statistics — no p-value is claimed, the claim ledger
+and RESULTS.md are unchanged, and claim `two_stream_conditioning` stays
+`diagnostic` / `rerun_required`.
+
+Pilot-derived power plan (the step STATE.md requires before any
+confirmation): to resolve the pilot mean effect beyond the predeclared
+practical-equivalence margin (0.1 ppl), effective effect 0.5529, pilot sd
+0.2922 -> n ~= ((1.96 + 0.8416) * 0.2922 / 0.5529)^2 ~= 2.2, ~4 with
+small-sample t inflation; the protocol floor `minimum_confirmatory_pairs: 6`
+therefore GOVERNS. If pilot variance holds, a 6-pair confirmation is
+adequately powered; 6/6 sign consistency would reach two-sided exact
+sign-flip p = 0.03125. CPU cost of a 6-pair confirmation at 1500 steps is
+~4-5 minutes (quantum arm ~20-24 s/run); the queued 12-seed 3000-step GPU
+proposal (GPU_QUEUE.md item 6) remains NOT authorized.
+
+Gates honored: CPU only, isolated artifacts (preserved, never appended to
+two-stream-v1 or shared results), no MLflow, no claim-level/status change,
+no RESULTS.md edit. Next decisive step (user decision): promote the
+confirmation to a first-class Study + claim-contract run with >= 6 paired
+seeds, the ablation arm, and complete resource accounting — CPU-feasible,
+or the GPU proposal if separately approved by name.
+
 ## Active plan: StateVector backend enhancements
 
 Owner: Codex apex orchestrator
