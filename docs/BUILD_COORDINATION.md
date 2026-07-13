@@ -71,7 +71,8 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/jobs/{id}/diagnostics` | retrieval-only saved dimensions: `gradient_variance`, `parameter_shift_gradient_snr`, `expressibility_kl`, `meyer_wallach_q`, `scaling_fit`; every dimension is measured or explicitly unavailable, with provenance and non-advantage warnings |
 | GET | `/verdicts` · `/verdicts/{id}` | latest append-only verdict snapshots and revision history; canonical `claim_level`, `claim_status`, and `replication_status` are ledger-bound and separate from derived `assessment_level`/`assessment_status`; named scorecard dimensions only |
 | GET | `/research/capabilities` | explicit D4 boundary: metadata-only, unreviewed, human review required, no full text/claim classification/paid provider/LLM/embedding/vector/graph store/cost budget |
-| POST | `/discover/arxiv/scan` | fixed-host Atom metadata scan for `quant-ph` or QML-filtered `cs.LG`; 1–25/request, persistent 50/UTC-day cap, 10s timeout, 2 MiB response ceiling |
+| GET | `/research/papers?limit=1..100` | restart-safe local Paper Vault projection: metadata-only arXiv records, immutable-observation count, source hash, and `inbox` review state; read-only and never triggers a scan or model call |
+| POST | `/discover/arxiv/scan` | fixed-host Atom metadata scan for `quant-ph` or QML-filtered `cs.LG`; 1–25/request, persistent 50/UTC-day cap, 10s timeout, 2 MiB response ceiling; successful parsed metadata is written to the local Paper Vault and reports typed ingestion counts |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
 | GET | `/status` | exact typed shape: `{worker: string, gpu_available: boolean, queued: integer, running: integer, runs: integer}`; `runs` is the recorded `runs` row count |
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
@@ -82,7 +83,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
 | P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
-| P3 | GET/POST | `/library/*`, `/discover/*` extensions | paper vault, synthesis, LLM/embedding, vector/graph storage remain stopped at D4 pending user-approved provider and daily cost budget | Phase 4 |
+| P3 | GET/POST | `/library/*`, `/discover/*` extensions | human review cards, paper→experiment links, synthesis, LLM/embedding, and vector/graph storage remain stopped at D4 pending user-approved provider and daily cost budget | Phase 4 |
 
 Contract rule: never emit a composite "advantage score"; keep claim-level and
 replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md.
@@ -136,6 +137,19 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   1 skipped`; isolated one-step CPU queue smoke completed with both checkpoints.
   D4 provider/spend and all GPU/QPU, claim-promotion, environment, and branch-
   merge gates remain closed.
+
+- 2026-07-13 · backend: K1a Paper Vault is available on
+  `agent/knowledge-engine-foundation`: successful bounded arXiv metadata scans
+  now persist stable paper identities plus immutable content-addressed metadata
+  observations; `GET /research/papers?limit=1..100` is typed, read-only, and
+  never scans or calls a model. Records remain `metadata_only` / `inbox` and
+  cannot affect claims or verdicts. Evidence: focused ledger/route/OpenAPI
+  `21 passed`; full CPU suite `556 passed, 1 skipped`; dashboard bundle
+  `196 passed, 1 skipped` under a local writable temp root after an unrelated
+  OneDrive checkpoint-replace lock. **UI follow-up:** send `topic: "qml"`, not
+  raw `"cs.LG"`; K1a intentionally leaves the frontend-owned Library unchanged.
+  D4 remains closed: no provider, key, budget, LLM, embedding, vector, or graph
+  service is enabled.
 
 ## Log — from UI (Claude appends here)
 

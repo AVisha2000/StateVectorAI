@@ -7,9 +7,11 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from ..research_ledger import LiteratureObservation
 from ..research_service import (
     DAILY_QUOTA_LIMIT,
     ArxivResearchService,
+    ResearchPaper,
     ResearchQuotaExceeded,
     ResearchService,
     ScanRequest,
@@ -40,6 +42,46 @@ class ResearchPaperResponse(BaseModel):
         extra = "forbid"
 
 
+class ResearchIngestionResponse(BaseModel):
+    inserted_papers: int = Field(ge=0)
+    inserted_observations: int = Field(ge=0)
+    existing_observations: int = Field(ge=0)
+
+    class Config:
+        extra = "forbid"
+
+
+class ResearchLibraryPaperResponse(BaseModel):
+    id: int
+    source: str
+    external_id: str
+    version: int | None
+    title: str
+    abstract: str
+    authors: list[str]
+    categories: list[str]
+    published: str
+    updated: str
+    source_url: str
+    metadata_hash: str
+    observation_count: int = Field(ge=1)
+    review_state: str
+    evidence_status: str
+    first_seen_ts: str
+    last_seen_ts: str
+
+    class Config:
+        extra = "forbid"
+
+
+class ResearchLibraryResponse(BaseModel):
+    papers: list[ResearchLibraryPaperResponse]
+    total: int = Field(ge=0)
+
+    class Config:
+        extra = "forbid"
+
+
 class ResearchCapabilitiesResponse(BaseModel):
     metadata_only: bool
     full_text: bool
@@ -65,6 +107,13 @@ class ArxivScanResponse(BaseModel):
     quota_remaining: int
     quota_limit: int = DAILY_QUOTA_LIMIT
     capabilities: ResearchCapabilitiesResponse
+    ingestion: ResearchIngestionResponse | None = Field(
+        default=None,
+        description=(
+            "Present for dashboard scans after local persistence; null is reserved "
+            "for direct in-process helper use without a ResultsDB."
+        ),
+    )
 
     class Config:
         extra = "forbid"
@@ -110,18 +159,57 @@ def capabilities_response(
     return ResearchCapabilitiesResponse(**asdict(service.capabilities))
 
 
+def _arxiv_observation(
+    paper: ResearchPaper, *, discovery_topic: str
+) -> LiteratureObservation:
+    return LiteratureObservation(
+        source="arxiv",
+        external_id=paper.arxiv_id,
+        discovery_topic=discovery_topic,
+        version=paper.version,
+        title=paper.title,
+        abstract=paper.abstract,
+        authors=paper.authors,
+        categories=paper.categories,
+        published=paper.published,
+        updated=paper.updated,
+        source_url=paper.abs_url,
+    )
+
+
 def scan_response(
-    service: ResearchService, request: ArxivScanRequest
+    service: ResearchService,
+    request: ArxivScanRequest,
+    *,
+    database: ResultsDB | None = None,
 ) -> ArxivScanResponse:
     result = service.scan(
         ScanRequest(topic=request.topic, max_results=request.max_results)
     )
+    ingestion = None
+    if database is not None:
+        persisted = database.upsert_literature_observations(
+            _arxiv_observation(paper, discovery_topic=request.topic)
+            for paper in result.papers
+        )
+        ingestion = ResearchIngestionResponse(**asdict(persisted))
     return ArxivScanResponse(
         request=request,
         papers=[ResearchPaperResponse(**asdict(paper)) for paper in result.papers],
         quota_used=result.quota_used,
         quota_remaining=result.quota_remaining,
         capabilities=ResearchCapabilitiesResponse(**asdict(result.capabilities)),
+        ingestion=ingestion,
+    )
+
+
+def library_response(database: ResultsDB, *, limit: int = 50) -> ResearchLibraryResponse:
+    return ResearchLibraryResponse(
+        papers=[
+            ResearchLibraryPaperResponse(**paper)
+            for paper in database.list_literature_papers(limit=limit)
+        ],
+        total=database.count_literature_papers(),
     )
 
 
@@ -129,9 +217,13 @@ __all__ = [
     "ArxivScanRequest",
     "ArxivScanResponse",
     "ResearchCapabilitiesResponse",
+    "ResearchIngestionResponse",
+    "ResearchLibraryPaperResponse",
+    "ResearchLibraryResponse",
     "ResearchPaperResponse",
     "ResultsDBDailyScanQuota",
     "build_research_service",
     "capabilities_response",
+    "library_response",
     "scan_response",
 ]

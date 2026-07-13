@@ -30,6 +30,17 @@
           "capabilities": {
             "$ref": "#/components/schemas/ResearchCapabilitiesResponse"
           },
+          "ingestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchIngestionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present for dashboard scans after local persistence; null is reserved for direct in-process helper use without a ResultsDB."
+          },
           "papers": {
             "items": {
               "$ref": "#/components/schemas/ResearchPaperResponse"
@@ -377,6 +388,164 @@
           "d4_human_gate_open"
         ],
         "title": "ResearchCapabilitiesResponse",
+        "type": "object"
+      },
+      "ResearchIngestionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "existing_observations": {
+            "minimum": 0.0,
+            "title": "Existing Observations",
+            "type": "integer"
+          },
+          "inserted_observations": {
+            "minimum": 0.0,
+            "title": "Inserted Observations",
+            "type": "integer"
+          },
+          "inserted_papers": {
+            "minimum": 0.0,
+            "title": "Inserted Papers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inserted_papers",
+          "inserted_observations",
+          "existing_observations"
+        ],
+        "title": "ResearchIngestionResponse",
+        "type": "object"
+      },
+      "ResearchLibraryPaperResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abstract": {
+            "title": "Abstract",
+            "type": "string"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "evidence_status": {
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "first_seen_ts": {
+            "title": "First Seen Ts",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen_ts": {
+            "title": "Last Seen Ts",
+            "type": "string"
+          },
+          "metadata_hash": {
+            "title": "Metadata Hash",
+            "type": "string"
+          },
+          "observation_count": {
+            "minimum": 1.0,
+            "title": "Observation Count",
+            "type": "integer"
+          },
+          "published": {
+            "title": "Published",
+            "type": "string"
+          },
+          "review_state": {
+            "title": "Review State",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "external_id",
+          "version",
+          "title",
+          "abstract",
+          "authors",
+          "categories",
+          "published",
+          "updated",
+          "source_url",
+          "metadata_hash",
+          "observation_count",
+          "review_state",
+          "evidence_status",
+          "first_seen_ts",
+          "last_seen_ts"
+        ],
+        "title": "ResearchLibraryPaperResponse",
+        "type": "object"
+      },
+      "ResearchLibraryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchLibraryPaperResponse"
+            },
+            "title": "Papers",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "papers",
+          "total"
+        ],
+        "title": "ResearchLibraryResponse",
         "type": "object"
       },
       "ResearchPaperResponse": {
@@ -2370,6 +2539,48 @@
           }
         },
         "summary": "Api Research Capabilities"
+      }
+    },
+    "/api/research/papers": {
+      "get": {
+        "operationId": "api_research_papers_api_research_papers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchLibraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Research Papers"
       }
     },
     "/api/run/{run_id}": {

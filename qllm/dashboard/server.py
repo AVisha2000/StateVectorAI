@@ -56,8 +56,10 @@ from .research import (
     ArxivScanRequest,
     ArxivScanResponse,
     ResearchCapabilitiesResponse,
+    ResearchLibraryResponse,
     build_research_service,
     capabilities_response,
+    library_response,
     scan_response,
 )
 from .runner import ExperimentQueue
@@ -403,13 +405,20 @@ def api_research_capabilities() -> ResearchCapabilitiesResponse:
     return capabilities_response(RESEARCH_SERVICE)
 
 
+@app.get("/api/research/papers", response_model=ResearchLibraryResponse)
+def api_research_papers(
+    limit: int = Query(default=50, ge=1, le=100),
+) -> ResearchLibraryResponse:
+    return library_response(db(), limit=limit)
+
+
 @app.post(
     "/api/discover/arxiv/scan",
     response_model=ArxivScanResponse,
 )
 def api_arxiv_scan(payload: ArxivScanRequest) -> ArxivScanResponse:
     try:
-        return scan_response(RESEARCH_SERVICE, payload)
+        return scan_response(RESEARCH_SERVICE, payload, database=db())
     except ResearchQuotaExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except ResearchServiceError as exc:

@@ -5,6 +5,72 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
+## Active plan: Knowledge Engine K1a — deterministic Paper Vault
+
+Owner: Codex Knowledge Engine track
+Started: 2026-07-13
+Objective: turn the existing bounded arXiv metadata scan into durable,
+restart-safe, provenance-preserving local research memory. This is the first
+deterministic asset for the future Knowledge Engine, Atlas, and research
+orchestration layers; it is not an automated scientific-reasoning system.
+
+Scope: additive ResultsDB tables for stable paper identities and immutable
+metadata observations; a current-paper projection that cannot regress to an
+older arXiv version; typed scan ingestion; read-only
+`GET /api/research/papers`; focused tests; regenerated OpenAPI; and a backend
+coordination note. SQLite is an operational local ledger only. Zotero remains
+the documented human source of truth for reviewed references.
+
+Non-goals: PDFs or full text, human review edits, semantic links or a graph
+store, Atlas delivery, embeddings, LLM/provider activation, autonomous scans,
+experiments, paper drafting, claims, GPU/QPU work, paid services, or changes to
+the frontend-owned Library surface.
+
+Acceptance evidence:
+
+- Exact re-ingestion is idempotent and a changed source payload creates one
+  immutable observation rather than overwriting provenance.
+- A lower arXiv version is retained as history but cannot replace the latest
+  paper projection.
+- The read API is bounded, deterministic, and does not invoke a network,
+  model, or provider.
+- New records remain explicitly `metadata_only` and `inbox`; they cannot alter
+  claim status, research-map status, or experiment conclusions.
+- Focused ledger/research/OpenAPI tests, snapshot generation, agent setup, and
+  change-aware verification pass from a clean worktree.
+
+Progress:
+
+- [x] Inventory the scanner, ResultsDB provenance seams, Atlas boundary, and
+  frontend ownership; preserve the user-owned D4-gated NVIDIA client untracked.
+- [x] Select K1a as the smallest vertical slice: durable papers + immutable
+  metadata observations + read-only listing, before review cards, graph edges,
+  or LLM reasoning.
+- [x] Implement and verify the SQLite/API vertical slice.
+
+Verification:
+
+- Focused ledger, mocked scanner, real local dashboard-route, and OpenAPI
+  checks: `21 passed` (one third-party TestClient deprecation warning).
+- Agent setup: passed. Generated OpenAPI snapshot: current.
+- The CPU-only full suite passed `556 passed, 1 skipped` after the final API
+  snapshot was generated. The change-aware dashboard bundle first hit a
+  `WinError 5` replacing an unrelated durable-run checkpoint beneath the
+  OneDrive worktree's temporary directory; the exact test and full dashboard
+  bundle both passed when rerun with `%LOCALAPPDATA%\\Temp` as their writable
+  temp root (`196 passed, 1 skipped`).
+
+Decisions and gates:
+
+- The LLM is a future reasoning layer over durable cited records, never the
+  canonical owner of paper identity, provenance, claims, budgets, or approvals.
+- D4 remains closed: no LLM, embedding, vector, or graph provider; no key,
+  daily cost budget, or paid service has been selected. `d4_human_gate_open`
+  means a human decision remains unresolved, not that any provider is enabled.
+- The UI currently sends `cs.LG` for a Library option while the scanner accepts
+  only `qml` and `quant-ph`. This backend branch will log the contract mismatch
+  rather than edit the frontend-owned surface.
+
 ## Active plan: backend audit hardening
 
 Owner: Codex backend track

@@ -15,7 +15,15 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
+
+from .research_ledger import (
+    INBOX_REVIEW_STATE,
+    METADATA_ONLY_EVIDENCE_STATUS,
+    METADATA_SCHEMA_VERSION,
+    LiteratureIngestionResult,
+    LiteratureObservation,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -259,6 +267,47 @@ CREATE TABLE IF NOT EXISTS research_scan_usage (
     PRIMARY KEY(source, day_utc),
     CHECK(reserved_items >= 0)
 );
+-- Local, metadata-only literature memory.  `literature_papers` is the current
+-- source projection; `literature_observations` preserves every changed payload.
+CREATE TABLE IF NOT EXISTS literature_papers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    latest_version INTEGER,
+    title TEXT NOT NULL,
+    abstract TEXT NOT NULL,
+    authors_json TEXT NOT NULL,
+    categories_json TEXT NOT NULL,
+    published TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    latest_observation_hash TEXT NOT NULL,
+    review_state TEXT NOT NULL DEFAULT 'inbox',
+    evidence_status TEXT NOT NULL DEFAULT 'metadata_only',
+    first_seen_ts TEXT NOT NULL,
+    last_seen_ts TEXT NOT NULL,
+    UNIQUE(source, external_id),
+    CHECK(latest_version IS NULL OR latest_version > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_literature_papers_last_seen
+    ON literature_papers(last_seen_ts DESC, id DESC);
+CREATE TABLE IF NOT EXISTS literature_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id INTEGER NOT NULL,
+    discovery_topic TEXT NOT NULL,
+    source_version INTEGER,
+    content_hash TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    observed_ts TEXT NOT NULL,
+    UNIQUE(paper_id, content_hash, discovery_topic),
+    CHECK(source_version IS NULL OR source_version > 0),
+    -- Logical relationship only: ResultsDB does not globally enable SQLite FK
+    -- enforcement because legacy tables predate that connection-wide policy.
+    FOREIGN KEY(paper_id) REFERENCES literature_papers(id)
+);
+CREATE INDEX IF NOT EXISTS idx_literature_observations_paper_version
+    ON literature_observations(paper_id, source_version DESC, id DESC);
 """
 
 
@@ -819,6 +868,176 @@ class ResultsDB:
                 (source, day_utc, reserved, now),
             )
         return reserved, daily_limit - reserved
+
+    # ---- deterministic literature metadata ledger ----
+    @staticmethod
+    def _source_updated_is_newer(incoming: str, current: str) -> bool:
+        """Compare source timestamps conservatively when source versions tie."""
+        from datetime import datetime
+
+        try:
+            incoming_at = datetime.fromisoformat(incoming.replace("Z", "+00:00"))
+            current_at = datetime.fromisoformat(current.replace("Z", "+00:00"))
+            return incoming_at > current_at
+        except (TypeError, ValueError):
+            return False
+
+    @classmethod
+    def _should_advance_literature_projection(
+        cls, current: sqlite3.Row, incoming: LiteratureObservation
+    ) -> bool:
+        """Advance only on a newer source version or a newer source timestamp.
+
+        A distinct same-version payload is retained as an immutable observation,
+        but its hash alone is never treated as a freshness signal.
+        """
+        stored_version = current["latest_version"]
+        if stored_version is None:
+            if incoming.version is not None:
+                return True
+        elif incoming.version is None:
+            return False
+        elif incoming.version > int(stored_version):
+            return True
+        elif incoming.version < int(stored_version):
+            return False
+        return cls._source_updated_is_newer(incoming.updated, str(current["updated"]))
+
+    @staticmethod
+    def _literature_projection_values(
+        observation: LiteratureObservation,
+    ) -> tuple[object, ...]:
+        return (
+            observation.version,
+            observation.title,
+            observation.abstract,
+            json.dumps(list(observation.authors), ensure_ascii=False),
+            json.dumps(list(observation.categories), ensure_ascii=False),
+            observation.published,
+            observation.updated,
+            observation.source_url,
+            observation.content_hash,
+        )
+
+    def upsert_literature_observations(
+        self, observations: Iterable[LiteratureObservation]
+    ) -> LiteratureIngestionResult:
+        """Persist metadata observations atomically without overwriting history."""
+        items = list(observations)
+        if any(not isinstance(item, LiteratureObservation) for item in items):
+            raise ValueError("literature observations must be LiteratureObservation instances")
+        if not items:
+            return LiteratureIngestionResult(0, 0, 0)
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        inserted_papers = 0
+        inserted_observations = 0
+        existing_observations = 0
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            for observation in items:
+                current = con.execute(
+                    "SELECT id, latest_version, updated FROM literature_papers "
+                    "WHERE source=? AND external_id=?",
+                    (observation.source, observation.external_id),
+                ).fetchone()
+                projection = self._literature_projection_values(observation)
+                if current is None:
+                    cur = con.execute(
+                        "INSERT INTO literature_papers ("
+                        "source, external_id, latest_version, title, abstract, authors_json, "
+                        "categories_json, published, updated, source_url, latest_observation_hash, "
+                        "review_state, evidence_status, first_seen_ts, last_seen_ts"
+                        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            observation.source,
+                            observation.external_id,
+                            *projection,
+                            INBOX_REVIEW_STATE,
+                            METADATA_ONLY_EVIDENCE_STATUS,
+                            now,
+                            now,
+                        ),
+                    )
+                    paper_id = int(cur.lastrowid)
+                    inserted_papers += 1
+                else:
+                    paper_id = int(current["id"])
+                    if self._should_advance_literature_projection(current, observation):
+                        con.execute(
+                            "UPDATE literature_papers SET latest_version=?, title=?, abstract=?, "
+                            "authors_json=?, categories_json=?, published=?, updated=?, source_url=?, "
+                            "latest_observation_hash=?, last_seen_ts=? WHERE id=?",
+                            (*projection, now, paper_id),
+                        )
+                    else:
+                        con.execute(
+                            "UPDATE literature_papers SET last_seen_ts=? WHERE id=?",
+                            (now, paper_id),
+                        )
+
+                cur = con.execute(
+                    "INSERT OR IGNORE INTO literature_observations ("
+                    "paper_id, discovery_topic, source_version, content_hash, metadata_json, "
+                    "schema_version, observed_ts"
+                    ") VALUES (?,?,?,?,?,?,?)",
+                    (
+                        paper_id,
+                        observation.discovery_topic,
+                        observation.version,
+                        observation.content_hash,
+                        observation.metadata_json,
+                        METADATA_SCHEMA_VERSION,
+                        now,
+                    ),
+                )
+                if cur.rowcount == 1:
+                    inserted_observations += 1
+                else:
+                    existing_observations += 1
+        return LiteratureIngestionResult(
+            inserted_papers=inserted_papers,
+            inserted_observations=inserted_observations,
+            existing_observations=existing_observations,
+        )
+
+    @staticmethod
+    def _decode_literature_paper(row: dict) -> dict:
+        for raw_key, response_key in (
+            ("authors_json", "authors"),
+            ("categories_json", "categories"),
+        ):
+            try:
+                value = json.loads(row.pop(raw_key) or "[]")
+            except (json.JSONDecodeError, TypeError):
+                value = []
+            row[response_key] = (
+                value
+                if isinstance(value, list) and all(isinstance(item, str) for item in value)
+                else []
+            )
+        return row
+
+    def list_literature_papers(self, limit: int = 50) -> list[dict]:
+        """Read the current source projection without triggering a scan."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("literature paper limit must be an integer between 1 and 100")
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT id, source, external_id, latest_version AS version, title, abstract, "
+                "authors_json, categories_json, published, updated, source_url, "
+                "latest_observation_hash AS metadata_hash, review_state, evidence_status, "
+                "first_seen_ts, last_seen_ts, (SELECT COUNT(*) FROM literature_observations "
+                "WHERE paper_id=literature_papers.id) AS observation_count "
+                "FROM literature_papers "
+                "ORDER BY last_seen_ts DESC, id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._decode_literature_paper(dict(row)) for row in rows]
+
+    def count_literature_papers(self) -> int:
+        with self._conn() as con:
+            return int(con.execute("SELECT COUNT(*) FROM literature_papers").fetchone()[0])
 
     # ---- live-run registry + per-step logging (own MLflow replacement) ----
     def start_run(self, run_key: str, run_name: str, suite: str, variant: str,

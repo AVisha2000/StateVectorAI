@@ -29,6 +29,7 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     assert "/api/verdicts" in document["paths"]
     assert "/api/verdicts/{verdict_id}" in document["paths"]
     assert "/api/research/capabilities" in document["paths"]
+    assert "/api/research/papers" in document["paths"]
     assert "/api/discover/arxiv/scan" in document["paths"]
     assert "get" in document["paths"]["/api/jobs/{job_id}"]
     assert "/{full_path}" not in document["paths"]
@@ -85,3 +86,16 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
         "graph_store_provider",
         "d4_human_gate_open",
     }.issubset(capabilities["properties"])
+
+    library = document["components"]["schemas"]["ResearchLibraryResponse"]
+    assert library["additionalProperties"] is False
+    assert set(library["required"]) == {"papers", "total"}
+    paper = document["components"]["schemas"]["ResearchLibraryPaperResponse"]
+    assert paper["additionalProperties"] is False
+    assert {"metadata_hash", "observation_count", "review_state", "evidence_status"}.issubset(
+        paper["properties"]
+    )
+    scan = document["components"]["schemas"]["ArxivScanResponse"]
+    assert "ingestion" in scan["properties"]
+    papers_route = document["paths"]["/api/research/papers"]["get"]
+    assert papers_route["parameters"][0]["name"] == "limit"

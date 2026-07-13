@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import importlib
+import sys
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 
 from qllm.dashboard.research import (
     ArxivScanRequest,
     ResultsDBDailyScanQuota,
     build_research_service,
     capabilities_response,
+    library_response,
     scan_response,
 )
 from qllm.research_service import (
@@ -269,6 +273,7 @@ def test_dashboard_research_projection_is_typed_and_offline(tmp_path) -> None:
     response = scan_response(
         service,
         ArxivScanRequest(topic="qml", max_results=1),
+        database=ResultsDB(path),
     )
 
     assert capabilities.d4_human_gate_open
@@ -276,3 +281,54 @@ def test_dashboard_research_projection_is_typed_and_offline(tmp_path) -> None:
     assert response.quota_used == 1
     assert response.quota_remaining == 49
     assert response.papers[0].arxiv_id == "2401.12345"
+    assert response.ingestion is not None
+    assert response.ingestion.inserted_papers == 1
+    assert response.ingestion.inserted_observations == 1
+
+    library = library_response(ResultsDB(path), limit=10)
+    assert library.total == 1
+    assert library.papers[0].external_id == "2401.12345"
+    assert library.papers[0].review_state == "inbox"
+    assert library.papers[0].evidence_status == "metadata_only"
+    assert library.papers[0].observation_count == 1
+
+
+def test_dashboard_research_routes_persist_and_read_the_local_vault(
+    monkeypatch, tmp_path
+) -> None:
+    path = tmp_path / "server.db"
+    monkeypatch.setenv("QLLM_DB", str(path))
+    monkeypatch.setenv("QLLM_RESULTS", str(tmp_path / "results"))
+    monkeypatch.setenv("QLLM_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("QLLM_DISABLE_WORKER", "1")
+    monkeypatch.delitem(sys.modules, "qllm.dashboard.server", raising=False)
+    server = importlib.import_module("qllm.dashboard.server")
+    opened: list[object] = []
+
+    def opener(request: object, *, timeout: float) -> Response:
+        opened.append(request)
+        return Response(ATOM)
+
+    server.RESEARCH_SERVICE = build_research_service(
+        lambda: ResultsDB(path), opener=opener
+    )
+    try:
+        with TestClient(server.app) as client:
+            scanned = client.post(
+                "/api/discover/arxiv/scan",
+                json={"topic": "qml", "max_results": 1},
+            )
+            assert scanned.status_code == 200
+            assert scanned.json()["ingestion"] == {
+                "inserted_papers": 1,
+                "inserted_observations": 1,
+                "existing_observations": 0,
+            }
+
+            library = client.get("/api/research/papers?limit=1")
+            assert library.status_code == 200
+            assert library.json()["total"] == 1
+            assert library.json()["papers"][0]["external_id"] == "2401.12345"
+            assert len(opened) == 1
+    finally:
+        server.QUEUE.close()
