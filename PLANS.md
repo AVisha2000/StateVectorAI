@@ -5,7 +5,7 @@ plan, integration, deterministic verification, human gates, and final handoff.
 Completed implementation details move into canonical documentation; this file
 keeps only concise progress, decisions, and current evidence.
 
-## Active plan: backend hardening and research contracts
+## Completed plan: backend hardening and research contracts
 
 Owner: Codex backend track
 Started: 2026-07-12
@@ -56,7 +56,7 @@ Progress:
   approved while map-owned evidence fields stay non-overridable.
 - [x] Run focused, change-aware, full CPU, OpenAPI, and queue-smoke checks; update
   the backend log.
-- [ ] Obtain a fresh independent review of the final documented diff.
+- [x] Obtain fresh independent pre-delivery and post-publication Sol Ultra reviews.
 
 Decisions:
 
@@ -71,10 +71,9 @@ Decisions:
 - Verification child processes use a short repository-keyed system temp root,
   avoiding synced-worktree atomic-write failures without changing dependencies.
 
-Human gates: no GPU/QPU execution, paid service, environment change, claim
-promotion, artifact rewrite, frontend edit, commit, push, or merge is
-authorized by this plan. Atlas research grouping/relations require explicit
-review before delivery; that review was approved by the user on 2026-07-13.
+Human gates: Atlas research grouping and Git publication were approved by the
+user and completed on 2026-07-13. GPU/QPU execution, paid services, environment
+changes, claim promotion, artifact rewrites, and frontend edits remain closed.
 D4 remains stopped pending provider and daily budget.
 
 Latest validation:
@@ -113,6 +112,15 @@ python scripts/queue_smoke.py --url http://127.0.0.1:8877 --steps 1
   --eval-every 1 --device-target cpu
 PASS: isolated loopback job 1 completed step 1 with a durable checkpoint; the
 temporary server was stopped afterward.
+post-rebase focused protocol/verifier/OpenAPI tests
+PASS: 67 passed.
+post-rebase pytest -q with OS-local basetemp
+PASS: 665 passed, 1 skipped; 48 known dependency/JAX warnings.
+post-rebase CPU queue smoke at http://127.0.0.1:8878
+PASS: isolated job 1 completed step 1 with a durable checkpoint; server stopped.
+post-publication GPT-5.6 Sol Ultra review
+PASS: local and remote main resolve to `44b35fd`; all backend requirements are
+complete, scoped correctly, and published without unrelated files.
 ```
 
 ## Completed plan: backend audit hardening

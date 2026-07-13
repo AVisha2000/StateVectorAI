@@ -142,9 +142,10 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   first-open, mutating API bodies have a streamed 1 MiB ceiling, all 60 API
   method/path pairs have exact-status HTTP coverage, `status.py` is hermetic,
   and derived classifications now use `assessment_level` with a boundary-only
-  legacy alias. Final selected evidence: dashboard `306 passed, 1 skipped`;
-  full CPU suite `663 passed, 1 skipped`; isolated CPU queue smoke completed job
-  `1` at step `1` with a durable checkpoint.
+  legacy alias. Final selected evidence after rebasing onto current `main`:
+  dashboard `306 passed, 1 skipped`; full CPU suite `665 passed, 1 skipped`;
+  isolated CPU queue smoke completed job `1` at step `1` with a durable
+  checkpoint. Published to `main` as `44b35fd` on 2026-07-13.
 - 2026-07-12 · backend: `GET/POST /designer/circuit` and
   `GET /atlas/ontology` are implemented with typed OpenAPI. Designer is
   validation-only, registry-backed, and rejects unsupported QRNN/backend/MPS
