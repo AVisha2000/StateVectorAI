@@ -2126,6 +2126,109 @@ identity through loading, splitting, Markov-control generation, and batch
 sampling while the legacy flat adapter remains available. Historical focused
 verification: 21 passed; change-aware full Python verification passed.
 
+## Active plan: quantum-native expansion — from QML-only to general quantum-algorithm research
+
+Owner: user (Arlind); apex Claude Code (Opus 4.8); backend implementation TBD
+Started: 2026-07-14
+Objective: open the existing verification-first pipeline (evidence ladder, claim
+ledger, fair-control protocol, multi-seed statistics, scaling harness) to
+non-language-model quantum tasks — ground-state chemistry (VQE), combinatorial
+optimization (QAOA), and later finance/biology instances — without weakening a
+single integrity guarantee. QML remains the active first vertical; nothing in
+this plan pauses the two-stream program.
+
+Scope: qllm/registry.py, qllm/config.py, qllm/resultsdb.py,
+qllm/dashboard/{lab,studies}.py, research/claims.yaml schema, a NEW sibling
+task runner (loop.py is not generalized), and eventually dashboard surfaces.
+Non-goals: renaming the qllm package (cosmetic, high churn); restructuring
+RESEARCH_MAP.yaml domains (new areas enter as flat entries first); any hardware
+(QPU) execution; any change to existing QML claims or RESULTS.md.
+
+Why this is a schema evolution, not a rewrite (2026-07-14 survey evidence):
+the verdict/study machinery already routes through a `metric_type` string and
+FAILS CLOSED on non-perplexity types (lab.py PAIRABLE_VAL_PPL_METRIC_TYPES;
+studies.py rejects unknown metric types at creation) — a deliberate integrity
+guard. The evidence engine already parameterizes `lower_is_better` and
+`metric_name`; the seed-axis statistics map directly onto problem instances;
+resultsdb already has a generic per-step metric name/value table; the claim
+contract's `metric_type` is an extensible string. What is hard-wired: val_ppl
+as a schema column and progress key, sequence-only Data/Model/Train configs,
+no task-type dimension anywhere, and ~30 dashboard surfaces labeling val_ppl.
+
+Acceptance evidence:
+
+- A VQE toy instance (small molecule / transverse-field Ising ground state,
+  exactly diagonalizable) runs end-to-end through registry -> config -> new
+  runner -> resultsdb -> Study -> dashboard verdict with
+  metric_type=ground_state_energy_error, and the verdict renders with the same
+  ladder/fairness framing as a QML pair — with zero changes to the QML path's
+  behavior (full pytest suite stays green).
+- Relabeling is impossible by construction: metric admission and metric
+  extraction live in ONE registry entry, so a perplexity number can never be
+  presented as an energy (regression test).
+- A classical-solver analogue ladder (e.g. exact diag < DMRG for VQE) is
+  declared in the claim contract before the first comparative run.
+
+Progress:
+
+- [ ] Step 1 — metric registry in qllm/registry.py: METRIC_TYPES mapping
+      metric_type -> {lower_is_better, units, pairable, extraction_key,
+      comparator_class}; replace the frozenset checks in lab.py and studies.py
+      with registry lookups; serve the list via /config/choices so the frontend
+      stops hard-coding val_ppl labels. (Small diff; unblocks everything.)
+- [ ] Step 2 — primary-metric indirection in resultsdb.py:
+      primary_metric_name/value on the run row (or a view over the existing
+      metrics table); progress/dedup keyed on it; val_ppl columns become the
+      sequence-modeling specialization, not the universal schema.
+- [ ] Step 3 — task dimension: TASK_TYPES = (sequence_modeling, ground_state,
+      combinatorial_optimization) in registry.py; a task-conditional
+      ProblemConfig section in config.py validated in validate_config (copy the
+      existing tensorcircuit_mps conditional-validation pattern); task_type
+      recorded in claims.yaml entries and study specs.
+- [ ] Step 4 — one vertical slice, VQE first (exact diagonalization gives
+      ground truth; QAOA lacks certified optima at toy scale): a SIBLING
+      runner minimizing a problem-Hamiltonian expectation over the existing
+      circuit/backend layer, metric_type=ground_state_energy_error vs exact
+      solution, writing through the same resultsdb/manifest/Study path, with a
+      classical-solver analogue ladder. No changes to train/loop.py.
+- [ ] Step 5 — solver_competition_v1 fairness schema + comparator_kind in
+      claims.yaml: equal-budget best-in-class competition semantics (declared
+      solver versions, certified or best-known optima), distinct from
+      controlled_component_ablation_v1 which stays QML-only.
+- [ ] Dashboard follow-through: metric labels from the registry (frontend
+      verdictView.js), task-type facet on Runs/Studies, Atlas gains chemistry/
+      optimization areas as new level-0/unexplored entries with full audit
+      trail.
+
+Decisions: VQE before QAOA (ground truth available); sibling runner rather
+than generalizing loop.py (protects the QML path); expansion areas enter the
+research map at level 0/unexplored — never pre-credited. Integrity guards that
+MUST hold (from the 2026-07-14 review): (1) metric admission and extraction
+coupled in one registry entry — widening the pairable set without coupling
+would silently read val_ppl and present it as energy; (2) fairness schemas are
+per-task — transplanting controlled_component_ablation_v1 to circuit-vs-solver
+comparisons would fabricate fair verdicts; (3) pairing moves to the
+problem-instance axis with model seeds nested; optimization tasks need
+time-to-target/success-probability with censored-data handling before any
+claim; (4) shot/measurement budgets are part of the claim for VQE/QAOA —
+analytic-gradient (shots=None) convergence is a simulator diagnostic, never
+hardware-relevant evidence; (5) per-domain practical-effect thresholds
+(e.g. chemical accuracy 1.6 mHa) predeclared in the claim contract; (6) new
+domains carry the same claim-ledger discipline from day one.
+
+Human gates: this entry authorizes design and CPU-bounded engineering only —
+no GPU/QPU runs, no paid solver/provider, no claim promotion, no RESULTS.md
+edits, no new dependency without user sign-off (a chemistry Hamiltonian
+library, if wanted later, is a named user decision).
+
+Latest validation:
+
+    2026-07-14 read-only survey (5-agent review): expansion points and
+    integrity guards verified against qllm/registry.py, config.py,
+    train/loop.py, resultsdb.py, research_protocol.py, dashboard/lab.py,
+    dashboard/studies.py, research/claims.yaml, docs/RESEARCH_PROGRAM.md.
+    No code changed under this entry yet.
+
 ## Entry template
 
 ```markdown
