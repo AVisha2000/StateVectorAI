@@ -312,6 +312,16 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   Atlas `verdict_ref` is always null today, so the Atlas verdict-join
   refinement is inert — when claim binding is validated, start emitting
   `verdict_ref` (or agree a `claim_id` join convention here).
+- 2026-07-14 · ui: **Atlas graph upgraded to a research map** (`main`
+  `3b5b0e5`) — deterministic force-clustered layout (new pure
+  `atlasMapLayout.js`, invariants unit-tested: zero card overlap, hull
+  containment, SAT-disjoint territories), domain territory hulls on a survey
+  grid, typed curved routes (dash+chevron associative · solid+bar
+  constrains/must-not-conflate), ctrl-wheel/drag/keyboard pan-zoom with
+  toolbar, deep-link auto-focus, additive-only emphasis. Integrity fix from
+  the design review: selection no longer overwrites the claim/replication
+  border (separate ring); a11y fix: svg role img→group. Encodings and all
+  pre-existing E2E unchanged. 102 unit / 70 functional E2E / 14 visual.
 
 ## Open decisions / blockers
 
