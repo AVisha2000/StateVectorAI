@@ -1,13 +1,107 @@
 # QLLM Loop State
 
-Last run: 2026-07-04T15:14:21+01:00
+Last run: 2026-07-13T17:49:27+01:00
 
-> Historical loop snapshot: this report predates milestones M01-M09 and is not
-> current engineering status. Use `PLANS.md` and
-> `docs/COMPLETION_AUDIT.md`; refresh the detailed loop state only through an
-> explicit `$qllm-loop-triage` run.
+> Current R1 local-preflight record. It captures a bounded isolated one-step
+> CPU execution check plus planning and audit findings. It does not promote a
+> research claim, establish a study conclusion, alter shared results, or cancel
+> a dashboard job.
 
 ## High Priority
+
+- **R1 selected: causal two-stream study preparation.** The next local research
+  track is `two_stream_conditioning`, using `two-stream-causal-v2`. Its canonical
+  status remains `rerun_required` at diagnostic level: no causal-v2 result
+  exists, and the historical v1 values remain teacher-forced side-information
+  observations. The bounded preflight and final one-step seed-0 CPU execution
+  check passed on 2026-07-13. The check ran `quantum-bias`, `classical-bias`,
+  and `none` with `--no-mlflow` into an isolated `%LOCALAPPDATA%` temp root;
+  dashboard records were routed to the same scratch SQLite database. Each
+  manifest records disabled MLflow plus a requested CPU target and resolved JAX
+  CPU device. It validates execution isolation only, not model quality.
+- **Study contract is fixed before execution.** The primary metric is
+  `strict_autoregressive_next_token`. The candidate is `quantum-bias`; required
+  controls are the parameter-matched `classical-bias` conditioner and the
+  `none` no-conditioning ablation. Candidate/control runs must keep text data,
+  paired seed, steps, evaluation cadence, CPU device, and all schema-required
+  fields matched; manifests and resource ledgers must retain parameter count,
+  simulator wall time, backend/device, logical circuit fields, and seed-axis
+  metadata.
+- **No empirical-edge language is available from the first run.** One fair pair
+  is smoke evidence only. A three-pair result is a variance pilot; confirmation
+  requires at least six fair pairs and the larger count required by the
+  pilot-variance power plan, plus the claim's analogue ladder and practical
+  equivalence assessment. `RESULTS.md` is unchanged.
+- **Preserve current user work.** `main` is aligned with `origin/main`, but the
+  worktree contains untracked `.env.example`, `qllm/research_llm.py`, and
+  `tests/test_research_llm.py`. They select an external NVIDIA endpoint but are
+  not enabled, tested against the network, staged, or included in this triage.
+  Provider selection, credentials, and a daily cost budget remain the D4 human
+  gate.
+
+## Watch List
+
+- **Monitored quantum memory** remains the highest-value longer-term track, but
+  is blocked by independent generator instances, predictive-state/classical
+  challenger baselines, and complete oracle/resource accounting. Do not start
+  its GPU queue items as a substitute for those gates.
+- The dashboard DB has 82 historical jobs (`51 done`, `26 cancelled`, `5
+  error`) and one `live_runs` row still marked `running` at step 0 since
+  2026-06-21. No `lab_jobs` row is currently running. Treat that row as a stale
+  artifact for later recovery review; do not cancel or rewrite it automatically.
+- GPU/cluster/QPU execution, CUDA/JAX changes, paid research providers, remote
+  dashboard exposure, and claim promotion remain human-gated.
+- OpenAPI type-codegen is a lower-priority UI follow-on; it does not block the
+  causal-study preflight.
+
+## Recent Noise
+
+- The prior state report was a pre-M01-M09 snapshot. Boundary handling, config
+  validation, causal two-stream implementation, claim/fairness contracts,
+  durable runs, local safety, resources, and the research cockpit are now
+  recorded as completed or superseded in `docs/COMPLETION_AUDIT.md`.
+- `git push origin main` returned `Everything up-to-date`; no committed change
+  was awaiting publication.
+- Shared `results/`, `mlruns/`, and dashboard database artifacts were inspected
+  only. An initial output-only R1 check exposed its default optional MLflow path
+  as shared (it failed closed on this read-only worktree); the final verification
+  uses `%LOCALAPPDATA%\Temp\qllm-r1-causal-smoke-isolated`, disables MLflow, and
+  routes dashboard writes to that scratch database.
+
+## Handoff
+
+- **Preflight and full-isolation harness passed:** the causal benchmark CLI
+  contract was inspected; `scripts/check_agent_setup.py --repo .` passed; the
+  harness gained explicit results database, artifact-root, CPU-target, and
+  no-MLflow controls without changing prior defaults; and
+  `tests/test_research_protocol.py tests/test_two_stream.py` passed 46 tests.
+  The change-aware verifier also passed agent setup, agent tests, benchmark
+  tests, and the full Python test selection.
+- **Local execution check completed:** one CPU-only `seed=0`, `steps=1` pass
+  ran the candidate, matched classical control, and `none` ablation under a new
+  causal-v2 identity. The isolated SQLite database has all three final records
+  plus its own dashboard `live_runs` rows; manifests disable MLflow and resolve
+  the requested target to JAX CPU. Preserve the temp artifacts; do not append
+  them to `two-stream-v1` or shared results.
+- **No model conclusion was established:** one seed and one optimization step
+  are only execution smoke evidence. Do not compare or report its perplexities as an
+  advantage, a negative result, a pilot, or a study conclusion.
+- The broad `verify_changes.py --run` wrapper could not save its ignored state
+  file under `.tmp/verify-changes` due to a Windows permission error. Do not
+  treat that wrapper as passing; the focused checks above are the current
+  validation evidence.
+- Before a multi-seed confirmation, calculate the paired power plan from the
+  pilot and retain all fair-pair/resource/failure records. GPU execution needs a
+  separately named, explicit user approval.
+- Decide the D4 provider only by naming the provider, credential handling, and
+  daily cost budget. Until then, leave the untracked NVIDIA client disabled.
+
+## Historical pre-M01-M09 snapshot
+
+The archived findings below are retained for provenance only. They are not the
+current engineering or research backlog.
+
+### Historical High Priority
 
 - Boundary-safe synthetic sampling remains the top correctness gate. Generated datasets are flattened, `qllm/data/text.py::sample_batch` is shared by train/eval, and `qllm/data/datasets.py::DATASET_KINDS` is stale. Next: promote one L2 single-fix run to add dataset boundary metadata, boundary-aware split/sampling, cache metadata, and focused tests before trusting new synthetic-memory results.
 - Comprehensive config validation is the next critical correctness gate. `.venv` validation showed all checked-in configs pass, but intentionally bad configs for data kind, architecture, embedding/head type, two-stream condition, train sizes, `seq_len > max_seq_len`, backend, ansatz, and readout currently return no validator errors. Next: after boundary sampling, promote an L2 validator pass that centralizes registries and makes CLI/dashboard queue paths share the same pre-run validation.
@@ -28,7 +122,7 @@ Last run: 2026-07-04T15:14:21+01:00
 - GPU queue remains the main research backlog, but its highest-value experiments depend on synthetic sequence data. Next: defer long GPU runs until the boundary-sampling fix lands, then use `$qllm-experiment-runner` and `$qllm-research-protocol` to pick the smallest decisive run.
 - The loop run-count cap is now unlimited, but L1 remains report-only and the 100k token/day budget still applies. Next: continue report-only loops unless intentionally promoting to L2.
 
-## Watch List
+### Historical Watch List
 
 - Dashboard DB `results/qllm_results.db` is populated and stale: most recent jobs are `done` from 2026-06-21, and one older quantum-attention job remains marked `running` without recovery metadata. Do not cancel it automatically during L1 triage.
 - Local loop scaffold and enhancement docs remain untracked. Treat them as expected planning state until the user asks for staging/commit.
@@ -49,7 +143,7 @@ Last run: 2026-07-04T15:14:21+01:00
 - Dashboard curve readers in `qllm/dashboard/queries.py` and `qllm/dashboard/workspace.py` group whatever `fetch_steps` returns; `fetch_steps` orders by step only, so duplicate rows for the same metric/step can render as repeated points rather than a clean replacement.
 - Existing generation tests cover only the transformer path in `tests/test_integration.py`; recurrent and two-stream tests verify logits/dispatch but not `generate()`, and dashboard tests only verify artifact capability reporting, not manual generation execution across architectures.
 
-## Recent Noise
+### Historical Recent Noise
 
 - `npx.cmd @cobusgreyling/loop-init ... --dry-run` was used first because PowerShell blocks `npx.ps1` under the current execution policy.
 - Generated experiment artifacts under `results/`, `mlruns/`, and `mlflow.db` are expected local state, not source cleanup targets.
@@ -57,7 +151,7 @@ Last run: 2026-07-04T15:14:21+01:00
 - A mocked Hugging Face import probe used a temp SQLite directory; Windows held the SQLite file during `TemporaryDirectory` cleanup, and the exact temp directory was removed afterward.
 - A saved `results/*/summary.json` sample and the current dashboard `runs` schema both show only total wall time for runtime cost; no source artifacts were modified during this telemetry triage.
 
-## Handoff
+### Historical Handoff
 
 - Decide whether to promote the boundary-safe synthetic sampling item to L2. If yes, keep it to one narrowly scoped fix and run focused data/training tests before proposing completion.
 - After boundary sampling and config validation, decide the two-stream policy: causalize the sentence stream or mark two-stream metrics as side-information everywhere they appear.

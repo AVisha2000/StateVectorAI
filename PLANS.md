@@ -963,12 +963,12 @@ Progress:
   `c2a7562`.
 - [x] Reload `PLANS.md`, `docs/COMPLETION_AUDIT.md`, `GPU_QUEUE.md`,
   `research/claims.yaml`, and `docs/RESEARCH_MAP.yaml`.
-- [ ] Refresh current state with a report-only triage against post-M09 `main`.
-- [ ] Rank candidate continuation tracks by claim value, blockers, cost, and
+- [x] Refresh current state with a report-only triage against post-M09 `main`.
+- [x] Rank candidate continuation tracks by claim value, blockers, cost, and
   falsification power.
-- [ ] Select one track and write a narrow execution packet with controls,
+- [x] Select one track and write a narrow execution packet with controls,
   validation, and human gates.
-- [ ] Run the smallest safe CPU/read-only check that de-risks the selected
+- [x] Run the smallest safe CPU/read-only check that de-risks the selected
   packet.
 
 Current candidate tracks:
@@ -998,6 +998,43 @@ Recommended first continuation:
 4. If choosing two-stream, start with a CPU smoke and study packet for
    `two-stream-causal-v2` before considering the 12-seed GPU run.
 
+### 2026-07-13 selection: R1 causal two-stream preflight
+
+Selected track: `two_stream_conditioning`, because its causal replacement is
+implemented, the historical protocol error is isolated, and the first
+verification can remain local, CPU-only, and non-destructive. This is not a
+claim promotion: the canonical ledger remains `diagnostic` / `rerun_required`.
+
+Execution packet:
+
+- **Question:** does the causal-prefix quantum sentence conditioner improve
+  strict next-token prediction over the matched classical conditioner in the
+  declared small text regime?
+- **Protocol:** `two-stream-causal-v2` only, with metric type
+  `strict_autoregressive_next_token`. Never pool or append v1
+  teacher-forced-side-information observations.
+- **Arms:** `quantum-bias` candidate, `classical-bias` parameter-matched
+  conditioner, and `none` no-conditioning ablation. Hold dataset, seed,
+  training/evaluation budget, CPU device, and claim-schema fields fixed; record
+  allowed architecture differences, parameter count, simulator wall time,
+  manifest identity, seed axes, and resource ledger.
+- **Evidence stages:** first verify the benchmark's causal suite guard and
+  focused protocol/model tests. The completed one-step, seed-0 CPU execution
+  check establishes only the fully isolated harness and manifest route, not a
+  comparison outcome. A later single fair pair at a declared training/evaluation
+  budget is descriptive smoke evidence only; three fair pairs are a variance
+  pilot; confirmatory assessment needs at least six pairs and the larger
+  pilot-power count, practical equivalence, and all required analogue/control
+  rungs.
+- **Artifact rule:** do not use the current benchmark's default shared
+  `results/qllm_results.db`, `results/`, MLflow store, or dashboard database
+  for a throwaway preflight. Use an isolated, UUID-backed run path with
+  `--no-mlflow`, route optional dashboard logging to the selected scratch
+  database, and preserve every result including nulls and failures.
+- **Gates:** no GPU/cluster/QPU execution, paid provider, credential use,
+  `RESULTS.md` edit, claim-level/status change, destructive artifact action, or
+  push is implied by this packet.
+
 Decisions:
 
 - The local platform is complete for the M01-M09 scope; continuation is a
@@ -1014,7 +1051,40 @@ Latest validation:
 
 ```text
 git status --short --branch
-PASS: main is clean and aligned with origin/main before continuation planning.
+PASS: main was aligned with origin/main before the current local continuation work.
+2026-07-13 causal preflight
+PASS: `.venv\Scripts\python.exe benchmarks\two_stream_probe.py --help`
+confirmed the causal-v2 CLI surface; it was not run as a stateful benchmark.
+PASS: `.venv\Scripts\python.exe scripts\check_agent_setup.py --repo .`.
+PASS: `.venv\Scripts\python.exe -m pytest -q tests\test_research_protocol.py
+  tests\test_two_stream.py -p no:cacheprovider --basetemp <temp>`:
+44 passed; six existing JAX complex128-to-complex64 warnings.
+PASS: `git diff --check`; only the repository's LF-to-CRLF notice for the
+append-only loop log was emitted.
+ENVIRONMENT: `verify_changes.py --run --timeout 900` could not persist its
+ignored `.tmp/verify-changes/state.tmp` record because the relocated worktree
+was not writable to that wrapper. Its result is not treated as a pass; focused
+preflight evidence above remains authoritative for its planning precursor.
+2026-07-13 fully isolated CPU execution check
+PASS: `two_stream_probe.py --suite two-stream-causal-v2 --dataset text
+  --variants quantum-bias classical-bias none --seeds 0 --steps 1
+  --results-db <LOCALAPPDATA temp>/results.sqlite --out-dir <LOCALAPPDATA
+  temp>/artifacts --device-target cpu --no-mlflow --dashboard` completed three
+  scratch-only run records.
+PASS: every manifest records disabled MLflow, the selected scratch dashboard DB,
+  `resource_plan.execution_device.requested=cpu`, and a resolved JAX CPU device;
+  the scratch database contains three `runs` and three `live_runs` records.
+PASS: the harness now accepts explicit `--results-db`, `--out-dir`,
+  `--device-target`, and `--no-mlflow` controls while retaining prior defaults;
+  focused protocol and causal-model tests passed 46 tests with six existing JAX
+  dtype warnings.
+PASS: `verify_changes.py --run --timeout 900 --state-file <temp>` completed
+  after 869 seconds: agent setup, agent tests, benchmark tests, and Python tests
+  all passed.
+FIXED: an earlier output-only check exposed the default MLflow path as shared;
+  the explicit no-MLflow control and dashboard-DB routing close that gap.
+INTERPRETATION: one seed and one optimization step support no performance
+  conclusion, positive or negative.
 ```
 
 ## Active plan: StateVector backend enhancements

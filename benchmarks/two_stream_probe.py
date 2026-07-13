@@ -29,6 +29,7 @@ from qllm.research_protocol import (  # noqa: E402
     TWO_STREAM_CAUSAL_SUITE,
 )
 from qllm.resultsdb import ResultsDB  # noqa: E402
+from qllm.train.artifacts import RunOptions  # noqa: E402
 from qllm.train.loop import fit  # noqa: E402
 
 Q = QuantumConfig(n_qubits=4, n_circuit_layers=2, readout="z")
@@ -60,9 +61,35 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variants", nargs="+", default=list(variants()))
     p.add_argument("--seeds", type=int, nargs="+", default=[0, 1])
     p.add_argument("--steps", type=int, default=1500)
+    p.add_argument(
+        "--results-db",
+        default="results/qllm_results.db",
+        help="SQLite results path; set a scratch path for an isolated smoke",
+    )
+    p.add_argument(
+        "--out-dir",
+        default="results",
+        help="artifact root; set a scratch path for an isolated smoke",
+    )
+    p.add_argument(
+        "--device-target",
+        choices=("auto", "cpu", "gpu"),
+        default="auto",
+        help="resolved execution target; use cpu for a bounded local smoke",
+    )
+    p.add_argument(
+        "--no-mlflow",
+        action="store_true",
+        help="disable optional MLflow tracking; use for a fully isolated smoke",
+    )
     p.add_argument("--dashboard", action="store_true",
-                  help="stream per-step curves to the dashboard DB")
+                  help="stream per-step curves to the selected results DB")
     return p
+
+
+def execution_options(args: argparse.Namespace) -> RunOptions:
+    """Build explicit operational controls without changing scientific config."""
+    return RunOptions(device_target=args.device_target)
 
 
 def validate_suite(suite: str) -> None:
@@ -82,7 +109,7 @@ def main() -> None:
     except ValueError as exc:
         p.error(str(exc))
 
-    db = ResultsDB()
+    db = ResultsDB(args.results_db)
     V = variants()
     for name in args.variants:
         for seed in args.seeds:
@@ -96,12 +123,20 @@ def main() -> None:
                                   eval_batches=16),
                 data=data_cfg(args.dataset),
                 tracking=TrackingConfig(
+                    enabled=not args.no_mlflow,
                     experiment="qllm-two-stream",
                     run_name=f"{args.suite}-{args.dataset}-{name}-s{seed}",
                     log_quantum_diagnostics=False, log_grad_norms=False))
             if args.dashboard:
-                cfg = with_dashboard(cfg, args.suite, name, args.dataset, seed)
-            res = fit(cfg, verbose=False)
+                cfg = with_dashboard(
+                    cfg, args.suite, name, args.dataset, seed, db=args.results_db
+                )
+            res = fit(
+                cfg,
+                verbose=False,
+                out_dir=args.out_dir,
+                run_options=execution_options(args),
+            )
             s = res["summary"]
             db.record(suite=args.suite, variant=name, dataset=args.dataset,
                       seed=seed, steps=args.steps, n_params=s["n_params"],

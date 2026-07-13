@@ -284,3 +284,75 @@ Append one entry per run. Prune entries older than 30 days when the log becomes 
   "notes": "Inspected docs/ENHANCEMENT_PLAN.md item 16 plus qllm/train/loop.py, qllm/research_protocol.py, qllm/dashboard/resources.py, qllm/resultsdb.py, dashboard result/GPU pages, saved summaries, and current DB schema. Existing coverage: quantum_resource_estimate computes queue-time state_dim, token calls, component multiplier, score, and band; resource_ledger_from_config exposes static ledger fields and is tested; dashboard result rows display wall time, qubits, depth, backend, and resource band. Missing pieces: fit only prints first-step JIT time and persists total wall_seconds; summary.json and runs table do not record first-step compile time, steady-state step time, peak memory, or durable resource ledger fields; Research Results sorts by validation perplexity rather than wall/resource cost. Recommended later L2 fix: measure compile and steady-step timings, optionally capture peak memory with None fallback, persist telemetry in summaries/DB/resource metadata, expose sortable dashboard resource-cost columns, and add focused tests."
 }
 ```
+
+
+```json
+{
+  "run_id": "2026-07-13T13:45:59+01:00",
+  "pattern": "post-m09-claim-guided-research-triage",
+  "duration_s": 0,
+  "items_found": 6,
+  "actions_taken": 3,
+  "escalations": 1,
+  "tokens_estimate": 24000,
+  "outcome": "report-only",
+  "notes": "Refreshed the stale pre-M01-M09 loop state against the completion audit, current claim ledger, research map, GPU queue, dashboard DB, and active continuation plan. Selected the causal two-stream preflight as R1: claim two_stream_conditioning remains diagnostic/rerun_required; two-stream-v1 stays teacher-forced side-information only; causal-v2 requires quantum-bias, parameter-matched classical-bias, and no-conditioning controls with strict-autoregressive metrics. No benchmark, GPU/QPU job, provider call, claim edit, artifact rewrite, or cancellation was performed. Main was already synchronized with origin. One stale live_runs record from 2026-06-21 was observed without a running lab job and was left untouched. Three untracked NVIDIA-provider files were preserved; provider/credentials/daily-budget D4 remains a human gate."
+}
+```
+
+
+```json
+{
+  "run_id": "2026-07-13T14:15:38+01:00",
+  "pattern": "r1-causal-two-stream-preflight",
+  "duration_s": 35,
+  "items_found": 0,
+  "actions_taken": 3,
+  "escalations": 1,
+  "tokens_estimate": 3500,
+  "outcome": "report-only",
+  "notes": "Checked the causal two-stream packet without launching a benchmark: CLI help confirmed the suite interface; agent setup passed; focused research-protocol and causal-model tests passed 44 tests with six existing JAX complex128-to-complex64 warnings; git diff --check passed with an LF-to-CRLF notice only. The broad verifier wrapper could not write its ignored state.tmp under the relocated worktree and is not counted as passing. No provider call, job, GPU/QPU run, claim update, artifact mutation, or cancellation occurred."
+}
+```
+
+```json
+{
+  "run_id": "2026-07-13T16:06:03+01:00",
+  "pattern": "r1-causal-two-stream-isolated-cpu-execution-check",
+  "duration_s": 33,
+  "items_found": 1,
+  "actions_taken": 4,
+  "escalations": 1,
+  "tokens_estimate": 4200,
+  "outcome": "executed-no-claim",
+  "notes": "Added explicit isolated results-db, artifact-root, and device-target controls to the causal two-stream benchmark while preserving defaults; focused protocol/causal-model tests passed 45 tests with six existing JAX dtype warnings. Executed quantum-bias, parameter-matched classical-bias, and none for seed 0 / one optimization step using an isolated LOCALAPPDATA temp SQLite database and artifact root. All three records persisted and each manifest records requested CPU plus resolved JAX CPU. The default optional MLflow tracker could not write the read-only worktree database and disabled itself; this did not affect the isolated benchmark records. The run is execution/isolation smoke evidence only: no comparison, advantage, pilot, claim update, GPU/QPU/provider call, shared-results mutation, or cancellation was performed."
+}
+```
+
+```json
+{
+  "run_id": "2026-07-13T17:24:32+01:00",
+  "pattern": "r1-causal-two-stream-full-isolation-remediation",
+  "duration_s": 25,
+  "items_found": 2,
+  "actions_taken": 4,
+  "escalations": 1,
+  "tokens_estimate": 5200,
+  "outcome": "executed-no-claim",
+  "notes": "Read-only review found that the initial scratch results/artifact controls did not isolate the default MLflow store and that --dashboard retained its default results database. Added --no-mlflow, routed dashboard logging to --results-db, and added a mocked main-wiring regression. Focused protocol/causal-model tests passed 46 tests with six existing JAX dtype warnings. Repeated the seed-0/one-step three-arm causal smoke with --no-mlflow --dashboard into a new LOCALAPPDATA scratch root: all manifests record tracking.enabled=false, scratch dashboard DB, requested CPU, and resolved JAX CPU; the scratch DB contains three final runs and three live-run records. This validates only full local execution isolation, not a model comparison, advantage, pilot, claim, hardware result, or shared-results change."
+}
+```
+
+```json
+{
+  "run_id": "2026-07-13T17:49:27+01:00",
+  "pattern": "r1-causal-two-stream-change-aware-verification",
+  "duration_s": 869,
+  "items_found": 0,
+  "actions_taken": 1,
+  "escalations": 0,
+  "tokens_estimate": 1200,
+  "outcome": "verification-passed",
+  "notes": "Reran the repository change-aware verifier with its ignored state record redirected to LOCALAPPDATA after the original relocated-worktree permission issue. It completed successfully: agent setup, agent tests, benchmark tests, and Python tests all passed. This validates the current worktree changes but does not change the R1 evidence classification: the completed seed-0/one-step causal smoke remains execution-only and non-inferential."
+}
+```

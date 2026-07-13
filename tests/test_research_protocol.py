@@ -3,13 +3,15 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import math
+import sys
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
-from benchmarks.two_stream_probe import build_parser, validate_suite
+import benchmarks.two_stream_probe as two_stream_probe
+from benchmarks.two_stream_probe import build_parser, execution_options, validate_suite
 import qllm.claims as claims_module
 from qllm.claims import (
     ClaimRegistryError,
@@ -213,9 +215,91 @@ def test_two_stream_jobs_need_an_explicit_causal_protocol_marker():
 
 
 def test_two_stream_benchmark_defaults_to_causal_and_rejects_v1():
-    assert build_parser().parse_args([]).suite == TWO_STREAM_CAUSAL_SUITE
+    args = build_parser().parse_args([])
+    assert args.suite == TWO_STREAM_CAUSAL_SUITE
+    assert args.results_db == "results/qllm_results.db"
+    assert args.out_dir == "results"
+    assert args.no_mlflow is False
+    assert execution_options(args).device_target == "auto"
     with pytest.raises(ValueError, match="immutable full-window"):
         validate_suite("two-stream-v1")
+
+
+def test_two_stream_benchmark_can_isolate_a_cpu_smoke(tmp_path):
+    args = build_parser().parse_args([
+        "--results-db", str(tmp_path / "smoke.sqlite"),
+        "--out-dir", str(tmp_path / "artifacts"),
+        "--device-target", "cpu",
+        "--no-mlflow",
+    ])
+    assert args.results_db.endswith("smoke.sqlite")
+    assert args.out_dir.endswith("artifacts")
+    assert args.no_mlflow is True
+    assert execution_options(args).device_target == "cpu"
+
+
+def test_two_stream_benchmark_wires_isolated_controls(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeDB:
+        def __init__(self, path):
+            captured["results_db"] = path
+
+        def exists(self, *args):
+            return False
+
+        def record(self, **kwargs):
+            captured["record"] = kwargs
+
+        def fetch(self, *args):
+            return [{"variant": "none", "val_ppl": 1.0, "n_params": 7}]
+
+    def fake_dashboard(cfg, suite, variant, dataset, seed, *, db):
+        captured["dashboard"] = (suite, variant, dataset, seed, db)
+        return replace(cfg, tracking=replace(cfg.tracking, dashboard_db=db))
+
+    def fake_fit(cfg, **kwargs):
+        captured["cfg"] = cfg
+        captured["fit_kwargs"] = kwargs
+        return {
+            "summary": {
+                "n_params": 7,
+                "val_loss": 1.0,
+                "val_ppl": 1.0,
+                "val_bpc": 1.0,
+                "wall_seconds": 0.0,
+            },
+            "manifest": {"run_uuid": "fake"},
+        }
+
+    results_db = tmp_path / "smoke.sqlite"
+    out_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(two_stream_probe, "ResultsDB", FakeDB)
+    monkeypatch.setattr(two_stream_probe, "with_dashboard", fake_dashboard)
+    monkeypatch.setattr(two_stream_probe, "fit", fake_fit)
+    monkeypatch.setattr(sys, "argv", [
+        "two_stream_probe.py",
+        "--variants", "none",
+        "--seeds", "3",
+        "--steps", "1",
+        "--results-db", str(results_db),
+        "--out-dir", str(out_dir),
+        "--device-target", "cpu",
+        "--no-mlflow",
+        "--dashboard",
+    ])
+
+    two_stream_probe.main()
+
+    assert captured["results_db"] == str(results_db)
+    assert captured["dashboard"] == (
+        TWO_STREAM_CAUSAL_SUITE, "none", "text", 3, str(results_db)
+    )
+    assert captured["cfg"].tracking.enabled is False
+    assert captured["cfg"].tracking.dashboard_db == str(results_db)
+    assert captured["fit_kwargs"]["out_dir"] == str(out_dir)
+    assert captured["fit_kwargs"]["run_options"].device_target == "cpu"
+    assert captured["record"]["config"]["tracking.enabled"] is False
 
 
 def test_paired_bootstrap_and_sign_flip_are_deterministic():
