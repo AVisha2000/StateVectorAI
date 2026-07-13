@@ -4,8 +4,8 @@ import { LIVE_REFETCH_MS } from './queryClient.js'
 import { useStreamActive } from './stream.js'
 
 // Thin typed-ish query hooks over the existing REST api. Live surfaces refetch
-// on an interval; static ones do not. (The interval is replaced by the
-// /api/stream/jobs SSE stream once the backend ships it — docs/UI_REDESIGN_PLAN §8.)
+// on an interval; static ones do not. The /api/stream/jobs SSE stream replaces
+// the interval whenever it is connected (docs/UI_REDESIGN_PLAN §8).
 
 export function useOverview() {
   return useQuery({
@@ -97,10 +97,11 @@ export function useModelGraph(id) {
   })
 }
 
-// A "proposed" endpoint the backend has not shipped yet returns 404. Don't retry
-// or spam it, and let the caller render a calm "awaiting backend" state instead
-// of a hard error (see isNotYetBuilt).
-const proposedQueryOptions = {
+// Quiet-404 options for the research contracts: they are shipped on main, but
+// an older backend build may not serve them yet. Don't retry or spam a 404;
+// let the caller render a calm degraded state instead of a hard error
+// (see isNotYetBuilt).
+const quiet404QueryOptions = {
   retry: false,
   refetchOnWindowFocus: false,
 }
@@ -109,22 +110,22 @@ export function isNotYetBuilt(error) {
   return error?.status === 404
 }
 
-// Proposed: /jobs/{id}/diagnostics — per-run quantum diagnostics.
+// /jobs/{id}/diagnostics — per-run quantum diagnostics (retrieval-only).
 export function useDiagnostics(id) {
   return useQuery({
     queryKey: ['diagnostics', id],
     queryFn: () => api.diagnostics(id),
     enabled: id != null && id !== '',
-    ...proposedQueryOptions,
+    ...quiet404QueryOptions,
   })
 }
 
-// Proposed: /verdicts — persistent verdict store.
+// /verdicts — persistent, append-only verdict store.
 export function useVerdicts() {
   return useQuery({
     queryKey: ['verdicts'],
     queryFn: api.verdicts,
-    ...proposedQueryOptions,
+    ...quiet404QueryOptions,
   })
 }
 
@@ -133,7 +134,7 @@ export function useVerdict(id) {
     queryKey: ['verdict', id],
     queryFn: () => api.verdict(id),
     enabled: id != null && id !== '',
-    ...proposedQueryOptions,
+    ...quiet404QueryOptions,
   })
 }
 
@@ -154,23 +155,35 @@ export function useStudy(id) {
   })
 }
 
-// Proposed: /atlas/ontology — the canonical curated domain→component ontology.
-// 404s until the backend ships it; the Atlas surface falls back to the seed.
+// /atlas/ontology — the canonical curated domain→component ontology (shipped).
+// The Atlas surface falls back to its bundled seed if the endpoint is absent.
 export function useAtlasOntology() {
   return useQuery({
     queryKey: ['atlas-ontology'],
     queryFn: api.atlasOntology,
-    ...proposedQueryOptions,
+    ...quiet404QueryOptions,
+  })
+}
+
+// GET /designer/circuit — registry-backed capabilities: choices, defaults, and
+// constraints (bounds, qrnn-only architecture rule, MPS bond-dim requirement).
+// The Designer prefers these over its static fallbacks.
+export function useDesignerCapabilities() {
+  return useQuery({
+    queryKey: ['designer-capabilities'],
+    queryFn: api.designerCapabilities,
+    staleTime: 5 * 60 * 1000, // registry choices change only with a backend deploy
+    ...quiet404QueryOptions,
   })
 }
 
 // Research-service capabilities (D4 boundary: which providers are enabled, cost
-// budget, human gates). Shipped on backend-enhancements; 404 until it's on main.
+// budget, human gates — all still closed pending the user's D4 decision).
 export function useResearchCapabilities() {
   return useQuery({
     queryKey: ['research-capabilities'],
     queryFn: api.researchCapabilities,
-    ...proposedQueryOptions,
+    ...quiet404QueryOptions,
   })
 }
 

@@ -4,9 +4,26 @@
 // depth) for an honest visualization that actually round-trips to a runnable
 // Bench experiment. Framework-free for node --test.
 
+// Static fallbacks mirroring registry.py; the live source of truth is
+// GET /designer/circuit (capabilities), which the Designer prefers when up.
 export const BACKENDS = Object.freeze(['pennylane', 'tensorcircuit', 'tensorcircuit_mps'])
 export const ANSATZE = Object.freeze(['hardware_efficient', 'reuploading', 'ising'])
-export const READOUTS = Object.freeze(['zz', 'z', 'all'])
+export const READOUTS = Object.freeze(['z', 'zz']) // registry READOUT_TYPES — no 'all'
+export const QRNN_ONLY_ANSATZE = Object.freeze(['ising'])
+
+// Contract rules from /designer/circuit (designer.py): ising is a QRNN-only
+// family, so it requires architecture='qrnn' and pins backend/readout to the
+// QRNN compatibility values; tensorcircuit_mps requires an explicit maximum
+// bond dimension (it is approximate, never silently exact).
+export function designerConstraints({ ansatz, backend } = {}) {
+  const isQrnn = QRNN_ONLY_ANSATZE.includes(ansatz)
+  return {
+    architecture: isQrnn ? 'qrnn' : null,
+    backendLocked: isQrnn ? 'pennylane' : null, // compatibility value, not an execution selector
+    readoutLocked: isQrnn ? 'z' : null, // QRNN emits token probabilities, not a readout choice
+    needsBondDim: !isQrnn && backend === 'tensorcircuit_mps',
+  }
+}
 
 // Which gate types carry trainable rotation parameters.
 const PARAM_GATES = new Set(['RX', 'RY', 'RZ'])
@@ -54,15 +71,24 @@ export function circuitDepth(circuit) {
   return columns(circuit).length
 }
 
-// The spec handed to the proposed /designer/circuit round-trip and, on "Send to
-// Bench", to a quantum preset's overrides. Only the registry-meaningful knobs.
-export function toBenchSpec(circuit, { backend, readout } = {}) {
+// The request handed to the live POST /designer/circuit round-trip and, on
+// "Send to Bench", to a quantum preset's overrides. Applies the contract rules
+// (designerConstraints) so the emitted spec is always registry-valid: ising
+// forces architecture='qrnn' with the pennylane/z compatibility values, and
+// mps_max_bond_dimension rides only with tensorcircuit_mps. The client counts
+// are advisory — the backend derives the authoritative parameter shape.
+export function toBenchSpec(circuit, { backend, readout, mpsMaxBondDimension } = {}) {
+  const wantBackend = backend ?? 'pennylane'
+  const rules = designerConstraints({ ansatz: circuit?.ansatz, backend: wantBackend })
+  const finalBackend = rules.backendLocked ?? wantBackend
   return {
     ansatz: circuit?.ansatz ?? null,
     n_qubits: circuit?.n_qubits ?? null,
     n_circuit_layers: circuit?.depth ?? null,
-    backend: backend ?? 'pennylane',
-    readout: readout ?? 'zz',
+    backend: finalBackend,
+    readout: rules.readoutLocked ?? readout ?? 'z',
+    architecture: rules.architecture,
+    mps_max_bond_dimension: rules.needsBondDim ? (mpsMaxBondDimension ?? null) : null,
     trainable_params: paramCount(circuit),
     entangling_gates: entanglingCount(circuit),
   }

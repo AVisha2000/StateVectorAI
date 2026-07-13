@@ -87,13 +87,15 @@ export const api = {
   live: () => get('/live'),
   liveCurve: (key) => get(`/live/${key}/curve`),
   plots: () => get('/plots'),
-  // Proposed (backend-owned) — see docs/BUILD_COORDINATION.md API contract.
-  // These 404 until the backend ships them; callers degrade gracefully.
+  // Shipped research contracts (backend-owned) — see qllm/dashboard/openapi.json
+  // and docs/BUILD_COORDINATION.md. Callers still degrade gracefully on 404 so
+  // the UI stays usable against an older backend build.
   diagnostics: (id) => get(`/jobs/${id}/diagnostics`),
   verdicts: () => get('/verdicts'),
   verdict: (id) => get(`/verdicts/${encodeURIComponent(id)}`),
   atlasOntology: () => get('/atlas/ontology'),
   researchCapabilities: () => get('/research/capabilities'),
   arxivScan: (payload = {}) => post('/discover/arxiv/scan', payload),
+  designerCapabilities: () => get('/designer/circuit'),
   designerCircuit: (payload) => post('/designer/circuit', payload),
 }
