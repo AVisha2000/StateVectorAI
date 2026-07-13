@@ -1,7 +1,9 @@
 # StateVector Dashboard — UI Redesign Plan
 
-Status: design locked, implementation not started
-Date: 2026-07-11
+Status: shipped — all ten surfaces built, contract-wired, and merged to `main`;
+this document is retained as the design record (see BUILD_COORDINATION.md for
+current contract state)
+Date: 2026-07-11 (status updated 2026-07-13)
 Owner: user (Arlind); apex builder Claude Code (Opus 4.8)
 Companion files: [FEATURE_UPGRADES.md](FEATURE_UPGRADES.md) (feature intake),
 [AGENT_OPERATING_MODEL.md](AGENT_OPERATING_MODEL.md) (how we build),
@@ -110,9 +112,10 @@ re-points those inbound links, rather than removing the route.
 `ML → LLMs → Attention → Encoder` tree. The domains→components→head-to-head
 ontology the Atlas/Designer zoom implies is a **new curated schema** to be
 hand-populated (a new `RESEARCH_MAP.yaml` section or a sibling file) with
-budgeted maintenance. There is also **no persistent verdict store**:
-`qllm/resultsdb.py` has runs/metrics/steps/studies tables but no verdict table;
-verdicts are **derived on the fly** from paired comparisons in
+budgeted maintenance. At design time there was **no persistent verdict store** (since shipped as the
+append-only, content-addressed store behind `/verdicts` — decision D3):
+`qllm/resultsdb.py` had runs/metrics/steps/studies tables but no verdict table;
+verdicts were **derived on the fly** from paired comparisons in
 `qllm/dashboard/evidence.py` / `explore.py`, backed by the real claim-ladder and
 advantage logic in `qllm/quantum/advantage.py`. So the Atlas is "new ontology +
 derived verdicts"; a persistent verdict/adjudication store is a Phase 2/3
@@ -163,8 +166,10 @@ becomes a runnable Bench experiment with a matched classical control.
 
 - Keep **React 18 + Vite + react-router 6**.
 - Add **TanStack Query** for server state/caching.
-- **Live run updates:** new backend work, not just a client change — there is no
-  streaming endpoint today (`LabOverview` polls 3000ms, `Jobs`/`Live` 2000ms).
+- **Live run updates:** new backend work, not just a client change — at design
+  time there was no streaming endpoint (`LabOverview` polled 3000ms,
+  `Jobs`/`Live` 2000ms); since shipped as SSE `GET /stream/jobs` (decision D2),
+  consumed by the frontend with a polling fallback.
   Requires new FastAPI streaming endpoints (SSE/WebSocket) + event emission from
   `runner.py` and the `lab_jobs`/`live_runs` tables.
 - Keep **CSS-variable design tokens** (no Tailwind).
@@ -255,13 +260,14 @@ See [AGENT_OPERATING_MODEL.md](AGENT_OPERATING_MODEL.md) for the canonical model
 - **Done so far:** design direction locked through mock v3; validated palette;
   stack decided; feature intake captured; Claude model triage pinned (commit
   `03b7ea4`); this plan reviewed by a 5-dimension adversarial pass and corrected.
-- **Next actions (in order):** (1) rebase `ui-redesign` onto `main`; (2) start
-  Phase 1 there; (3) scope the greenfield research service (§5) incl. the
-  human-gated provider/cost decision. The community-circuit source ("ECDA", §
-  FEATURE_UPGRADES.md §3) is a **Phase 5 dependency, off the critical path** —
-  a fresh session proceeds without it, using the recorded candidate leads.
-- **Not yet started:** any frontend rebuild code, the research service, the
-  Designer backend, auth, the public Atlas export.
+- **Next actions (in order):** (1) ~~rebase `ui-redesign` onto `main`~~ done;
+  (2) ~~start Phase 1 there~~ all phases built and merged; (3) scope the
+  greenfield research service (§5) incl. the human-gated provider/cost decision
+  (**still open — D4**). The community-circuit source ("ECDA", §
+  FEATURE_UPGRADES.md §3) is a **Phase 5 dependency, off the critical path**.
+- **Status 2026-07-13:** the frontend rebuild and the Designer backend
+  (`/designer/circuit`) are shipped on `main`; still not started: the research
+  service runtime (D4-gated), auth, the public Atlas export (exposure-gated).
 
 ## 12. Constraints and lessons
 

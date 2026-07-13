@@ -77,11 +77,12 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
 | GET | `/datasets` | array: `{name, source, source_type, split, n_rows, n_bytes, n_chars, text_column, ...}` |
 | GET | `/presets` · `/config/choices` · `/explore*` · `/scaling-tests*` · `/studies*` · `/suites` · `/runs` · `/live` | see `api.js` |
+| GET | `/atlas/ontology` | canonical curated domain→component ontology (19 cells / 6 domains): `claim_levels`, `replication_statuses`, `domains[].cells[]`, `relations`; `verdict_ref` reserved (null until claim binding validated) |
+| GET+POST | `/designer/circuit` | GET: registry-backed capabilities (choices/defaults/constraints — qrnn-only ansatz requires `architecture`, `tensorcircuit_mps` requires `mps_max_bond_dimension`); POST: side-effect-free validation returning authoritative derived circuit parameters |
 
 ### Proposed / needed by the frontend (backend to design & confirm shapes)
 | Prio | Method | Path | Purpose | Requested for |
 | --- | --- | --- | --- | --- |
-| P3 | GET/POST | `/designer/circuit` round-trip | validate/build a circuit spec against `registry.py` `BACKEND_TYPES`/`CIRCUIT_ANSATZ_TYPES` | Phase 5 Designer |
 | P3 | GET/POST | `/library/*`, `/discover/*` extensions | paper vault, synthesis, LLM/embedding, vector/graph storage remain stopped at D4 pending user-approved provider and daily cost budget | Phase 4 |
 
 Contract rule: never emit a composite "advantage score"; keep claim-level and
@@ -291,14 +292,34 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   table rows now link to `/runs/{id}` too, matching the run→sweep and
   sweep→run links. A single run, its scaling sweep, and its study are now
   mutually reachable. 91 unit / 58 functional E2E / 14 visual.
+- 2026-07-13 · ui: **frontend aligned with the shipped contracts**
+  (`main` `ece5684`) — Designer: readout choices mirror registry (`z`/`zz`,
+  `all` removed), ising handled as QRNN-only (emits `architecture='qrnn'`,
+  pins pennylane/`z` compat values), `tensorcircuit_mps` gets a required
+  max-bond-dimension control, GET capabilities drive choices/bounds, POST
+  round-trip is live (registry-derived params authoritative; 400 rendered as
+  a rejection, 404 as older-backend degradation). Atlas: canonical ontology
+  consumed live (E2E fixture captured verbatim from
+  `atlas_ontology_response()`), truthful fallback notice, live claim/
+  replication vocabularies, seed id `c_comm_limited` renamed to canonical
+  `c_communication_limited`. All stale "proposed / when the backend ships"
+  copy removed. 95 unit / 64 functional E2E / 14 visual.
+- 2026-07-13 · ui (apex): docs cleanup on user direction — moved
+  `/designer/circuit` + `/atlas/ontology` into the Stable contract table,
+  refreshed D1–D6 status to "on main", and updated stale current-state
+  claims in UI_REDESIGN_PLAN.md / PLANS.md / FEATURE_UPGRADES.md. Backend
+  log entries were left untouched. One frontend ask remains for backend:
+  Atlas `verdict_ref` is always null today, so the Atlas verdict-join
+  refinement is inert — when claim binding is validated, start emitting
+  `verdict_ref` (or agree a `claim_id` join convention here).
 
 ## Open decisions / blockers
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| D1 | `/status` response shape | backend | shipped on `backend-enhancements` |
-| D2 | Live updates transport: SSE vs WebSocket | backend | shipped on `backend-enhancements` as SSE |
-| D3 | Persistent verdict store schema | backend | shipped on `backend-enhancements` |
-| D4 | Research-service LLM/embedding provider + per-day cost budget (**human-gated**) | user | open |
-| D5 | Adopt OpenAPI snapshot as the contract — backend adds `qllm/dashboard/openapi.json` + `scripts/dump_openapi.py`; frontend codegen/validates from it | backend | shipped on `backend-enhancements`; pending code-branch merge to `main` |
-| D6 | Backend test suite requires a built frontend (`dist/assets`); make `test_dashboard_security.py` skip gracefully or build `dist` in a fixture | backend | shipped on `backend-enhancements` |
+| D1 | `/status` response shape | backend | shipped, on `main` |
+| D2 | Live updates transport: SSE vs WebSocket | backend | shipped as SSE, on `main` |
+| D3 | Persistent verdict store schema | backend | shipped, on `main` |
+| D4 | Research-service LLM/embedding provider + per-day cost budget (**human-gated**) | user | open — stays closed until the user names provider, credential handling, and budget |
+| D5 | Adopt OpenAPI snapshot as the contract — backend adds `qllm/dashboard/openapi.json` + `scripts/dump_openapi.py`; frontend codegen/validates from it | backend | shipped, on `main` (`b54ad30`) |
+| D6 | Backend test suite requires a built frontend (`dist/assets`); make `test_dashboard_security.py` skip gracefully or build `dist` in a fixture | backend | shipped, on `main` |

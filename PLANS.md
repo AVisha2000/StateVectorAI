@@ -232,7 +232,7 @@ Progress:
 - [x] Align to shipped contracts: diagnostics per-dimension `{status,value,reason}`;
       persistent `/verdicts` + `/verdicts/{id}` store (canonical claim vs derived
       assessment kept distinct); `/status` five-field shape (System running KPI)
-- [ ] Remaining backend-blocked: OpenAPI type codegen once `openapi.json` reaches `main`
+- [ ] OpenAPI type codegen from `qllm/dashboard/openapi.json` (no longer backend-blocked — the snapshot is on `main`; the codegen work itself remains)
 
 Decisions: render backend claim data verbatim (evidence_ladder/verdict/claim);
 no composite advantage score in the scorecard; wall-clock labeled simulator cost;
@@ -253,15 +253,18 @@ Latest validation:
       /launch→/bench redirect works, Verdicts store→comparison fallback,
       graceful empty/error states everywhere, no console errors, both themes
     Branch `ui-redesign` pushed to origin (`ad2a7c1`, force-with-lease over the
-      pre-rebase Phase 1 tip). Backend endpoints live on `backend-enhancements`,
-      not yet on `main`, so real-data wiring is contract-verified, not run here.
+      pre-rebase Phase 1 tip). Backend endpoints lived on `backend-enhancements`
+      at capture time; since fully merged to `main` (`b54ad30`) — the frontend
+      now consumes the shipped `/designer/circuit` and `/atlas/ontology`
+      contracts directly (2026-07-13).
 
 ### Phase 3 — Atlas (in progress, `a858ab0`)
 
 - Slice A (model + seed ontology + list) and Slice B (Cytoscape graph) shipped.
 - Data: `src/lib/atlasOntology.seed.js` transcribes RESEARCH_MAP's 19 areas
-  verbatim (status/claim/replication), grouped into 6 domains — a labeled
-  placeholder pending the backend `/api/atlas/ontology` (requested in the UI log).
+  verbatim (status/claim/replication), grouped into 6 domains — originally a
+  labeled placeholder; `/api/atlas/ontology` has since shipped and the seed is
+  now only the offline/older-backend fallback (2026-07-13).
   `atlasModel` joins to the live `/verdicts` store; `outcome_class` is a color
   bucket from RESEARCH_MAP `status` only (never a verdict, no composite score);
   `claim_level` (map ladder) and `replication_status` stay separate; null /
@@ -306,9 +309,11 @@ Latest validation:
   Send-to-Bench carries `quantum_overrides`; Validate consumes the proposed
   `/designer/circuit` round-trip gracefully. Verified in-browser (ansatz switch
   re-renders, params update). npm test 73/73.
-- **All ten surfaces are now real.** Remaining backend/human-gated items:
-  `/designer/circuit` round-trip (requested), the paid research copilot (D4),
-  OpenAPI codegen once `openapi.json` reaches `main`, and the public Atlas export.
+- **All ten surfaces are now real.** Remaining backend/human-gated items
+  (updated 2026-07-13): ~~`/designer/circuit` round-trip~~ shipped and consumed
+  live; the paid research copilot (D4, still user-gated); OpenAPI codegen (the
+  snapshot is on `main`; the codegen work remains); the public Atlas export
+  (exposure-gated).
 
 ## Completed workstream: GitHub Actions reliability and supply-chain hardening
 

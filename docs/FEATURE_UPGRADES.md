@@ -18,7 +18,12 @@ Status legend: `proposed` · `scoped` · `parking-lot` · `in-progress` · `done
 
 ---
 
-## 1. Research discovery loop  (status: proposed — GREENFIELD)
+## 1. Research discovery loop  (status: partially built — scan shipped, synthesis D4-gated)
+
+> Status 2026-07-13: the fixed-host arXiv metadata scan (`POST /discover/arxiv/scan`,
+> capped 50/day) and the `/research/capabilities` D4-boundary endpoint are live;
+> the paper vault, synthesis, and any LLM/embedding runtime remain stopped at the
+> D4 human gate (provider + credential handling + daily budget undecided).
 
 Turn the cockpit from an experiment *tracker* into a research *engine*. Closed
 loop:
@@ -75,7 +80,11 @@ inspiration for the target runnable-spec **API shape**, not as the assembly step
 
 ---
 
-## 2. Integrated QML Designer — semantic zoom  (status: proposed)
+## 2. Integrated QML Designer — semantic zoom  (status: 2b shipped; 2a zoom still proposed)
+
+> Status 2026-07-13: the Designer surface is live with an SVG circuit editor and
+> the registry-backed `/designer/circuit` round-trip (GET capabilities + POST
+> side-effect-free validation). The continuous semantic zoom (2a) remains open.
 
 A **continuous zoom** from the whole field down to individual gates, for
 non-experts.
