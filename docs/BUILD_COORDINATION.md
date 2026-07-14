@@ -69,7 +69,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET | `/jobs` | array of jobs: `{id, run_name, status(queued\|running\|done\|error\|cancelled), comparison_role, preset_id, dataset_name, seed, steps, eval_every, model_family, group_id, analogue_state, analogue_job_id, compare_to_job_id, device_target, gpu_reservation, interpretation_warnings, config}` |
 | GET | `/jobs/{id}` · `/jobs/{id}/workspace` · `/jobs/{id}/comparison` · `/jobs/{id}/model-graph` · `/jobs/{id}/model-tests` | run detail, twin comparison, model graph, tests |
 | GET | `/jobs/{id}/diagnostics` | retrieval-only saved dimensions: `gradient_variance`, `parameter_shift_gradient_snr`, `expressibility_kl`, `meyer_wallach_q`, `scaling_fit`; every dimension is measured or explicitly unavailable, with provenance and non-advantage warnings |
-| GET | `/verdicts` · `/verdicts/{id}` | latest append-only verdict snapshots and revision history; canonical `claim_level`, `claim_status`, and `replication_status` are ledger-bound and separate from derived `assessment_level`/`assessment_status`; named scorecard dimensions only |
+| GET | `/verdicts` · `/verdicts/{id}` | stable per-claim projections over append-only source snapshots and validated revision history; canonical `claim_level`, `claim_status`, and `replication_status` are ledger-bound and separate from derived `assessment_level`/`assessment_status`; malformed projections are not exposed; named scorecard dimensions only |
 | GET | `/research/capabilities` | explicit D4 boundary: metadata-only, unreviewed, human review required, no full text/claim classification/paid provider/LLM/embedding/vector/graph store/cost budget |
 | POST | `/discover/arxiv/scan` | fixed-host Atom metadata scan for `quant-ph` or QML-filtered `cs.LG`; 1–25/request, persistent 50/UTC-day cap, 10s timeout, 2 MiB response ceiling |
 | POST | `/jobs` · `/jobs/sweep` · `/jobs/{id}/cancel` · `/jobs/{id}/classical-analogue` | queue / sweep / cancel / analogue |
@@ -77,7 +77,7 @@ All routes are under `/api`. Status: `stable` (exists today), `proposed`
 | GET (SSE) | `/stream/jobs` | initial + changed bounded snapshots from authoritative `lab_jobs`/`live_runs`, content-addressed event IDs, 15s heartbeats; independently loopback-only |
 | GET | `/datasets` | array: `{name, source, source_type, split, n_rows, n_bytes, n_chars, text_column, ...}` |
 | GET | `/presets` · `/config/choices` · `/explore*` · `/scaling-tests*` · `/studies*` · `/suites` · `/runs` · `/live` | see `api.js` |
-| GET | `/atlas/ontology` | canonical curated domain→component ontology (19 cells / 6 domains): `claim_levels`, `replication_statuses`, `domains[].cells[]`, `relations`; `verdict_ref` reserved (null until claim binding validated) |
+| GET | `/atlas/ontology` | canonical curated domain→component ontology (20 cells / 6 domains): `claim_levels`, `replication_statuses`, `domains[].cells[]`, `relations`; `verdict_ref` is null without validated evidence, otherwise `{verdict_key: "claim:<claim_id>", source_kind: "claim_projection", source_id: <claim_id>}` |
 | GET+POST | `/designer/circuit` | GET: registry-backed capabilities (choices/defaults/constraints — qrnn-only ansatz requires `architecture`, `tensorcircuit_mps` requires `mps_max_bond_dimension`); POST: side-effect-free validation returning authoritative derived circuit parameters |
 
 ### Proposed / needed by the frontend (backend to design & confirm shapes)
@@ -158,6 +158,23 @@ replication distinct; label wall-time as simulator cost. See RESEARCH_PROGRAM.md
   ansatz/backend/readout when Bench gains full Designer fidelity. The user
   approved the six Atlas display groupings and retained trusted-local L5 dataset
   imports on 2026-07-13. D4 stays closed.
+- 2026-07-15 - backend: backend expansion commit `07a5550` delivers Atlas
+  `verdict_ref` emission using a stable persisted
+  `claim:<claim_id>` projection and resolve through the default `/verdicts`
+  response regardless of repeated or overlapping bounded reconciliation.
+  Source snapshots and projection revisions remain append-only; SQLite
+  serializes source/key ownership and monotonic projection provenance. Generic
+  projection writes, forged scorecards, malformed higher revisions, and stale
+  claim metadata fail closed across Atlas, verdict list, detail, and history.
+  The existing frontend `verdict_key` join can consume this without a contract
+  change; no frontend file was edited. Evidence: focused Atlas/verdict/OpenAPI
+  `33 passed`; dashboard contract `202 passed, 1 skipped`; full CPU suite
+  `835 passed, 1 skipped`; OpenAPI current; one-step CPU smoke job `86` done
+  with recovery `0` and no error; final `gpt-5.6-sol` Ultra review PASS.
+  The user approved the VQE Atlas grouping on 2026-07-14; it remains
+  `unexplored` and introduces no claim promotion. Public Atlas exposure, D4
+  providers/spend, GPU/QPU, claim promotion, and Git publication remain
+  human-gated.
 
 ## Log — from UI (Claude appends here)
 
