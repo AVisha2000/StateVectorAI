@@ -107,7 +107,7 @@ def flat_to_nested_config(flat: dict[str, Any] | None) -> dict:
 
 
 def config_from_flat_payload(flat: dict[str, Any] | None) -> ExperimentConfig:
-    sections = {"model", "train", "data", "tracking"}
+    sections = {"model", "train", "data", "tracking", "problem"}
     config_fields = {
         key: value
         for key, value in (flat or {}).items()

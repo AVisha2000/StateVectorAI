@@ -7,6 +7,7 @@ from ..config import (
     DataConfig,
     ExperimentConfig,
     ModelConfig,
+    ProblemConfig,
     QuantumConfig,
     TrackingConfig,
     TrainConfig,
@@ -69,6 +70,46 @@ def _cfg(model: ModelConfig, run_name: str) -> ExperimentConfig:
         train=_BASE_TRAIN,
         data=_BASE_DATA,
         tracking=dataclasses.replace(_BASE_TRACKING, run_name=run_name),
+    )
+
+
+def _vqe_cfg(instance_id: str, run_name: str) -> ExperimentConfig:
+    return ExperimentConfig(
+        model=ModelConfig(
+            quantum=QuantumConfig(
+                n_qubits=2,
+                n_circuit_layers=2,
+                ansatz="hardware_efficient",
+                backend="pennylane",
+                device="default.qubit",
+                diff_method="backprop",
+                shots=None,
+                trainable=True,
+                init_scale=0.1,
+            )
+        ),
+        train=TrainConfig(
+            seed=0,
+            steps=100,
+            batch_size=1,
+            seq_len=1,
+            lr=0.05,
+            weight_decay=0.0,
+            grad_clip=1.0,
+            eval_every=10,
+            eval_batches=1,
+        ),
+        data=DataConfig(),
+        tracking=dataclasses.replace(
+            _BASE_TRACKING,
+            run_name=run_name,
+            log_quantum_diagnostics=False,
+            log_grad_norms=False,
+        ),
+        problem=ProblemConfig(
+            task_type="ground_state",
+            instance_id=instance_id,
+        ),
     )
 
 
@@ -329,6 +370,34 @@ PRESETS: dict[str, dict] = {
             "two-stream-quantum-bias",
         ),
     ),
+    "vqe-tfim-2q": _preset(
+        label="VQE TFIM 2q",
+        kind="quantum",
+        cost="Bounded analytic CPU diagnostic",
+        summary=(
+            "Two-qubit variational ground-state optimization against a "
+            "certified exact TFIM reference."
+        ),
+        description=(
+            "Optimizes the existing hardware-efficient circuit against the "
+            "registered open-boundary transverse-field Ising Hamiltonian "
+            "H=-Z0Z1-X0-X1."
+        ),
+        architecture=(
+            "Two-qubit hardware-efficient VQE with analytic statevector "
+            "backpropagation."
+        ),
+        quantum_role="The variational circuit prepares the candidate ground state.",
+        recommended_use=(
+            "Use for CPU correctness, durability, and energy-error plumbing "
+            "before finite-shot solver studies."
+        ),
+        risks=(
+            "Analytic simulator convergence is not QPU evidence or solver "
+            "advantage; comparative inference remains disabled."
+        ),
+        config=_vqe_cfg("tfim-2q-open-j1-h1", "vqe-tfim-2q"),
+    ),
 }
 
 
@@ -350,6 +419,7 @@ def preset_meta(preset_id: str) -> dict:
         "risks": payload["risks"],
         "classical_twin_id": payload["classical_twin_id"],
         "classical_analogue": _classical_analogue_meta(preset_id, payload),
+        "reference_ladder": _reference_ladder_meta(cfg),
         "comparison_policy": payload["comparison_policy"],
         "quantum_controls": _quantum_controls(preset_id, cfg),
         "defaults": {
@@ -373,6 +443,8 @@ def build_preset(preset_id: str) -> ExperimentConfig:
 
 
 def _classical_analogue_meta(preset_id: str, payload: dict) -> dict | None:
+    if payload["config"].problem.task_type != "sequence_modeling":
+        return None
     twin_id = payload["classical_twin_id"]
     if twin_id:
         twin = PRESETS[twin_id]
@@ -407,6 +479,15 @@ def _classical_analogue_meta(preset_id: str, payload: dict) -> dict | None:
             ],
         }
     return None
+
+
+def _reference_ladder_meta(cfg: ExperimentConfig) -> list[dict]:
+    if cfg.problem.task_type != "ground_state" or not cfg.problem.instance_id:
+        return []
+    from ..problems import get_ground_state_instance
+
+    instance = get_ground_state_instance(cfg.problem.instance_id)
+    return [reference.to_payload() for reference in instance.classical_references]
 
 
 def classical_twin_id(preset_id: str) -> str | None:

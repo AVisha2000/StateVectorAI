@@ -2,11 +2,42 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping
 
 from .security import resolve_within
+
+
+SOLVER_COMPETITION_SCHEMA_ID = "solver_competition_v1"
+SOLVER_COMPETITION_MISSING_PREREQUISITES = (
+    "registered comparison-eligible finite-shot quantum runner",
+    "registered classical solver runner",
+    "matched paired solver evidence",
+)
+
+
+def ground_state_solver_competition_readiness(
+    claim: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Expose a declared solver schema without enabling comparison early."""
+    fairness_schema = (claim or {}).get("fairness_schema") or {}
+    schema_id = (
+        fairness_schema.get("schema_id")
+        if isinstance(fairness_schema, Mapping)
+        else None
+    )
+    return {
+        "schema_id": schema_id,
+        "schema_declared": schema_id == SOLVER_COMPETITION_SCHEMA_ID,
+        "comparison_ready": False,
+        "missing_prerequisites": list(
+            SOLVER_COMPETITION_MISSING_PREREQUISITES
+        ),
+        "comparative_inference_enabled": False,
+        "paired_stats": None,
+    }
 
 
 def decode_config(row: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -21,6 +52,29 @@ def decode_config(row: Mapping[str, Any] | None) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return dict(decoded) if isinstance(decoded, Mapping) else {}
+
+
+def primary_metric_value(
+    run: Mapping[str, Any] | None, extraction_key: str
+) -> float | None:
+    """Return one declared primary value, failing closed on row inconsistency."""
+    if not run or run.get("primary_metric_name") != extraction_key:
+        return None
+    stored = run.get("primary_metric_value")
+    try:
+        numeric = float(stored)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    specialized = run.get(extraction_key)
+    if specialized is not None:
+        try:
+            if float(specialized) != numeric:
+                return None
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return numeric
 
 
 def curve(db: Any, run_key: str | None, run_uuid: str | None = None) -> dict[str, list]:

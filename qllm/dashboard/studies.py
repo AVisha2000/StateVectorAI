@@ -8,6 +8,7 @@ from statistics import mean, pstdev
 from typing import Any
 
 from ..claims import get_claim, infer_claim_id
+from ..registry import TASK_TYPES, metric_type_spec
 from ..research_protocol import (
     classify_claim,
     evaluate_analogue_ladder,
@@ -27,12 +28,16 @@ from .evidence import (
     study_evidence_ladder,
 )
 from .lab import (
-    PAIRABLE_VAL_PPL_METRIC_TYPES,
     comparison_research_payload,
     enrich_job,
 )
+from ._shared import primary_metric_value
 from .presets import preset_meta
 from .runner import ExperimentQueue
+from ._shared import ground_state_solver_competition_readiness
+
+
+SEQUENCE_TASK_TYPE = "sequence_modeling"
 
 
 def _ints(values: list[Any], *, name: str, minimum: int = 0) -> list[int]:
@@ -49,7 +54,8 @@ def _ints(values: list[Any], *, name: str, minimum: int = 0) -> list[int]:
 
 
 def _study_protocol(payload: dict) -> dict:
-    datasets = payload.get("dataset_names") or payload.get("datasets") or ["default-text"]
+    requested_datasets = payload.get("dataset_names") or payload.get("datasets")
+    datasets = requested_datasets or ["default-text"]
     if isinstance(datasets, str):
         datasets = [datasets]
     seeds = _ints(payload.get("seeds") or [0, 1, 2], name="Seed", minimum=0)
@@ -72,6 +78,34 @@ def _study_protocol(payload: dict) -> dict:
     if explicit_claim_id and claim_id is None:
         raise ValueError(f"Unknown or ambiguous claim_id '{explicit_claim_id}'.")
     claim = get_claim(claim_id) if claim_id else None
+    requested_task_type = payload.get("task_type")
+    claim_task_type = (claim or {}).get("task_type")
+    if requested_task_type is None:
+        if claim and claim_task_type is None:
+            raise ValueError(
+                f"Claim '{claim_id}' is cross-cutting; task_type must be "
+                "provided explicitly for the study."
+            )
+        task_type = claim_task_type or SEQUENCE_TASK_TYPE
+    else:
+        task_type = requested_task_type
+    if not isinstance(task_type, str) or task_type not in TASK_TYPES:
+        raise ValueError(
+            f"task_type must be one of: {', '.join(TASK_TYPES)}; "
+            f"got {task_type!r}."
+        )
+    if claim_task_type is not None and task_type != claim_task_type:
+        raise ValueError(
+            f"task_type must match claim '{claim_id}': {claim_task_type}"
+        )
+    if task_type == "ground_state" and requested_datasets is None:
+        try:
+            candidate_config = preset_meta(candidate_preset_id).get("config") or {}
+        except KeyError:
+            candidate_config = {}
+        instance_id = candidate_config.get("problem.instance_id")
+        if instance_id:
+            datasets = [str(instance_id)]
     metric_type = str(
         payload.get("metric_type")
         or (claim or {}).get("metric_type")
@@ -81,19 +115,111 @@ def _study_protocol(payload: dict) -> dict:
         raise ValueError(
             f"metric_type must match claim '{claim_id}': {claim['metric_type']}"
         )
-    if metric_type not in PAIRABLE_VAL_PPL_METRIC_TYPES:
+    metric_spec = metric_type_spec(metric_type)
+    if metric_spec is None:
         raise ValueError(
-            f"Study paired inference does not support metric_type '{metric_type}'; "
-            "use a metric-specific runner instead of relabeling validation perplexity."
+            f"Study execution does not support metric_type '{metric_type}'; "
+            "use a registered metric-specific runner instead of relabeling "
+            "another value."
         )
-    baseline_policy = str(payload.get("baseline_policy") or "analogue").strip()
+    default_baseline_policy = "none" if task_type == "ground_state" else "analogue"
+    baseline_policy = str(
+        payload.get("baseline_policy") or default_baseline_policy
+    ).strip()
     if baseline_policy not in {"analogue", "none"}:
         raise ValueError("baseline_policy must be 'analogue' or 'none'.")
+    if (
+        task_type != "ground_state"
+        and baseline_policy != "none"
+        and not bool(metric_spec["pairable"])
+    ):
+        raise ValueError(
+            f"metric_type '{metric_type}' is descriptive-only until its "
+            "task-specific fairness schema enables paired inference."
+        )
     analysis = (claim or {}).get("analysis_settings") or {}
+    analysis_mode = str(
+        payload.get("analysis_mode")
+        or (
+            "single_candidate_diagnostic"
+            if task_type == "ground_state"
+            else "paired_candidate_baseline"
+        )
+    ).strip()
+    energy_error_threshold = None
+    if task_type == "ground_state":
+        if metric_type != "ground_state_energy_error":
+            raise ValueError(
+                "Ground-state studies require metric_type "
+                "'ground_state_energy_error'."
+            )
+        if baseline_policy != "none":
+            raise ValueError(
+                "Ground-state studies require baseline_policy='none': no "
+                "registered comparison-eligible finite-shot quantum runner "
+                "or registered classical solver runner is available."
+            )
+        if analysis_mode != "single_candidate_diagnostic":
+            raise ValueError(
+                "Ground-state studies require "
+                "analysis_mode='single_candidate_diagnostic'."
+            )
+        if payload.get("queue_analogues") is True:
+            raise ValueError(
+                "Ground-state studies cannot queue analogue solvers: no "
+                "registered comparison-eligible finite-shot quantum runner "
+                "or registered classical solver runner is available."
+            )
+        contract_threshold = analysis.get(
+            "diagnostic_tolerance",
+            analysis.get("practical_equivalence_margin", 0.001),
+        )
+        requested_threshold = payload.get(
+            "energy_error_threshold", contract_threshold
+        )
+        try:
+            energy_error_threshold = float(requested_threshold)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "energy_error_threshold must be a finite non-negative number."
+            ) from exc
+        if not math.isfinite(energy_error_threshold) or energy_error_threshold < 0:
+            raise ValueError(
+                "energy_error_threshold must be a finite non-negative number."
+            )
+        if claim and not math.isclose(
+            energy_error_threshold,
+            float(contract_threshold),
+            rel_tol=0.0,
+            abs_tol=0.0,
+        ):
+            raise ValueError(
+                "energy_error_threshold must match the claim's prespecified "
+                f"diagnostic tolerance ({float(contract_threshold):g})."
+            )
+        requested_device = str(
+            payload.get("device_target") or "cpu"
+        ).strip().lower()
+        if requested_device != "cpu":
+            raise ValueError(
+                "Ground-state studies require device_target='cpu'."
+            )
+        if control_ids:
+            raise ValueError(
+                "Ground-state control solvers remain disabled: no registered "
+                "classical solver runner is available for matched evidence."
+            )
+        if payload.get("batch_size") not in (None, "") or payload.get(
+            "seq_len"
+        ) not in (None, ""):
+            raise ValueError(
+                "batch_size and seq_len do not apply to ground-state VQE studies."
+            )
     return {
         "name": (payload.get("name") or "Untitled study").strip(),
         "research_question": (payload.get("research_question") or "").strip(),
         "task": (payload.get("task") or "").strip(),
+        "task_type": task_type,
         "description": (payload.get("description") or "").strip(),
         "dataset_names": [str(item) for item in datasets if str(item).strip()],
         "candidate_preset_id": candidate_preset_id,
@@ -109,16 +235,29 @@ def _study_protocol(payload: dict) -> dict:
         "seq_len": (
             int(payload["seq_len"]) if payload.get("seq_len") not in (None, "") else None
         ),
-        "device_target": str(payload.get("device_target") or "auto").strip().lower(),
+        "device_target": str(
+            payload.get("device_target")
+            or ("cpu" if task_type == "ground_state" else "auto")
+        ).strip().lower(),
         "queue_now": bool(payload.get("queue_now", True)),
-        "queue_analogues": bool(payload.get("queue_analogues", True)),
+        "queue_analogues": (
+            False
+            if task_type == "ground_state"
+            else bool(payload.get("queue_analogues", True))
+        ),
         "sweep": {"qubits": qubits, "depths": depths},
-        "metrics": payload.get("metrics") or ["val_ppl", "wall_seconds", "n_params"],
+        "metrics": payload.get("metrics") or (
+            ["energy_error", "energy", "wall_seconds", "n_params"]
+            if task_type == "ground_state"
+            else ["val_ppl", "wall_seconds", "n_params"]
+        ),
         "claim_id": claim_id,
         "claim": claim,
         "metric_type": metric_type,
         "seed_axes": payload.get("seed_axes"),
         "analysis_settings": analysis,
+        "analysis_mode": analysis_mode,
+        "energy_error_threshold": energy_error_threshold,
     }
 
 
@@ -128,11 +267,48 @@ def create_study(db: ResultsDB, queue: ExperimentQueue, payload: dict) -> dict:
         raise ValueError("Study name is required.")
     if not protocol["candidate_preset_id"]:
         raise ValueError("Candidate preset is required.")
-    preset_meta(protocol["candidate_preset_id"])
+    candidate_meta = preset_meta(protocol["candidate_preset_id"])
+    candidate_task_type = str(
+        (candidate_meta.get("config") or {}).get(
+            "problem.task_type", SEQUENCE_TASK_TYPE
+        )
+    )
+    if candidate_task_type != protocol["task_type"]:
+        raise ValueError(
+            "Candidate preset task_type does not match the study: "
+            f"{candidate_task_type!r} != {protocol['task_type']!r}."
+        )
     for control_id in protocol["control_preset_ids"]:
-        preset_meta(control_id)
+        control_meta = preset_meta(control_id)
+        control_task_type = str(
+            (control_meta.get("config") or {}).get(
+                "problem.task_type", SEQUENCE_TASK_TYPE
+            )
+        )
+        if control_task_type != protocol["task_type"]:
+            raise ValueError(
+                f"Control preset '{control_id}' task_type does not match the study: "
+                f"{control_task_type!r} != {protocol['task_type']!r}."
+            )
     for dataset in protocol["dataset_names"]:
-        if get_dataset(db, dataset) is None:
+        if protocol["task_type"] == "ground_state":
+            from ..problems import get_ground_state_instance
+
+            try:
+                get_ground_state_instance(dataset)
+            except KeyError as exc:
+                raise ValueError(
+                    f"Unknown ground-state problem instance '{dataset}'"
+                ) from exc
+            candidate_instance = (candidate_meta.get("config") or {}).get(
+                "problem.instance_id"
+            )
+            if dataset != candidate_instance:
+                raise ValueError(
+                    "Ground-state study instance must match the candidate "
+                    f"preset: {dataset!r} != {candidate_instance!r}."
+                )
+        elif get_dataset(db, dataset) is None:
             raise ValueError(f"Unknown dataset '{dataset}'")
     if protocol["steps"] < 1:
         raise ValueError("Steps must be at least 1.")
@@ -176,13 +352,44 @@ def queue_study(db: ResultsDB, queue: ExperimentQueue, study_id: int) -> dict:
     study = db.get_study(study_id)
     if study is None:
         raise ValueError(f"Unknown study {study_id}")
-    protocol = study.get("protocol") or {}
+    protocol = _resolved_study_protocol(study)
+    candidate_meta = preset_meta(study["candidate_preset_id"])
+    candidate_config = candidate_meta.get("config") or {}
+    candidate_task_type = str(
+        candidate_config.get("problem.task_type", SEQUENCE_TASK_TYPE)
+    )
+    if candidate_task_type != protocol["task_type"]:
+        raise ValueError(
+            "Candidate preset task_type does not match the stored study: "
+            f"{candidate_task_type!r} != {protocol['task_type']!r}."
+        )
+    if protocol["task_type"] == "ground_state":
+        if (
+            protocol.get("analysis_mode")
+            != "single_candidate_diagnostic"
+            or protocol.get("baseline_policy") != "none"
+            or protocol.get("metric_type")
+            != "ground_state_energy_error"
+            or protocol.get("device_target") != "cpu"
+            or protocol.get("queue_analogues")
+            or study.get("control_preset_ids")
+        ):
+            raise ValueError(
+                "Stored ground-state study protocol violates the bounded "
+                "single-candidate diagnostic contract."
+            )
+        candidate_instance = candidate_config.get("problem.instance_id")
+        for instance_id in study.get("dataset_names") or []:
+            if instance_id != candidate_instance:
+                raise ValueError(
+                    "Ground-state study instance must match the candidate "
+                    f"preset: {instance_id!r} != {candidate_instance!r}."
+                )
     if db.fetch_study_jobs(study_id):
         return study_payload(db, study_id)
 
     group_id = study["group_id"]
     queued = 0
-    candidate_meta = preset_meta(study["candidate_preset_id"])
     supports_quantum_grid = bool(candidate_meta.get("quantum_controls", {}).get("enabled"))
     for dataset in study["dataset_names"]:
         for seed in study["seeds"]:
@@ -367,12 +574,432 @@ def _aggregate_analogue_ladders(ladders: list[dict]) -> dict:
     }
 
 
+def _ground_state_reference_ladder(
+    claim: dict | None,
+    instances: list,
+    completed_runs: list[dict],
+) -> dict:
+    configured = list((claim or {}).get("analogue_ladder") or [])
+    rungs = []
+    for configured_rung in configured:
+        rung_id = str(
+            configured_rung.get("id")
+            or configured_rung.get("rung_id")
+            or "unknown"
+        )
+        if rung_id == "exact_diagonalization_reference":
+            met = bool(completed_runs) and all(
+                any(
+                    reference.reference_id == "exact_diagonalization"
+                    and reference.role == "oracle"
+                    and reference.certified
+                    for reference in instance.classical_references
+                )
+                for instance in instances
+            )
+        elif rung_id in {
+            "best_product_state_reference",
+            "strong_classical_challenger",
+        }:
+            met = bool(instances) and all(
+                any(
+                    reference.reference_id == "best_product_state"
+                    and reference.role == "descriptive_challenger"
+                    and reference.certified
+                    for reference in instance.classical_references
+                )
+                for instance in instances
+            )
+        elif rung_id == "resource_accounting":
+            met = bool(completed_runs) and all(
+                isinstance(run.get("resources"), dict)
+                and isinstance(
+                    run["resources"].get(
+                        "measured_hardware_circuit_executions"
+                    ),
+                    dict,
+                )
+                for run in completed_runs
+            )
+        else:
+            met = False
+        rungs.append(
+            {
+                "id": rung_id,
+                "required": bool(configured_rung.get("required")),
+                "status": "met" if met else "unknown",
+                "limitation": configured_rung.get("limitation"),
+                "comparison_enabled": False,
+            }
+        )
+    missing = [
+        rung["id"]
+        for rung in rungs
+        if rung["required"] and rung["status"] != "met"
+    ]
+    return {
+        "required_complete": not missing,
+        "missing_required": missing,
+        "rungs": rungs,
+        "comparison_enabled": False,
+    }
+
+
+def _ground_state_diagnostic_evidence(
+    jobs: list[dict],
+    protocol: dict,
+) -> dict:
+    """Summarize exact-reference diagnostics without paired inference."""
+    from ..problems import get_ground_state_instance
+
+    claim_id = protocol.get("claim_id")
+    claim = get_claim(claim_id) if claim_id else None
+    metric_type = protocol.get("metric_type")
+    metric_spec = metric_type_spec(metric_type)
+    metric_key = (
+        str(metric_spec["extraction_key"]) if metric_spec is not None else None
+    )
+    threshold = float(protocol.get("energy_error_threshold") or 0.001)
+    candidates = [
+        job for job in jobs if job.get("study_role") == "candidate"
+    ]
+    observations = []
+    instances_by_id = {}
+    completed_runs = []
+    mismatches = []
+    cells: dict[tuple, list[dict]] = defaultdict(list)
+    observed_units: set[str] = set()
+
+    for job in candidates:
+        instance_id = str(job.get("dataset_name") or "")
+        try:
+            instance = get_ground_state_instance(instance_id)
+        except KeyError:
+            mismatches.append(
+                {
+                    "job_id": job.get("id"),
+                    "path": "job.dataset_name",
+                    "candidate": instance_id,
+                    "baseline": None,
+                    "allowed": False,
+                    "reason": "unknown registered ground-state instance",
+                }
+            )
+            continue
+        instances_by_id[instance_id] = instance
+        observed_units.add(instance.energy_units)
+        declared_metric = job.get("metric_type") or (
+            job.get("config") or {}
+        ).get("research.metric_type")
+        if declared_metric != metric_type:
+            mismatches.append(
+                {
+                    "job_id": job.get("id"),
+                    "path": "research.metric_type",
+                    "candidate": declared_metric,
+                    "baseline": metric_type,
+                    "allowed": False,
+                    "reason": "job metric differs from the diagnostic protocol",
+                }
+            )
+        run = job.get("final_run")
+        value = (
+            primary_metric_value(run, metric_key)
+            if metric_key is not None
+            else None
+        )
+        available = run is not None and value is not None
+        if available:
+            completed_runs.append(run)
+        sweep = job.get("study_sweep") or {}
+        cell_key = (
+            instance_id,
+            sweep.get("n_qubits"),
+            sweep.get("n_circuit_layers"),
+        )
+        observation = {
+            "job_id": job.get("id"),
+            "instance_id": instance_id,
+            "seed": int(job.get("seed", 0)),
+            "sweep": sweep,
+            "status": job.get("status"),
+            "available": available,
+            "metric_type": metric_type,
+            "metric_key": metric_key,
+            "metric_units": instance.energy_units,
+            "energy_error": float(value) if value is not None else None,
+            "within_tolerance": (
+                bool(float(value) <= threshold)
+                if value is not None
+                else None
+            ),
+            "threshold": threshold,
+            "seed_axes": job.get("seed_axes"),
+            "run_uuid": job.get("run_uuid"),
+        }
+        observations.append(observation)
+        cells[cell_key].append(observation)
+
+    duplicate_seeds = []
+    analyses = []
+    for cell_key, rows in sorted(cells.items(), key=lambda item: str(item[0])):
+        by_seed: dict[int, list[dict]] = defaultdict(list)
+        for row in rows:
+            by_seed[int(row["seed"])].append(row)
+        duplicates = sorted(
+            seed for seed, seed_rows in by_seed.items() if len(seed_rows) != 1
+        )
+        duplicate_seeds.extend(duplicates)
+        unique_rows = [
+            seed_rows[0]
+            for _, seed_rows in sorted(by_seed.items())
+            if len(seed_rows) == 1 and seed_rows[0]["available"]
+        ]
+        values = [float(row["energy_error"]) for row in unique_rows]
+        outcome = (
+            "incomplete"
+            if not values or duplicates or len(unique_rows) != len(rows)
+            else "within_tolerance"
+            if all(value <= threshold for value in values)
+            else "outside_tolerance"
+        )
+        analyses.append(
+            {
+                "analysis_mode": "single_candidate_diagnostic",
+                "instance_id": cell_key[0],
+                "sweep": {
+                    "n_qubits": cell_key[1],
+                    "n_circuit_layers": cell_key[2],
+                },
+                "metric_type": metric_type,
+                "metric_key": metric_key,
+                "metric_units": (
+                    instances_by_id[cell_key[0]].energy_units
+                    if cell_key[0] in instances_by_id
+                    else None
+                ),
+                "threshold": threshold,
+                "completed_initialization_seeds": len(unique_rows),
+                "duplicate_seeds": duplicates,
+                "mean_energy_error": mean(values) if values else None,
+                "std_energy_error": (
+                    pstdev(values) if len(values) > 1 else None
+                ),
+                "max_energy_error": max(values) if values else None,
+                "outcome": outcome,
+                "observations": unique_rows,
+                "paired_stats": None,
+                "comparative_inference_enabled": False,
+            }
+        )
+
+    if len(observed_units) > 1:
+        mismatches.append(
+            {
+                "path": "problem.energy_units",
+                "candidate": sorted(observed_units),
+                "baseline": None,
+                "allowed": False,
+                "reason": "mixed energy units cannot be aggregated",
+            }
+        )
+    if duplicate_seeds:
+        mismatches.append(
+            {
+                "path": "study.seed",
+                "candidate": sorted(set(duplicate_seeds)),
+                "baseline": None,
+                "allowed": False,
+                "reason": "duplicate initialization seeds in one instance cell",
+            }
+        )
+
+    completed = sum(1 for row in observations if row["available"])
+    outcome = (
+        "incomplete"
+        if not completed or completed != len(candidates) or mismatches
+        else "within_tolerance"
+        if all(row["within_tolerance"] for row in observations if row["available"])
+        else "outside_tolerance"
+    )
+    reason = {
+        "incomplete": (
+            "No complete unique diagnostic observations are available, or "
+            "the stored protocol is inconsistent."
+        ),
+        "within_tolerance": (
+            f"All {completed} completed analytic simulator diagnostic(s) "
+            f"are within the prespecified {threshold:g} energy-error tolerance."
+        ),
+        "outside_tolerance": (
+            f"At least one completed analytic simulator diagnostic exceeds "
+            f"the prespecified {threshold:g} energy-error tolerance."
+        ),
+    }[outcome]
+    instances = list(instances_by_id.values())
+    reference_ladder = _ground_state_reference_ladder(
+        claim,
+        instances,
+        completed_runs,
+    )
+    solver_competition_readiness = ground_state_solver_competition_readiness(
+        claim
+    )
+    warnings = [
+        {
+            "code": "simulator_diagnostic_only",
+            "severity": "warning",
+            "title": "Analytic simulator diagnostic only",
+            "message": (
+                "This study does not provide QPU evidence or an equal-budget "
+                "classical solver comparison."
+            ),
+            "evidence": {
+                "comparative_inference_enabled": False,
+                "qpu_evidence": False,
+            },
+        }
+    ]
+    if completed == 1:
+        warnings.extend(
+            interpretation_warnings(
+                single_seed=True,
+                available=True,
+                baseline_linked=None,
+                candidate_uses_quantum=False,
+            )
+        )
+    if mismatches:
+        warnings.extend(
+            interpretation_warnings(
+                available=True,
+                assessment_status="invalid",
+                duplicate_seeds=sorted(set(duplicate_seeds)),
+            )
+        )
+
+    evidence = {
+        "label": "simulator diagnostic",
+        "reason": reason,
+        "outcome": outcome,
+        "analysis_mode": "single_candidate_diagnostic",
+        "candidate_count": len(candidates),
+        "completed_diagnostics": completed,
+        "complete_pairs": 0,
+        "fair_pairs": 0,
+        "eligible_pairs": 0,
+        "independent_pairs": None,
+        "analysis_cell_count": len(analyses),
+        "rerun_required_pairs": 0,
+        "wins": 0,
+        "aggregate_available": False,
+        "metric_type": metric_type,
+        "metric_key": metric_key,
+        "metric_units": (
+            next(iter(observed_units)) if len(observed_units) == 1 else None
+        ),
+        "lower_is_better": (
+            bool(metric_spec["lower_is_better"])
+            if metric_spec is not None
+            else None
+        ),
+        "energy_error_threshold": threshold,
+        "mean_delta": None,
+        "std_delta": None,
+        "mean_delta_val_ppl": None,
+        "std_delta_val_ppl": None,
+        "comparisons": [],
+        "descriptive_observations": observations,
+        "analyses": analyses,
+        "paired_stats": None,
+        "equivalence": None,
+        "power": None,
+        "analogue_ladder": reference_ladder,
+        "reference_ladder": reference_ladder,
+        "claim_id": claim_id,
+        "claim": claim,
+        "claim_level": (claim or {}).get("level") or "untested",
+        "replication_status": (claim or {}).get("replication_status") or "none",
+        "task_type": "ground_state",
+        "assessment_status": (
+            "invalid" if mismatches else "descriptive"
+        ),
+        "comparative_inference_enabled": False,
+        "solver_competition_readiness": solver_competition_readiness,
+        "mixed_metric_types": False,
+        "mixed_claim_ids": False,
+        "fairness_mismatches": mismatches,
+        "fairness_mismatch_count": len(mismatches),
+        "seed_axes": {
+            "requested": protocol.get("seed_axes"),
+            "observed": [
+                {
+                    "job_id": row.get("job_id"),
+                    "role": "candidate",
+                    "seed": row.get("seed"),
+                    "axes": row.get("seed_axes"),
+                }
+                for row in observations
+            ],
+        },
+        "interpretation_warnings": warnings,
+    }
+    evidence["ladder"] = [
+        {
+            "key": "registered_metric",
+            "label": "Registered diagnostic metric",
+            "ok": metric_type == "ground_state_energy_error",
+            "detail": f"{metric_type} extracts {metric_key}",
+            "caution": "This metric is intentionally non-pairable.",
+        },
+        {
+            "key": "exact_reference",
+            "label": "Certified exact reference",
+            "ok": any(
+                rung["id"] == "exact_diagonalization_reference"
+                and rung["status"] == "met"
+                for rung in reference_ladder["rungs"]
+            ),
+            "detail": "Exact diagonalization is a metric oracle, not a competitor.",
+            "caution": None,
+        },
+        {
+            "key": "completed_diagnostics",
+            "label": "Completed analytic diagnostics",
+            "ok": completed > 0,
+            "detail": f"{completed} completed initialization seed(s)",
+            "caution": "Seeds are nested within each problem instance.",
+        },
+        {
+            "key": "prespecified_tolerance",
+            "label": "Prespecified energy tolerance",
+            "ok": outcome == "within_tolerance",
+            "detail": f"Outcome: {outcome}; threshold: {threshold:g}",
+            "caution": "Tolerance is instance-specific and not chemical accuracy.",
+        },
+        {
+            "key": "comparative_inference",
+            "label": "Comparative solver inference",
+            "ok": False,
+            "detail": (
+                "Blocked by the missing registered comparison-eligible "
+                "finite-shot quantum runner, registered classical solver "
+                "runner, and matched paired solver evidence."
+            ),
+            "caution": "No advantage or composite score is produced.",
+        },
+    ]
+    return evidence
+
+
 def _evidence_for_jobs(
     db: ResultsDB,
     jobs: list[dict],
     protocol: dict | None = None,
 ) -> dict:
     protocol = protocol or {}
+    if protocol.get("task_type") == "ground_state":
+        return _ground_state_diagnostic_evidence(jobs, protocol)
     claim_id = protocol.get("claim_id")
     claim = get_claim(claim_id) if claim_id else None
     candidate_jobs = [job for job in jobs if job.get("study_role") == "candidate"]
@@ -398,8 +1025,6 @@ def _evidence_for_jobs(
             })
             continue
         flags = payload.get("fairness") or {}
-        deltas_payload = payload.get("deltas") or {}
-        delta = deltas_payload.get("val_ppl")
         cfinal = (payload.get("candidate") or {}).get("final_run")
         bfinal = (payload.get("baseline") or {}).get("final_run")
         if cfinal and bfinal:
@@ -415,6 +1040,21 @@ def _evidence_for_jobs(
             payload.get("metric_type")
             or metric_contract.get("metric_type")
             or protocol.get("metric_type")
+        )
+        metric_spec = metric_type_spec(metric_type, require_pairable=True)
+        metric_key = (
+            str(metric_spec["extraction_key"]) if metric_spec is not None else None
+        )
+        candidate_score = (
+            primary_metric_value(cfinal, metric_key) if metric_key else None
+        )
+        baseline_score = (
+            primary_metric_value(bfinal, metric_key) if metric_key else None
+        )
+        delta = (
+            candidate_score - baseline_score
+            if candidate_score is not None and baseline_score is not None
+            else None
         )
         payload_claim_id = payload.get("claim_id") or claim_id
         observed_metric_types.add(metric_type)
@@ -434,11 +1074,17 @@ def _evidence_for_jobs(
             "rerun_required": needs_rerun,
             "claim_id": payload_claim_id,
             "metric_type": metric_type,
-            "delta_val_ppl": delta,
+            "metric_key": metric_key,
+            "metric_units": metric_spec.get("units") if metric_spec else None,
+            "lower_is_better": (
+                bool(metric_spec["lower_is_better"]) if metric_spec else None
+            ),
+            "metric_delta": delta,
+            "delta_val_ppl": delta if metric_key == "val_ppl" else None,
             "comparison_link": f"/comparisons/{job['id']}",
             "fairness_mismatches": payload.get("fairness_mismatches") or [],
             "disallowed_fairness_mismatches": flags.get("disallowed_mismatches") or [],
-            "analysis_eligible": metric_type in PAIRABLE_VAL_PPL_METRIC_TYPES,
+            "analysis_eligible": metric_spec is not None,
             "cell": {
                 "claim_id": payload_claim_id,
                 "metric_type": metric_type,
@@ -452,12 +1098,14 @@ def _evidence_for_jobs(
             and cfinal
             and bfinal
             and delta is not None
-            and metric_type in PAIRABLE_VAL_PPL_METRIC_TYPES
+            and candidate_score is not None
+            and baseline_score is not None
+            and metric_spec is not None
         ):
             cells[cell].append({
                 "seed": int(job["seed"]),
-                "candidate_score": float(cfinal["val_ppl"]),
-                "baseline_score": float(bfinal["val_ppl"]),
+                "candidate_score": float(candidate_score),
+                "baseline_score": float(baseline_score),
                 "payload": payload,
                 "study_sweep": sweep,
                 "claim_id": payload_claim_id,
@@ -467,6 +1115,11 @@ def _evidence_for_jobs(
     analyses = []
     for cell, observations in sorted(cells.items(), key=lambda item: str(item[0])):
         cell_claim = get_claim(cell[0]) if cell[0] else None
+        metric_spec = metric_type_spec(cell[1], require_pairable=True)
+        if metric_spec is None:
+            continue
+        metric_key = str(metric_spec["extraction_key"])
+        lower_is_better = bool(metric_spec["lower_is_better"])
         settings = (cell_claim or {}).get("analysis_settings") or {}
         by_seed: dict[int, list[dict]] = defaultdict(list)
         for observation in observations:
@@ -479,6 +1132,7 @@ def _evidence_for_jobs(
             paired_stats(
                 candidate_scores,
                 baseline_scores,
+                lower_is_better=lower_is_better,
                 alpha=float(settings.get("alpha", 0.05)),
                 bootstrap_seed=int(settings.get("bootstrap_seed", 0)),
                 bootstrap_resamples=int(settings.get("bootstrap_resamples", 20_000)),
@@ -494,7 +1148,11 @@ def _evidence_for_jobs(
             else {"status": "not_assessed", "equivalent": False, "margin": margin}
         )
         improvements = (
-            paired_improvements(candidate_scores, baseline_scores)
+            paired_improvements(
+                candidate_scores,
+                baseline_scores,
+                lower_is_better=lower_is_better,
+            )
             if unique else []
         )
         power = (
@@ -541,7 +1199,7 @@ def _evidence_for_jobs(
                 equivalence=equivalence,
                 power=power,
                 analogue_ladder=ladder,
-                metric_name="validation perplexity",
+                metric_name=str(cell[1]).replace("_", " "),
             )
             if stats else {
                 "label": "incomplete",
@@ -550,10 +1208,18 @@ def _evidence_for_jobs(
                 "reason": "no unique fair paired observations",
             }
         )
+        raw_deltas = [
+            row["candidate_score"] - row["baseline_score"] for row in unique
+        ]
+        mean_delta = mean(raw_deltas) if raw_deltas else None
+        std_delta = pstdev(raw_deltas) if raw_deltas else None
         analyses.append({
             "claim_id": cell[0],
             "claim": cell_claim,
             "metric_type": cell[1],
+            "metric_key": metric_key,
+            "metric_units": metric_spec["units"],
+            "lower_is_better": lower_is_better,
             "dataset": cell[2],
             "sweep": {"n_qubits": cell[3], "n_circuit_layers": cell[4]},
             "eligible_pairs": len(observations),
@@ -566,22 +1232,17 @@ def _evidence_for_jobs(
             "verdict": verdict,
             "assessment_status": verdict.get("assessment_status"),
             "wins": sum(
-                row["candidate_score"] < row["baseline_score"] for row in unique
-            ),
-            "mean_delta_val_ppl": (
-                mean(
-                    row["candidate_score"] - row["baseline_score"]
-                    for row in unique
+                (
+                    row["candidate_score"] < row["baseline_score"]
+                    if lower_is_better
+                    else row["candidate_score"] > row["baseline_score"]
                 )
-                if unique else None
+                for row in unique
             ),
-            "std_delta_val_ppl": (
-                pstdev([
-                    row["candidate_score"] - row["baseline_score"]
-                    for row in unique
-                ])
-                if unique else None
-            ),
+            "mean_delta": mean_delta,
+            "std_delta": std_delta,
+            "mean_delta_val_ppl": mean_delta if metric_key == "val_ppl" else None,
+            "std_delta_val_ppl": std_delta if metric_key == "val_ppl" else None,
         })
 
     cell_metrics = observed_metric_types
@@ -613,8 +1274,8 @@ def _evidence_for_jobs(
         label = "incomplete"
         reason = "no complete matched candidate/baseline comparisons yet"
     wins = int(primary.get("wins") or 0) if primary else 0
-    mean_delta = primary.get("mean_delta_val_ppl") if primary else None
-    std_delta = primary.get("std_delta_val_ppl") if primary else None
+    mean_delta = primary.get("mean_delta") if primary else None
+    std_delta = primary.get("std_delta") if primary else None
     aggregate_available = bool(primary and primary.get("paired_stats"))
     aggregate_mismatches = [
         {"job_id": row.get("job_id"), **mismatch}
@@ -648,8 +1309,17 @@ def _evidence_for_jobs(
         "rerun_required_pairs": rerun_required,
         "wins": wins,
         "aggregate_available": aggregate_available,
-        "mean_delta_val_ppl": mean_delta,
-        "std_delta_val_ppl": std_delta,
+        "metric_key": primary.get("metric_key") if primary else None,
+        "metric_units": primary.get("metric_units") if primary else None,
+        "lower_is_better": primary.get("lower_is_better") if primary else None,
+        "mean_delta": mean_delta,
+        "std_delta": std_delta,
+        "mean_delta_val_ppl": (
+            primary.get("mean_delta_val_ppl") if primary else None
+        ),
+        "std_delta_val_ppl": (
+            primary.get("std_delta_val_ppl") if primary else None
+        ),
         "comparisons": comparisons,
         "analyses": analyses,
         "paired_stats": primary.get("paired_stats") if primary else None,
@@ -658,6 +1328,7 @@ def _evidence_for_jobs(
         "analogue_ladder": primary.get("analogue_ladder") if primary else None,
         "claim_id": claim_id,
         "claim": claim,
+        "task_type": protocol.get("task_type"),
         "metric_type": primary.get("metric_type") if primary else protocol.get("metric_type"),
         "assessment_status": (
             "rerun_required"
@@ -742,6 +1413,11 @@ def _completed_role_summary(jobs: list[dict], role: str) -> dict:
 
 def _study_limitations(study: dict, jobs: list[dict], evidence: dict) -> list[str]:
     limitations: list[str] = []
+    if study.get("task_type") == "ground_state":
+        limitations.append(
+            "Analytic simulator diagnostics are not QPU evidence and do not "
+            "support comparative solver or quantum-advantage inference."
+        )
     if evidence.get("rerun_required_pairs"):
         limitations.append(
             f"{evidence['rerun_required_pairs']} comparison pair(s) use an "
@@ -780,6 +1456,22 @@ def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
         bjob = baseline.get("job") or {}
         crun = candidate.get("final_run") or {}
         brun = baseline.get("final_run") or {}
+        metric_type = payload.get("metric_type") or metric_contract.get("metric_type")
+        metric_spec = metric_type_spec(metric_type, require_pairable=True)
+        metric_key = (
+            str(metric_spec["extraction_key"]) if metric_spec is not None else None
+        )
+        candidate_metric = (
+            primary_metric_value(crun, metric_key) if metric_key else None
+        )
+        baseline_metric = (
+            primary_metric_value(brun, metric_key) if metric_key else None
+        )
+        metric_delta = (
+            candidate_metric - baseline_metric
+            if candidate_metric is not None and baseline_metric is not None
+            else None
+        )
         rows.append({
             "candidate_job_id": cjob.get("id") or job["id"],
             "baseline_job_id": bjob.get("id"),
@@ -791,16 +1483,28 @@ def _pair_report_rows(db: ResultsDB, jobs: list[dict]) -> list[dict]:
             and bool((payload.get("fairness") or {}).get("complete"))
             and not metric_contract.get("rerun_required", False),
             "rerun_required": bool(metric_contract.get("rerun_required")),
-            "metric_type": payload.get("metric_type") or metric_contract.get("metric_type"),
+            "metric_type": metric_type,
+            "metric_key": metric_key,
+            "metric_units": metric_spec.get("units") if metric_spec else None,
+            "lower_is_better": (
+                bool(metric_spec["lower_is_better"]) if metric_spec else None
+            ),
             "claim_id": payload.get("claim_id"),
             "seed_axes": payload.get("seed_axes"),
             "fairness_mismatches": payload.get("fairness_mismatches") or [],
             "analogue_ladder": payload.get("analogue_ladder"),
             "verdict_label": (payload.get("verdict") or {}).get("label"),
-            "delta_val_ppl": (payload.get("deltas") or {}).get("val_ppl"),
+            "metric_delta": metric_delta,
+            "candidate_metric": candidate_metric,
+            "baseline_metric": baseline_metric,
+            "delta_val_ppl": metric_delta if metric_key == "val_ppl" else None,
             "delta_wall_seconds": (payload.get("deltas") or {}).get("wall_seconds"),
-            "candidate_val_ppl": crun.get("val_ppl"),
-            "baseline_val_ppl": brun.get("val_ppl"),
+            "candidate_val_ppl": (
+                candidate_metric if metric_key == "val_ppl" else None
+            ),
+            "baseline_val_ppl": (
+                baseline_metric if metric_key == "val_ppl" else None
+            ),
             "comparison_link": f"/comparisons/{job['id']}" if payload.get("available") else None,
             "reason": payload.get("reason") or (payload.get("verdict") or {}).get("reason"),
             "interpretation_warnings": payload.get("interpretation_warnings") or [],
@@ -812,6 +1516,7 @@ def _report_markdown(report: dict) -> str:
     protocol = report["protocol"]
     verdict = report["verdict"]
     stats = report["statistics"]
+    metric_label = stats.get("metric_type") or "metric"
     lines = [
         f"# Study Report: {report['name']}",
         "",
@@ -820,12 +1525,17 @@ def _report_markdown(report: dict) -> str:
         "## Verdict",
         f"- Label: {verdict['label']}",
         f"- Reason: {verdict['reason']}",
+        f"- Outcome: {verdict.get('outcome') or '-'}",
+        (
+            "- Comparative inference enabled: "
+            f"{bool(verdict.get('comparative_inference_enabled'))}"
+        ),
         f"- Fair pairs: {stats['fair_pairs']}",
         f"- Aggregate available: {stats.get('aggregate_available', False)}",
         f"- Rerun-required pairs: {stats.get('rerun_required_pairs', 0)}",
         f"- Candidate wins: {stats['wins']}",
-        f"- Mean delta val ppl: {stats['mean_delta_val_ppl'] if stats['mean_delta_val_ppl'] is not None else '-'}",
-        f"- Std delta val ppl: {stats['std_delta_val_ppl'] if stats['std_delta_val_ppl'] is not None else '-'}",
+        f"- Mean delta {metric_label}: {stats['mean_delta'] if stats['mean_delta'] is not None else '-'}",
+        f"- Std delta {metric_label}: {stats['std_delta'] if stats['std_delta'] is not None else '-'}",
         "",
         "## Protocol",
         f"- Candidate preset: {protocol['candidate_preset_id']}",
@@ -854,6 +1564,22 @@ def _resolved_study_protocol(study: dict) -> dict:
     claim = get_claim(claim_id) if claim_id else None
     protocol["claim_id"] = claim_id
     protocol["claim"] = claim
+    stored_task_type = protocol.get("task_type")
+    claim_task_type = (claim or {}).get("task_type")
+    if stored_task_type is None:
+        task_type = claim_task_type or SEQUENCE_TASK_TYPE
+    else:
+        task_type = stored_task_type
+    if not isinstance(task_type, str) or task_type not in TASK_TYPES:
+        raise ValueError(
+            f"Stored study has unsupported task_type {task_type!r}."
+        )
+    if claim_task_type is not None and task_type != claim_task_type:
+        raise ValueError(
+            f"Stored study task_type must match claim '{claim_id}': "
+            f"{claim_task_type}"
+        )
+    protocol["task_type"] = task_type
     protocol["metric_type"] = (
         protocol.get("metric_type")
         or (claim or {}).get("metric_type")
@@ -865,6 +1591,23 @@ def _resolved_study_protocol(study: dict) -> dict:
         or (claim or {}).get("analysis_settings")
         or {}
     )
+    if task_type == "ground_state":
+        protocol.setdefault(
+            "analysis_mode", "single_candidate_diagnostic"
+        )
+        if protocol.get("energy_error_threshold") is None:
+            protocol["energy_error_threshold"] = protocol[
+                "analysis_settings"
+            ].get(
+                "diagnostic_tolerance",
+                protocol["analysis_settings"].get(
+                    "practical_equivalence_margin", 0.001
+                ),
+            )
+        protocol["queue_analogues"] = False
+    else:
+        protocol.setdefault("analysis_mode", "paired_candidate_baseline")
+        protocol.setdefault("energy_error_threshold", None)
     return protocol
 
 
@@ -902,11 +1645,12 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         for row in analogue_ladder.get("rungs") or []
         if row.get("limitation")
     ]
-    return {
+    payload = {
         "id": study["id"],
         "name": study["name"],
         "research_question": study.get("research_question"),
         "task": study.get("task"),
+        "task_type": resolved_protocol["task_type"],
         "description": study.get("description"),
         "dataset_names": study.get("dataset_names") or [],
         "candidate_preset_id": study["candidate_preset_id"],
@@ -942,7 +1686,33 @@ def study_payload(db: ResultsDB, study_id: int, include_jobs: bool = True) -> di
         "interpretation_warnings": evidence.get("interpretation_warnings") or [],
         "analogue_ladder": analogue_ladder or None,
         "analogue_limitations": analogue_limitations,
+        "analysis_mode": evidence.get(
+            "analysis_mode", resolved_protocol.get("analysis_mode")
+        ),
+        "diagnostic_outcome": evidence.get("outcome"),
+        "descriptive_observations": (
+            evidence.get("descriptive_observations") or []
+        ),
+        "comparative_inference_enabled": bool(
+            evidence.get(
+                "comparative_inference_enabled",
+                resolved_protocol["task_type"] != "ground_state",
+            )
+        ),
+        "claim_level": evidence.get("claim_level"),
+        "replication_status": evidence.get("replication_status"),
+        "reference_ladder": evidence.get("reference_ladder"),
     }
+    if resolved_protocol["task_type"] == "ground_state":
+        payload["solver_competition_readiness"] = (
+            evidence.get("solver_competition_readiness")
+            or ground_state_solver_competition_readiness(
+                get_claim(resolved_protocol.get("claim_id"))
+                if resolved_protocol.get("claim_id")
+                else None
+            )
+        )
+    return payload
 
 
 def study_report_payload(db: ResultsDB, study_id: int) -> dict:
@@ -951,7 +1721,11 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
     controls_meta = [preset_meta(item) for item in payload.get("control_preset_ids") or []]
     jobs = payload["jobs"]
     evidence = payload["evidence"]
-    pair_rows = _pair_report_rows(db, jobs)
+    pair_rows = (
+        []
+        if payload.get("task_type") == "ground_state"
+        else _pair_report_rows(db, jobs)
+    )
     statistics = {
         "candidate_jobs": payload["role_counts"].get("candidate", 0),
         "baseline_jobs": payload["role_counts"].get("baseline", 0),
@@ -963,11 +1737,18 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "aggregate_available": bool(evidence.get("aggregate_available")),
         "independent_pairs": evidence.get("independent_pairs"),
         "analysis_cell_count": evidence.get("analysis_cell_count", 0),
+        "completed_diagnostics": evidence.get("completed_diagnostics", 0),
         "win_rate": (
             float(evidence.get("wins", 0)) / float(evidence.get("fair_pairs", 1))
             if evidence.get("aggregate_available") and evidence.get("fair_pairs")
             else None
         ),
+        "metric_type": evidence.get("metric_type"),
+        "metric_key": evidence.get("metric_key"),
+        "metric_units": evidence.get("metric_units"),
+        "lower_is_better": evidence.get("lower_is_better"),
+        "mean_delta": evidence.get("mean_delta"),
+        "std_delta": evidence.get("std_delta"),
         "mean_delta_val_ppl": evidence.get("mean_delta_val_ppl"),
         "std_delta_val_ppl": evidence.get("std_delta_val_ppl"),
         "paired_stats": evidence.get("paired_stats"),
@@ -986,6 +1767,7 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "research_question": payload.get("research_question"),
         "protocol": {
             "task": payload.get("task"),
+            "task_type": payload.get("task_type"),
             "dataset_names": payload.get("dataset_names") or [],
             "candidate_preset_id": payload["candidate_preset_id"],
             "baseline_policy": payload["baseline_policy"],
@@ -1001,6 +1783,10 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
             "claim_id": payload.get("claim_id"),
             "metric_type": payload.get("metric_type"),
             "seed_axes": payload.get("seed_axes"),
+            "analysis_mode": payload.get("analysis_mode"),
+            "energy_error_threshold": payload["resolved_protocol"].get(
+                "energy_error_threshold"
+            ),
         },
         "candidate": {
             "id": candidate_meta["id"],
@@ -1024,6 +1810,14 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "verdict": {
             "label": evidence.get("label") or "pending",
             "reason": evidence.get("reason") or "report pending",
+            "outcome": evidence.get("outcome"),
+            "assessment_status": evidence.get("assessment_status"),
+            "claim_level": evidence.get("claim_level"),
+            "replication_status": evidence.get("replication_status"),
+            "comparative_inference_enabled": bool(
+                evidence.get("comparative_inference_enabled", True)
+            ),
+            "paired_stats": evidence.get("paired_stats"),
             "ladder": evidence.get("ladder") or [],
         },
         "statistics": statistics,
@@ -1032,6 +1826,7 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "limitations": _study_limitations(payload, jobs, evidence),
         "claim_id": payload.get("claim_id"),
         "claim": payload.get("claim"),
+        "task_type": payload.get("task_type"),
         "metric_type": payload.get("metric_type"),
         "seed_axes": payload.get("seed_axes"),
         "paired_stats": evidence.get("paired_stats"),
@@ -1044,6 +1839,21 @@ def study_report_payload(db: ResultsDB, study_id: int) -> dict:
         "assessment_status": evidence.get("assessment_status"),
         "interpretation_warnings": evidence.get("interpretation_warnings") or [],
         "analogue_limitations": payload.get("analogue_limitations") or [],
+        "analysis_mode": payload.get("analysis_mode"),
+        "diagnostic_outcome": payload.get("diagnostic_outcome"),
+        "descriptive_observations": payload.get(
+            "descriptive_observations"
+        ) or [],
+        "comparative_inference_enabled": payload.get(
+            "comparative_inference_enabled"
+        ),
+        "claim_level": payload.get("claim_level"),
+        "replication_status": payload.get("replication_status"),
+        "reference_ladder": payload.get("reference_ladder"),
     }
+    if payload.get("task_type") == "ground_state":
+        report["solver_competition_readiness"] = payload.get(
+            "solver_competition_readiness"
+        )
     report["markdown"] = _report_markdown(report)
     return report

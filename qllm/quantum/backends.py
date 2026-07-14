@@ -94,7 +94,7 @@ class PennyLaneBackend:
 
         if measurement == "state":
 
-            @qml.qnode(dev, interface="jax")
+            @qml.qnode(dev, interface="jax", diff_method=self.diff_method)
             def circuit(inputs, weights):
                 ansatz_fn(inputs, weights, n_qubits)
                 return qml.state()

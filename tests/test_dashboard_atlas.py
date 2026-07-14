@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -8,7 +10,21 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from qllm.dashboard.atlas import AtlasOntologyError, atlas_ontology_response
+from qllm.claims import get_claim
+from qllm.dashboard.atlas import (
+    ATLAS_VERDICT_SOURCE_KIND,
+    AtlasOntologyError,
+    atlas_verdict_key,
+    atlas_ontology_response,
+    bind_atlas_verdict_refs,
+)
+from qllm.dashboard.verdicts import (
+    build_verdict_snapshot,
+    current_claim_verdict_projections,
+    persist_verdict_snapshot,
+    verdict_snapshot_list_response,
+)
+from qllm.resultsdb import ResultsDB
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +62,20 @@ def _contains_forbidden_score_key(value) -> bool:
     return False
 
 
+def _snapshot(claim_id: str, snapshot_id: int, verdict_key: str) -> dict:
+    claim = get_claim(claim_id)
+    return {
+        "id": snapshot_id,
+        "verdict_key": verdict_key,
+        "source_kind": "comparison",
+        "source_id": str(snapshot_id),
+        "claim_id": claim_id,
+        "claim_level": claim["level"],
+        "claim_status": claim["status"],
+        "replication_status": claim["replication_status"],
+    }
+
+
 def test_canonical_atlas_covers_the_research_map_without_reclassifying_it():
     payload = atlas_ontology_response().model_dump()
     research_map = _yaml(RESEARCH_MAP_PATH)
@@ -54,8 +84,8 @@ def test_canonical_atlas_covers_the_research_map_without_reclassifying_it():
 
     assert payload["source"] == "backend-canonical"
     assert len(payload["domains"]) == 6
-    assert len(cells) == 19
-    assert len({cell["id"] for cell in cells}) == 19
+    assert len(cells) == 20
+    assert len({cell["id"] for cell in cells}) == 20
     assert {cell["area_id"] for cell in cells} == set(map_areas)
     assert payload["claim_levels"] == research_map["claim_levels"]
     assert payload["replication_statuses"] == research_map["replication_statuses"]
@@ -85,6 +115,117 @@ def test_canonical_atlas_covers_the_research_map_without_reclassifying_it():
         for relation in payload["relations"]
     }
     assert actual_relations == expected_relations
+
+
+def test_atlas_binds_only_latest_current_claim_snapshots():
+    claim_id = "variational_component_swaps"
+    older = _snapshot(claim_id, 4, "comparison:older")
+    newest = _snapshot(claim_id, 9, "comparison:newest")
+    stale = _snapshot(claim_id, 12, "comparison:stale")
+    stale["claim_level"] = (
+        "formal" if stale["claim_level"] != "formal" else "untested"
+    )
+    unknown = _snapshot(claim_id, 13, "comparison:unknown")
+    unknown["claim_id"] = "unknown_claim"
+
+    payload = bind_atlas_verdict_refs(
+        atlas_ontology_response(),
+        [newest, stale, older, unknown, {"id": 20}],
+    ).model_dump()
+
+    target = next(
+        cell for cell in _cells(payload) if cell["area_id"] == claim_id
+    )
+    assert target["verdict_ref"] == {
+        "verdict_key": atlas_verdict_key(claim_id),
+        "source_kind": ATLAS_VERDICT_SOURCE_KIND,
+        "source_id": claim_id,
+    }
+    claim = get_claim(claim_id)
+    assert target["seed_claim_level"] == claim["level"]
+    assert target["seed_replication_status"] == claim["replication_status"]
+    assert sum(cell["verdict_ref"] is not None for cell in _cells(payload)) == 1
+    assert _contains_forbidden_score_key(payload) is False
+
+
+def test_atlas_projection_ref_survives_repeated_reconciliation_windows(tmp_path):
+    db = ResultsDB(tmp_path / "atlas-projection.db")
+    target_claim = "variational_component_swaps"
+    filler_claim = "barren_plateau_scaling"
+
+    def append(index: int, claim_id: str) -> None:
+        persist_verdict_snapshot(
+            db,
+            {
+                "verdict_key": f"window:{index}",
+                "source_kind": "atlas-window",
+                "source_id": str(index),
+                "claim_id": claim_id,
+            },
+        )
+
+    append(1, target_claim)
+    for index in range(2, 102):
+        append(index, filler_claim)
+
+    bound = bind_atlas_verdict_refs(
+        atlas_ontology_response(),
+        current_claim_verdict_projections(db),
+    ).model_dump()
+    emitted = {
+        cell["verdict_ref"]["verdict_key"]
+        for cell in _cells(bound)
+        if cell["verdict_ref"] is not None
+    }
+    assert atlas_verdict_key(target_claim) in emitted
+
+    for start in (102, 127, 152):
+        for index in range(start, start + 25):
+            append(index, filler_claim)
+        frontend_keys = {
+            snapshot.verdict_key
+            for snapshot in verdict_snapshot_list_response(db).snapshots
+        }
+        assert emitted <= frontend_keys
+
+
+def test_atlas_omits_unmaterialized_legacy_ref_until_repaired(tmp_path):
+    db = ResultsDB(tmp_path / "legacy-projection.db")
+    claim_id = "variational_component_swaps"
+    db.append_verdict_snapshot(
+        build_verdict_snapshot(
+            {
+                "verdict_key": "legacy:source",
+                "source_kind": "legacy",
+                "source_id": "source",
+                "claim_id": claim_id,
+            }
+        )
+    )
+
+    before = bind_atlas_verdict_refs(
+        atlas_ontology_response(),
+        current_claim_verdict_projections(db),
+    ).model_dump()
+    target_before = next(
+        cell for cell in _cells(before) if cell["area_id"] == claim_id
+    )
+    assert target_before["verdict_ref"] is None
+
+    verdicts = verdict_snapshot_list_response(db)
+    after = bind_atlas_verdict_refs(
+        atlas_ontology_response(),
+        current_claim_verdict_projections(db),
+    ).model_dump()
+    target_after = next(
+        cell for cell in _cells(after) if cell["area_id"] == claim_id
+    )
+    assert target_after["verdict_ref"]["verdict_key"] == atlas_verdict_key(
+        claim_id
+    )
+    assert target_after["verdict_ref"]["verdict_key"] in {
+        snapshot.verdict_key for snapshot in verdicts.snapshots
+    }
 
 
 @pytest.mark.parametrize(
@@ -197,10 +338,95 @@ def test_atlas_http_contract_is_typed_and_sanitizes_config_errors(
     server = importlib.import_module("qllm.dashboard.server")
     client = TestClient(server.app)
 
+    persisted = persist_verdict_snapshot(
+        server.db(),
+        {
+            "source_kind": "comparison",
+            "source_id": "atlas-http",
+            "claim_id": "variational_component_swaps",
+        },
+    )
+
     response = client.get("/api/atlas/ontology")
     assert response.status_code == 200
-    assert len(_cells(response.json())) == 19
+    assert len(_cells(response.json())) == 20
     assert response.json()["source"] == "backend-canonical"
+    bound = next(
+        cell
+        for cell in _cells(response.json())
+        if cell["area_id"] == "variational_component_swaps"
+    )
+    assert bound["verdict_ref"] == {
+        "verdict_key": atlas_verdict_key("variational_component_swaps"),
+        "source_kind": ATLAS_VERDICT_SOURCE_KIND,
+        "source_id": "variational_component_swaps",
+    }
+    verdicts = client.get("/api/verdicts")
+    assert verdicts.status_code == 200
+    assert bound["verdict_ref"]["verdict_key"] in {
+        snapshot["verdict_key"] for snapshot in verdicts.json()["snapshots"]
+    }
+    assert persisted["id"] != verdicts.json()["snapshots"][0]["id"]
+
+    projection_id = verdicts.json()["snapshots"][0]["id"]
+    projection = server.db().get_verdict_snapshot(projection_id)
+    with server.db()._conn() as con:
+        columns = [
+            row["name"]
+            for row in con.execute("PRAGMA table_info(verdict_snapshots)")
+            if row["name"] != "id"
+        ]
+        poisoned = {column: projection[column] for column in columns}
+        evidence = json.loads(poisoned["evidence_json"])
+        evidence["claim_projection_source"]["snapshot_id"] = 999999
+        poisoned.update(
+            {
+                "revision": int(projection["revision"]) + 1,
+                "content_hash": "d" * 64,
+                "evidence_json": json.dumps(evidence),
+                "scorecard_json": json.dumps({"forged": True}),
+            }
+        )
+        forged_id = con.execute(
+            f"INSERT INTO verdict_snapshots ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [poisoned[column] for column in columns],
+        ).lastrowid
+
+    assert client.get(f"/api/verdicts/{forged_id}").status_code == 404
+    valid_detail = client.get(f"/api/verdicts/{projection_id}")
+    assert valid_detail.status_code == 200
+    assert [row["id"] for row in valid_detail.json()["history"]] == [
+        projection_id
+    ]
+    post_poison_list = client.get("/api/verdicts")
+    assert post_poison_list.status_code == 200
+    assert [
+        row["id"] for row in post_poison_list.json()["snapshots"]
+    ] == [projection_id]
+
+    real_db = server.db
+
+    class UnavailableDB:
+        def list_current_verdict_snapshots_for_claims(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(server, "db", lambda: UnavailableDB())
+    degraded = client.get("/api/atlas/ontology")
+    assert degraded.status_code == 200
+    assert all(cell["verdict_ref"] is None for cell in _cells(degraded.json()))
+    monkeypatch.setattr(server, "db", real_db)
+
+    def invalid_binding(*args, **kwargs):
+        raise ValueError("claim registry unavailable")
+
+    monkeypatch.setattr(server, "bind_atlas_verdict_refs", invalid_binding)
+    invalid_binding_response = client.get("/api/atlas/ontology")
+    assert invalid_binding_response.status_code == 200
+    assert all(
+        cell["verdict_ref"] is None
+        for cell in _cells(invalid_binding_response.json())
+    )
 
     def invalid_ontology():
         raise AtlasOntologyError("private filesystem detail")

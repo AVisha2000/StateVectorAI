@@ -2220,30 +2220,75 @@ Acceptance evidence:
 
 Progress:
 
-- [ ] Step 1 — metric registry in qllm/registry.py: METRIC_TYPES mapping
+- [x] Step 1 — metric registry in qllm/registry.py: METRIC_TYPES mapping
       metric_type -> {lower_is_better, units, pairable, extraction_key,
       comparator_class}; replace the frozenset checks in lab.py and studies.py
       with registry lookups; serve the list via /config/choices so the frontend
       stops hard-coding val_ppl labels. (Small diff; unblocks everything.)
-- [ ] Step 2 — primary-metric indirection in resultsdb.py:
+- [x] Step 2 — primary-metric indirection in resultsdb.py:
       primary_metric_name/value on the run row (or a view over the existing
       metrics table); progress/dedup keyed on it; val_ppl columns become the
       sequence-modeling specialization, not the universal schema.
-- [ ] Step 3 — task dimension: TASK_TYPES = (sequence_modeling, ground_state,
+- [x] Step 3 — task dimension: TASK_TYPES = (sequence_modeling, ground_state,
       combinatorial_optimization) in registry.py; a task-conditional
       ProblemConfig section in config.py validated in validate_config (copy the
       existing tensorcircuit_mps conditional-validation pattern); task_type
       recorded in claims.yaml entries and study specs.
-- [ ] Step 4 — one vertical slice, VQE first (exact diagonalization gives
+- [x] Step 4 — one vertical slice, VQE first (exact diagonalization gives
       ground truth; QAOA lacks certified optima at toy scale): a SIBLING
       runner minimizing a problem-Hamiltonian expectation over the existing
       circuit/backend layer, metric_type=ground_state_energy_error vs exact
       solution, writing through the same resultsdb/manifest/Study path, with a
       classical-solver analogue ladder. No changes to train/loop.py.
-- [ ] Step 5 — solver_competition_v1 fairness schema + comparator_kind in
+      Completed (2026-07-14): the first bounded slice uses a registered
+      two-qubit transverse-field Ising instance, analytic CPU statevector
+      execution, and exact diagonalization as a correctness reference. It must
+      label shots=None as simulator-diagnostic evidence, preserve immutable
+      problem identity and checkpoint recovery, and block solver-edge
+      inference until solver_competition_v1 and registered comparison runners
+      exist; Step 5 declares only the fail-closed admission contract.
+      Acceptance evidence: all seven post-implementation Sol Ultra findings
+      were fixed with regressions; the fresh second Sol Ultra review returned
+      PASS; the focused integration bundle passed 275 tests; the standalone
+      full suite passed 751 tests with 1 skip; and the OpenAPI snapshot check
+      passed. The user approved the VQE Atlas grouping on 2026-07-14; this
+      records display placement only and does not promote a claim.
+- [x] Step 5 — solver_competition_v1 fairness schema + comparator_kind in
       claims.yaml: equal-budget best-in-class competition semantics (declared
       solver versions, certified or best-known optima), distinct from
       controlled_component_ablation_v1 which stays QML-only.
+      Completed (2026-07-14): admission now resolves every solver identity
+      through the server-owned registry, pairs only unique immutable problem
+      instances, binds per-instance optima and unique executed-run identities,
+      enforces complete observed search ledgers and all prespecified ceilings,
+      and cryptographically binds each evaluation run to the selected search
+      configuration. The claim loader and evaluator fail closed on malformed
+      persisted shapes. Production still has no comparison-eligible finite-shot
+      quantum/classical runner pair, so inference and claim eligibility remain
+      disabled and no composite or advantage score is produced.
+      Acceptance evidence: focused solver/claim/metric tests passed 83 tests;
+      the widened Step 4-5 integration bundle passed 375 tests with 9 existing
+      warnings; the final fresh Sol Ultra review returned PASS after independent
+      bypass probes; OpenAPI remained current; and the one-step CPU queue smoke
+      completed with no recovery or error. The user approved the VQE Atlas
+      grouping on 2026-07-14; Git delivery remains separately human-gated.
+- [x] Backend Atlas verdict references: emit stable, persisted
+      `claim:<claim_id>` projections without changing curated Atlas status,
+      claim level, or replication fields. Source snapshots and projection
+      revisions remain append-only; normal writes materialize projections
+      immediately, bounded list-time reconciliation repairs legacy rows, and
+      malformed or forged projection rows fail closed across list, detail, and
+      history APIs. Concurrent source/key ownership and projection ordering are
+      serialized in SQLite, and Atlas emits no reference until a fully
+      source-validated projection exists.
+      Acceptance evidence: focused Atlas/verdict/OpenAPI tests passed 33 tests;
+      the widened dashboard contract passed 202 tests with 1 expected skip;
+      the full CPU suite passed 835 tests with 1 expected skip and 55 existing
+      warnings; the OpenAPI snapshot remained current; and the final fresh
+      gpt-5.6-sol Ultra review returned PASS after temporal-window, delayed-
+      writer, namespace-forgery, stable-key poisoning, and HTTP history probes.
+      No frontend files, claim promotions, composite scores, or ontology
+      approvals were introduced.
 - [ ] Dashboard follow-through: metric labels from the registry (frontend
       verdictView.js), task-type facet on Runs/Studies, Atlas gains chemistry/
       optimization areas as new level-0/unexplored entries with full audit
@@ -2277,6 +2322,13 @@ Latest validation:
     train/loop.py, resultsdb.py, research_protocol.py, dashboard/lab.py,
     dashboard/studies.py, research/claims.yaml, docs/RESEARCH_PROGRAM.md.
     No code changed under this entry yet.
+
+    2026-07-14 local Steps 1-3 implementation: metric admission/extraction,
+    primary metric persistence, and task identity are implemented in the
+    backend worktree. Sol Ultra review passed after three fixes; pytest reports
+    709 passed and 1 skipped, verify_changes.py --run passed, OpenAPI is
+    current, and the isolated one-step CPU queue smoke passed. Changes remain
+    uncommitted pending the normal Git gate.
 
 ## Entry template
 

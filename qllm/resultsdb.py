@@ -17,6 +17,11 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from . import registry
+
+_CLAIM_PROJECTION_KEY_PREFIX = "claim:"
+_CLAIM_PROJECTION_SOURCE_KIND = "claim_projection"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +38,8 @@ CREATE TABLE IF NOT EXISTS runs (
     wall_seconds REAL,
     config_json TEXT,
     resources_json TEXT,
+    primary_metric_name TEXT,
+    primary_metric_value REAL,
     UNIQUE(suite, variant, dataset, seed, steps)
 );
 CREATE TABLE IF NOT EXISTS metrics (
@@ -95,7 +102,9 @@ CREATE TABLE IF NOT EXISTS run_results (
     wall_seconds REAL,
     config_json TEXT,
     manifest_hash TEXT,
-    resources_json TEXT
+    resources_json TEXT,
+    primary_metric_name TEXT,
+    primary_metric_value REAL
 );
 -- live registry: a row per in-flight (or finished) training run, so the
 -- dashboard can show progress while sweeps fill the DB.
@@ -110,6 +119,8 @@ CREATE TABLE IF NOT EXISTS live_runs (
     updated_ts TEXT,
     last_train_loss REAL,
     last_val_ppl REAL,
+    primary_metric_name TEXT,
+    last_primary_metric_value REAL,
     config_json TEXT
 );
 CREATE TABLE IF NOT EXISTS lab_datasets (
@@ -244,6 +255,10 @@ CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_latest
     ON verdict_snapshots(verdict_key, revision DESC);
 CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_created
     ON verdict_snapshots(created_ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_source
+    ON verdict_snapshots(source_kind, source_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_verdict_snapshots_claim
+    ON verdict_snapshots(claim_id, id DESC);
 -- Durable cursors for bounded reconciliation passes.  A named cursor keeps
 -- malformed historical rows from starving later materializable evidence.
 CREATE TABLE IF NOT EXISTS reconciliation_cursors (
@@ -275,6 +290,7 @@ class ResultsDB:
             self._ensure_lab_dataset_columns(con)
             self._ensure_lab_job_columns(con)
             self._ensure_run_identity_columns(con)
+            self._ensure_primary_metric_columns(con)
             con.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_lab_jobs_run_uuid "
                 "ON lab_jobs(run_uuid) WHERE run_uuid IS NOT NULL"
@@ -372,6 +388,69 @@ class ResultsDB:
                 if name not in cols:
                     con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
+    def _ensure_primary_metric_columns(self, con: sqlite3.Connection) -> None:
+        """Add primary-metric evidence and backfill legacy perplexity rows."""
+        additions_by_table = {
+            "runs": {"primary_metric_name": "TEXT", "primary_metric_value": "REAL"},
+            "run_results": {"primary_metric_name": "TEXT", "primary_metric_value": "REAL"},
+            "live_runs": {
+                "primary_metric_name": "TEXT",
+                "last_primary_metric_value": "REAL",
+            },
+        }
+        for table, additions in additions_by_table.items():
+            cols = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+            for name, ddl in additions.items():
+                if name not in cols:
+                    con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+            cols = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+            source = "last_val_ppl" if table == "live_runs" else "val_ppl"
+            value = (
+                "last_primary_metric_value"
+                if table == "live_runs"
+                else "primary_metric_value"
+            )
+            if source in cols:
+                con.execute(
+                    f"UPDATE {table} SET primary_metric_name='val_ppl', "
+                    f"{value}={source} WHERE {source} IS NOT NULL "
+                    f"AND primary_metric_name IS NULL AND {value} IS NULL"
+                )
+                con.execute(
+                    f"UPDATE {table} SET {value}={source} "
+                    f"WHERE {source} IS NOT NULL AND {value} IS NULL "
+                    "AND primary_metric_name='val_ppl'"
+                )
+
+    @staticmethod
+    def _primary_metric(
+        primary_metric_type: str, metric_values: dict[str, float | None] | None,
+        *, val_loss: float | None, val_ppl: float | None, val_bpc: float | None,
+    ) -> tuple[str, float, dict[str, float | None]]:
+        """Resolve one registered metric and reconcile legacy specializations."""
+        spec = registry.metric_type_spec(primary_metric_type)
+        if spec is None:
+            raise ValueError(f"Unknown primary metric type: {primary_metric_type!r}")
+        extraction_key = str(spec["extraction_key"])
+        values = dict(metric_values or {})
+        specialized = {"val_loss": val_loss, "val_ppl": val_ppl, "val_bpc": val_bpc}
+        for name, positional in specialized.items():
+            if name in values and positional is not None and not ResultsDB._same_metric(
+                values[name], positional
+            ):
+                raise ValueError(f"Conflicting {name} metric evidence.")
+            values.setdefault(name, positional)
+        primary_value = values.get(extraction_key)
+        if primary_value is None:
+            raise ValueError(
+                f"Missing primary metric value for registered extraction key {extraction_key!r}."
+            )
+        try:
+            numeric = float(primary_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Primary metric {extraction_key!r} must be numeric.") from exc
+        return extraction_key, numeric, values
+
     def _conn(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=30.0)
         con.row_factory = sqlite3.Row
@@ -397,9 +476,9 @@ class ResultsDB:
         seed: int,
         steps: int,
         n_params: int,
-        val_loss: float,
-        val_ppl: float,
-        val_bpc: float,
+        val_loss: float | None,
+        val_ppl: float | None,
+        val_bpc: float | None,
         wall_seconds: float,
         config: dict | None = None,
         run_uuid: str | None = None,
@@ -408,7 +487,20 @@ class ResultsDB:
         manifest: dict | None = None,
         finalize_manifest: bool = True,
         resources: dict | None = None,
+        *,
+        primary_metric_type: str = "strict_autoregressive_next_token",
+        metric_values: dict[str, float | None] | None = None,
     ) -> dict:
+        primary_metric_name, primary_metric_value, values = self._primary_metric(
+            primary_metric_type,
+            metric_values,
+            val_loss=val_loss,
+            val_ppl=val_ppl,
+            val_bpc=val_bpc,
+        )
+        val_loss = values["val_loss"]
+        val_ppl = values["val_ppl"]
+        val_bpc = values["val_bpc"]
         if manifest is None and run_uuid is not None:
             existing_manifest = self.get_run_manifest(run_uuid)
             if existing_manifest is not None:
@@ -469,7 +561,8 @@ class ResultsDB:
                     raise ValueError("experiment_uuid is required with run_uuid.")
                 existing_result = con.execute(
                     "SELECT experiment_uuid, suite, variant, dataset, seed, steps, "
-                    "n_params, val_loss, val_ppl, val_bpc, config_json, manifest_hash, "
+                    "n_params, val_loss, val_ppl, val_bpc, primary_metric_name, "
+                    "primary_metric_value, config_json, manifest_hash, "
                     "resources_json "
                     "FROM run_results WHERE run_uuid=?", (run_uuid,)
                 ).fetchone()
@@ -487,6 +580,10 @@ class ResultsDB:
                         and self._same_metric(existing_result["val_loss"], val_loss)
                         and self._same_metric(existing_result["val_ppl"], val_ppl)
                         and self._same_metric(existing_result["val_bpc"], val_bpc)
+                        and existing_result["primary_metric_name"] == primary_metric_name
+                        and self._same_metric(
+                            existing_result["primary_metric_value"], primary_metric_value
+                        )
                         and existing_result["config_json"] == config_json
                         and existing_result["manifest_hash"] == manifest_hash
                     )
@@ -503,8 +600,9 @@ class ResultsDB:
                         "INSERT INTO run_results "
                         "(run_uuid, experiment_uuid, ts, suite, variant, dataset, "
                         "seed, steps, n_params, val_loss, val_ppl, val_bpc, "
-                        "wall_seconds, config_json, manifest_hash, resources_json) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "primary_metric_name, primary_metric_value, wall_seconds, "
+                        "config_json, manifest_hash, resources_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             run_uuid,
                             experiment_uuid,
@@ -518,6 +616,8 @@ class ResultsDB:
                             val_loss,
                             val_ppl,
                             val_bpc,
+                            primary_metric_name,
+                            primary_metric_value,
                             wall_seconds,
                             config_json,
                             manifest_hash,
@@ -546,14 +646,17 @@ class ResultsDB:
                 experiment_uuid,
                 manifest_hash,
                 resources_json,
+                primary_metric_name,
+                primary_metric_value,
             )
             if legacy is None:
                 con.execute(
                     "INSERT INTO runs "
                     "(ts, suite, variant, dataset, seed, steps, n_params, "
                     " val_loss, val_ppl, val_bpc, wall_seconds, config_json, "
-                    " run_uuid, experiment_uuid, manifest_hash, resources_json) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " run_uuid, experiment_uuid, manifest_hash, resources_json, "
+                    "primary_metric_name, primary_metric_value) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     legacy_values,
                 )
             # A pre-M05 NULL-UUID row or another UUID-backed projection is
@@ -571,6 +674,8 @@ class ResultsDB:
             "run_uuid": run_uuid,
             "manifest_hash": manifest_hash,
             "manifest": manifest,
+            "primary_metric_name": primary_metric_name,
+            "primary_metric_value": primary_metric_value,
         }
 
     def fetch(self, suite: str, dataset: str | None = None) -> list[dict]:
@@ -613,6 +718,22 @@ class ResultsDB:
             row["resources"] = json.loads(row.get("resources_json") or "null")
         except (json.JSONDecodeError, TypeError):
             row["resources"] = None
+        name = row.get("primary_metric_name")
+        value = row.get("primary_metric_value")
+        if isinstance(name, str) and name and value is not None:
+            existing = row.get(name)
+            try:
+                consistent = existing is None or ResultsDB._same_metric(
+                    existing, value
+                )
+            except (TypeError, ValueError, OverflowError):
+                consistent = False
+            if not consistent:
+                raise ValueError(
+                    f"Primary metric {name!r} conflicts with its specialized "
+                    "result column."
+                )
+            row[name] = value
         return row
 
     # ---- append-only dashboard verdict snapshots ----
@@ -638,11 +759,59 @@ class ResultsDB:
             row[key] = decoded if isinstance(decoded, type(default)) else default
         return row
 
-    def append_verdict_snapshot(self, snapshot: dict) -> dict:
+    @classmethod
+    def _claim_projection_matches_source(
+        cls,
+        projection: dict,
+        source: dict | sqlite3.Row,
+    ) -> bool:
+        source_row = cls._decode_verdict_snapshot(dict(source))
+        if source_row.get("source_kind") == _CLAIM_PROJECTION_SOURCE_KIND:
+            return False
+        evidence = dict(source_row.get("evidence") or {})
+        evidence["claim_projection_source"] = {
+            "snapshot_id": source_row.get("id"),
+            "verdict_key": source_row.get("verdict_key"),
+            "source_kind": source_row.get("source_kind"),
+            "source_id": source_row.get("source_id"),
+        }
+        expected = {
+            "verdict_key": (
+                f"{_CLAIM_PROJECTION_KEY_PREFIX}{source_row.get('claim_id')}"
+            ),
+            "source_kind": _CLAIM_PROJECTION_SOURCE_KIND,
+            "source_id": source_row.get("claim_id"),
+            "claim_id": source_row.get("claim_id"),
+            "claim_level": source_row.get("claim_level"),
+            "claim_status": source_row.get("claim_status"),
+            "replication_status": source_row.get("replication_status"),
+            "assessment_level": source_row.get("assessment_level"),
+            "assessment_status": source_row.get("assessment_status"),
+            "source_job_id": source_row.get("source_job_id"),
+            "source_study_id": source_row.get("source_study_id"),
+            "source_run_id": source_row.get("source_run_id"),
+            "scorecard": source_row.get("scorecard") or {},
+            "fairness": source_row.get("fairness") or {},
+            "controls": source_row.get("controls") or {},
+            "caveats": source_row.get("caveats") or [],
+            "evidence": evidence,
+            "diagnostics": source_row.get("diagnostics") or {},
+            "schema_version": source_row.get("schema_version"),
+        }
+        return all(projection.get(key) == value for key, value in expected.items())
+
+    def append_verdict_snapshot(
+        self,
+        snapshot: dict,
+        *,
+        projection_source_snapshot_id: int | None = None,
+    ) -> dict:
         """Atomically append changed snapshot content or return its prior revision.
 
         The digest deliberately excludes persistence-generated fields, making
         retries idempotent while preserving every semantically changed revision.
+        Claim projections may additionally pin their source row so a delayed
+        writer cannot supersede a projection derived from newer evidence.
         """
         required = {
             "verdict_key", "source_kind", "source_id", "claim_id", "claim_level",
@@ -655,6 +824,41 @@ class ResultsDB:
         forbidden = self._find_forbidden_verdict_key(snapshot)
         if forbidden is not None:
             raise ValueError(f"Verdict snapshot contains forbidden key: {forbidden}")
+        is_claim_projection = (
+            snapshot.get("source_kind") == _CLAIM_PROJECTION_SOURCE_KIND
+            or str(snapshot.get("verdict_key", "")).startswith(
+                _CLAIM_PROJECTION_KEY_PREFIX
+            )
+        )
+        projection_source = (snapshot.get("evidence") or {}).get(
+            "claim_projection_source"
+        )
+        if is_claim_projection:
+            expected_key = (
+                f"{_CLAIM_PROJECTION_KEY_PREFIX}{snapshot.get('claim_id')}"
+            )
+            if (
+                snapshot.get("source_kind") != _CLAIM_PROJECTION_SOURCE_KIND
+                or str(snapshot.get("source_id")) != str(snapshot.get("claim_id"))
+                or snapshot.get("verdict_key") != expected_key
+                or not isinstance(projection_source, dict)
+            ):
+                raise ValueError("Invalid claim projection identity or provenance")
+            evidence_source_id = projection_source.get("snapshot_id")
+            if projection_source_snapshot_id is None:
+                projection_source_snapshot_id = evidence_source_id
+            elif evidence_source_id != projection_source_snapshot_id:
+                raise ValueError(
+                    "Claim projection evidence must match its source snapshot id"
+                )
+        elif projection_source_snapshot_id is not None:
+            raise ValueError("Projection source guards require a claim projection")
+        if projection_source_snapshot_id is not None and (
+            isinstance(projection_source_snapshot_id, bool)
+            or not isinstance(projection_source_snapshot_id, int)
+            or projection_source_snapshot_id <= 0
+        ):
+            raise ValueError("projection_source_snapshot_id must be a positive integer")
         content = {key: snapshot[key] for key in sorted(required)}
         for key in ("assessment_level", "assessment_status", "source_job_id", "source_study_id", "source_run_id"):
             if key in snapshot:
@@ -667,6 +871,98 @@ class ResultsDB:
         }
         with self._conn() as con:
             con.execute("BEGIN IMMEDIATE")
+            key_identity = con.execute(
+                "SELECT verdict_key, source_kind, source_id, claim_id "
+                "FROM verdict_snapshots WHERE verdict_key=? ORDER BY id ASC LIMIT 1",
+                (str(snapshot["verdict_key"]),),
+            ).fetchone()
+            if key_identity is not None and any(
+                str(key_identity[field]) != str(snapshot[field])
+                for field in ("source_kind", "source_id", "claim_id")
+            ):
+                raise ValueError(
+                    "verdict_key identity is immutable across revisions"
+                )
+            source_identity = con.execute(
+                "SELECT verdict_key, source_kind, source_id, claim_id "
+                "FROM verdict_snapshots WHERE source_kind=? AND source_id=? "
+                "ORDER BY id ASC LIMIT 1",
+                (str(snapshot["source_kind"]), str(snapshot["source_id"])),
+            ).fetchone()
+            if source_identity is not None and any(
+                str(source_identity[field]) != str(snapshot[field])
+                for field in ("verdict_key", "claim_id")
+            ):
+                raise ValueError(
+                    "verdict source identity is immutable across revisions"
+                )
+            if projection_source_snapshot_id is not None:
+                source_row = con.execute(
+                    "SELECT * FROM verdict_snapshots WHERE id=?",
+                    (projection_source_snapshot_id,),
+                ).fetchone()
+                if source_row is None or source_row["source_kind"] == _CLAIM_PROJECTION_SOURCE_KIND:
+                    raise ValueError(
+                        "Claim projection source snapshot does not exist"
+                    )
+                if not self._claim_projection_matches_source(snapshot, source_row):
+                    raise ValueError(
+                        "Claim projection content does not match its source snapshot"
+                    )
+                latest_projection = con.execute(
+                    "SELECT * FROM verdict_snapshots WHERE verdict_key=? "
+                    "ORDER BY revision DESC LIMIT 1",
+                    (str(snapshot["verdict_key"]),),
+                ).fetchone()
+                if latest_projection is not None:
+                    latest_decoded = self._decode_verdict_snapshot(
+                        dict(latest_projection)
+                    )
+                    latest_source = latest_decoded.get("evidence", {}).get(
+                        "claim_projection_source"
+                    )
+                    latest_source_id = (
+                        latest_source.get("snapshot_id")
+                        if isinstance(latest_source, dict)
+                        else None
+                    )
+                    latest_source_row = (
+                        con.execute(
+                            "SELECT * FROM verdict_snapshots WHERE id=?",
+                            (latest_source_id,),
+                        ).fetchone()
+                        if isinstance(latest_source_id, int)
+                        and not isinstance(latest_source_id, bool)
+                        and latest_source_id > 0
+                        else None
+                    )
+                    if (
+                        latest_source_row is not None
+                        and self._claim_projection_matches_source(
+                            latest_decoded, latest_source_row
+                        )
+                        and latest_source_id > projection_source_snapshot_id
+                    ):
+                        return latest_decoded
+                current_source = con.execute(
+                    "SELECT id FROM verdict_snapshots WHERE claim_id=? "
+                    "AND claim_level=? AND claim_status=? AND replication_status=? "
+                    "AND source_kind!=? ORDER BY id DESC LIMIT 1",
+                    (
+                        snapshot["claim_id"],
+                        snapshot["claim_level"],
+                        snapshot["claim_status"],
+                        snapshot["replication_status"],
+                        _CLAIM_PROJECTION_SOURCE_KIND,
+                    ),
+                ).fetchone()
+                if (
+                    current_source is None
+                    or int(current_source["id"]) != projection_source_snapshot_id
+                ):
+                    raise ValueError(
+                        "Claim projection source is not the current claim evidence"
+                    )
             existing = con.execute(
                 "SELECT * FROM verdict_snapshots WHERE verdict_key=? AND content_hash=?",
                 (str(snapshot["verdict_key"]), content_hash),
@@ -729,6 +1025,53 @@ class ResultsDB:
                 (bounded,),
             ).fetchall()
         return [self._decode_verdict_snapshot(dict(row)) for row in rows]
+
+    def list_current_verdict_snapshots_for_claims(
+        self,
+        contracts: list[tuple[str, str, str, str]],
+        *,
+        source_kind: str | None = None,
+        exclude_source_kind: str | None = None,
+    ) -> list[dict]:
+        """Return the newest snapshot matching each exact claim contract."""
+        if source_kind is not None and exclude_source_kind is not None:
+            raise ValueError("source_kind and exclude_source_kind are mutually exclusive")
+        rows = []
+        with self._conn() as con:
+            for claim_id, claim_level, claim_status, replication_status in contracts:
+                where = (
+                    "claim_id=? AND claim_level=? AND claim_status=? "
+                    "AND replication_status=?"
+                )
+                params: list[object] = [
+                    claim_id,
+                    claim_level,
+                    claim_status,
+                    replication_status,
+                ]
+                if source_kind is not None:
+                    where += " AND source_kind=?"
+                    params.append(source_kind)
+                elif exclude_source_kind is not None:
+                    where += " AND source_kind!=?"
+                    params.append(exclude_source_kind)
+                row = con.execute(
+                    f"SELECT * FROM verdict_snapshots WHERE {where} "
+                    "ORDER BY id DESC LIMIT 1",
+                    params,
+                ).fetchone()
+                if row is not None:
+                    rows.append(row)
+        return [self._decode_verdict_snapshot(dict(row)) for row in rows]
+
+    def get_latest_verdict_snapshot_by_key(self, verdict_key: str) -> dict | None:
+        with self._conn() as con:
+            row = con.execute(
+                "SELECT * FROM verdict_snapshots WHERE verdict_key=? "
+                "ORDER BY revision DESC LIMIT 1",
+                (str(verdict_key),),
+            ).fetchone()
+        return self._decode_verdict_snapshot(dict(row)) if row is not None else None
 
     def get_verdict_snapshot(self, snapshot_id: int) -> dict | None:
         with self._conn() as con:
@@ -829,33 +1172,62 @@ class ResultsDB:
                   dataset: str, seed: int, total_steps: int,
                   config: dict | None = None, *, run_uuid: str | None = None,
                   experiment_uuid: str | None = None,
-                  manifest: dict | None = None) -> None:
+                  manifest: dict | None = None,
+                  primary_metric_type: str = "strict_autoregressive_next_token") -> None:
+        spec = registry.metric_type_spec(primary_metric_type)
+        if spec is None:
+            raise ValueError(f"Unknown primary metric type: {primary_metric_type!r}")
+        primary_metric_name = str(spec["extraction_key"])
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         if run_uuid is not None and manifest is not None:
             self.register_run_manifest(manifest)
         with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if run_uuid is not None:
+                existing = con.execute(
+                    "SELECT primary_metric_name FROM live_runs "
+                    "WHERE run_key=? AND run_uuid=?",
+                    (run_key, run_uuid),
+                ).fetchone()
+                if (
+                    existing is not None
+                    and existing["primary_metric_name"] is not None
+                    and existing["primary_metric_name"] != primary_metric_name
+                ):
+                    raise ValueError(
+                        "Same run_uuid cannot switch primary metric names."
+                    )
             con.execute(
                 "INSERT INTO live_runs (run_key, run_name, suite, "
                 "variant, dataset, seed, total_steps, current_step, status, "
                 "started_ts, updated_ts, config_json, run_uuid, experiment_uuid, "
-                "manifest_hash) VALUES "
-                "(?,?,?,?,?,?,?,0,'running',?,?,?,?,?,?) "
+                "manifest_hash, primary_metric_name, last_primary_metric_value) VALUES "
+                "(?,?,?,?,?,?,?,0,'running',?,?,?,?,?,?,?,NULL) "
                 "ON CONFLICT(run_key) DO UPDATE SET run_name=excluded.run_name, "
                 "suite=excluded.suite, variant=excluded.variant, "
                 "dataset=excluded.dataset, seed=excluded.seed, "
                 "total_steps=excluded.total_steps, status='running', "
                 "current_step=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
                 "THEN live_runs.current_step ELSE 0 END, "
+                "last_train_loss=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
+                "THEN live_runs.last_train_loss ELSE NULL END, "
+                "last_val_ppl=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
+                "THEN live_runs.last_val_ppl ELSE NULL END, "
+                "last_primary_metric_value=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
+                "THEN live_runs.last_primary_metric_value ELSE NULL END, "
                 "started_ts=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
                 "THEN live_runs.started_ts ELSE excluded.started_ts END, "
                 "updated_ts=excluded.updated_ts, config_json=excluded.config_json, "
                 "run_uuid=excluded.run_uuid, "
                 "experiment_uuid=excluded.experiment_uuid, "
-                "manifest_hash=excluded.manifest_hash",
+                "manifest_hash=excluded.manifest_hash, "
+                "primary_metric_name=CASE WHEN live_runs.run_uuid=excluded.run_uuid "
+                "THEN COALESCE(live_runs.primary_metric_name, "
+                "excluded.primary_metric_name) ELSE excluded.primary_metric_name END",
                 (run_key, run_name, suite, variant, dataset, seed, total_steps,
                  now, now, json.dumps({k: str(v) for k, v in (config or {}).items()}),
                  run_uuid, experiment_uuid,
-                 (manifest or {}).get("manifest_hash")))
+                 (manifest or {}).get("manifest_hash"), primary_metric_name))
 
     def log_step(self, run_key: str, step: int, metrics: dict[str, float],
                  train_loss: float | None = None,
@@ -864,11 +1236,18 @@ class ResultsDB:
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         with self._conn() as con:
             effective_uuid = run_uuid
+            live = con.execute(
+                "SELECT run_uuid, primary_metric_name FROM live_runs WHERE run_key=?",
+                (run_key,),
+            ).fetchone()
             if effective_uuid is None:
-                row = con.execute(
-                    "SELECT run_uuid FROM live_runs WHERE run_key=?", (run_key,)
-                ).fetchone()
-                effective_uuid = row["run_uuid"] if row is not None else None
+                effective_uuid = live["run_uuid"] if live is not None else None
+            primary_metric_name = live["primary_metric_name"] if live is not None else None
+            primary_metric_value = (
+                metrics.get(primary_metric_name)
+                if isinstance(primary_metric_name, str)
+                else None
+            )
             if effective_uuid is None:
                 # Legacy callers retain append-only behavior.  UUID-backed runs
                 # use the canonical idempotent table below.
@@ -917,9 +1296,15 @@ class ResultsDB:
                     "last_train_loss=CASE WHEN COALESCE(current_step, 0)<=? THEN "
                     "COALESCE(?, last_train_loss) ELSE last_train_loss END, "
                     "last_val_ppl=CASE WHEN COALESCE(current_step, 0)<=? THEN "
-                    "COALESCE(?, last_val_ppl) ELSE last_val_ppl END WHERE run_key=? "
+                    "COALESCE(?, last_val_ppl) ELSE last_val_ppl END, "
+                    "last_primary_metric_value=CASE WHEN COALESCE(current_step, 0)<=? THEN "
+                    "COALESCE(?, last_primary_metric_value) ELSE last_primary_metric_value END "
+                    "WHERE run_key=? "
                     "AND run_uuid IS NULL",
-                    (step, now, step, train_loss, step, val_ppl, run_key),
+                    (
+                        step, now, step, train_loss, step, val_ppl, step,
+                        primary_metric_value, run_key,
+                    ),
                 )
             else:
                 con.execute(
@@ -928,7 +1313,10 @@ class ResultsDB:
                     "last_train_loss=CASE WHEN COALESCE(current_step, 0)<=? THEN "
                     "COALESCE(?, last_train_loss) ELSE last_train_loss END, "
                     "last_val_ppl=CASE WHEN COALESCE(current_step, 0)<=? THEN "
-                    "COALESCE(?, last_val_ppl) ELSE last_val_ppl END WHERE run_key=? "
+                    "COALESCE(?, last_val_ppl) ELSE last_val_ppl END, "
+                    "last_primary_metric_value=CASE WHEN COALESCE(current_step, 0)<=? THEN "
+                    "COALESCE(?, last_primary_metric_value) ELSE last_primary_metric_value END "
+                    "WHERE run_key=? "
                     "AND run_uuid=?",
                     (
                         step,
@@ -937,6 +1325,8 @@ class ResultsDB:
                         train_loss,
                         step,
                         val_ppl,
+                        step,
+                        primary_metric_value,
                         run_key,
                         effective_uuid,
                     ),
@@ -1166,6 +1556,7 @@ class ResultsDB:
             "lab.artifact_dir",
             "lab.gpu_reservation.owner_job_id",
             "lab.gpu_reservation.state",
+            "lab.resume_from",
         }
     )
 
@@ -2011,10 +2402,13 @@ class ResultsDB:
             "last_train_loss=CASE WHEN COALESCE(current_step, 0)>? THEN NULL "
             "ELSE last_train_loss END, "
             "last_val_ppl=CASE WHEN COALESCE(current_step, 0)>? THEN NULL "
-            "ELSE last_val_ppl END, current_step=?, updated_ts=? "
+            "ELSE last_val_ppl END, "
+            "last_primary_metric_value=CASE WHEN COALESCE(current_step, 0)>? THEN NULL "
+            "ELSE last_primary_metric_value END, current_step=?, updated_ts=? "
             "WHERE run_uuid IN (SELECT run_uuid FROM lab_jobs WHERE id=?)",
             (
                 status,
+                int(completed_step),
                 int(completed_step),
                 int(completed_step),
                 int(completed_step),

@@ -126,6 +126,11 @@ def _fairness_review(analogue) -> dict:
 def validation_payload(config: dict) -> dict:
     cfg = cfg_from_payload(config)
     errors = validate_config(cfg)
+    if cfg.problem.task_type != "sequence_modeling":
+        errors.append(
+            f"task_type {cfg.problem.task_type!r} requires a task-specific "
+            "sibling runner; dashboard model specs are sequence-modeling only."
+        )
     if errors:
         return {
             "ok": False,

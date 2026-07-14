@@ -1,11 +1,12 @@
 """Canonical, dependency-free registries for configurable QLLM choices.
 
-This module intentionally contains strings only.  Configuration validation can
-therefore use the same supported-choice definitions as runtime dispatch without
-importing JAX, Flax, PennyLane, or an optional backend.
+This module intentionally contains only dependency-free scalar metadata.
+Configuration validation and dashboard inference can therefore share canonical
+contracts without importing JAX, Flax, PennyLane, or an optional backend.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
 
 
@@ -29,6 +30,11 @@ DATASET_KINDS = (
     "contextual",
     "interference",
     "seq_cancellation",
+)
+TASK_TYPES = (
+    "sequence_modeling",
+    "ground_state",
+    "combinatorial_optimization",
 )
 
 # ``ising`` is a recurrent evolution mode, not a PennyLane/TensorCircuit
@@ -75,6 +81,7 @@ SUPPORTED_CHOICES = MappingProxyType(
         "architecture": ARCH_TYPES,
         "quantum_architecture": QUANTUM_ARCH_TYPES,
         "dataset": DATASET_KINDS,
+        "task_type": TASK_TYPES,
         "ansatz": ANSATZ_TYPES,
         "circuit_ansatz": CIRCUIT_ANSATZ_TYPES,
         "backend": BACKEND_TYPES,
@@ -85,12 +92,109 @@ SUPPORTED_CHOICES = MappingProxyType(
     }
 )
 
+# A metric becomes eligible for comparative inference only through one of
+# these contracts. The extraction key lives beside admission so callers cannot
+# relabel a value from an unrelated result column.
+MetricSpec = Mapping[str, str | bool]
+METRIC_TYPES: Mapping[str, MetricSpec] = MappingProxyType(
+    {
+        "strict_autoregressive_next_token": MappingProxyType(
+            {
+                "lower_is_better": True,
+                "units": "ppl",
+                "pairable": True,
+                "extraction_key": "val_ppl",
+                "comparator_class": "matched_control",
+            }
+        ),
+        "validation_perplexity": MappingProxyType(
+            {
+                "lower_is_better": True,
+                "units": "ppl",
+                "pairable": True,
+                "extraction_key": "val_ppl",
+                "comparator_class": "matched_control",
+            }
+        ),
+        "ground_state_energy_error": MappingProxyType(
+            {
+                "lower_is_better": True,
+                "units": "problem_energy_units",
+                "pairable": False,
+                "extraction_key": "energy_error",
+                "comparator_class": "exact_reference_diagnostic",
+            }
+        ),
+    }
+)
+
+# Comparison eligibility is server-owned. Result payloads may report their
+# identity, but they cannot self-register by setting ``registration_status``.
+SolverRunnerKey = tuple[str, str, str, str]
+SolverRunnerSpec = Mapping[str, object]
+SOLVER_RUNNERS: Mapping[SolverRunnerKey, SolverRunnerSpec] = MappingProxyType(
+    {
+        (
+            "qllm.train.vqe.run_vqe",
+            "analytic_statevector_v1",
+            "qllm_vqe",
+            "analytic_backprop_v1",
+        ): MappingProxyType(
+            {
+                "task_type": "ground_state",
+                "computation_kind": "quantum",
+                "registration_status": "diagnostic_only",
+                "comparison_eligible": False,
+                "reason": (
+                    "The current VQE runner uses analytic shots=None and is "
+                    "not eligible for solver competition."
+                ),
+            }
+        )
+    }
+)
+
 
 def choices_text(values: tuple[str, ...]) -> str:
     """Return stable, user-facing choice text for validation errors."""
     return ", ".join(values)
 
 
-def supported_choices_payload() -> dict[str, list[str]]:
+def metric_type_spec(
+    metric_type: str | None, *, require_pairable: bool = False
+) -> MetricSpec | None:
+    """Resolve one metric contract, failing closed for unknown metrics."""
+    if not isinstance(metric_type, str):
+        return None
+    spec = METRIC_TYPES.get(metric_type)
+    if spec is None or (require_pairable and not bool(spec.get("pairable"))):
+        return None
+    return spec
+
+
+def solver_runner_registration(
+    *,
+    runner_id: object,
+    runner_version: object,
+    solver_id: object,
+    solver_version: object,
+) -> SolverRunnerSpec | None:
+    """Resolve canonical solver-runner identity without trusting run metadata."""
+    values = (runner_id, runner_version, solver_id, solver_version)
+    if not all(isinstance(value, str) and value.strip() for value in values):
+        return None
+    return SOLVER_RUNNERS.get(values)
+
+
+def supported_choices_payload() -> dict[str, object]:
     """JSON-safe copy used by dashboard clients and external tooling."""
-    return {name: list(values) for name, values in SUPPORTED_CHOICES.items()}
+    from .problems import ground_state_instances_payload
+
+    payload: dict[str, object] = {
+        name: list(values) for name, values in SUPPORTED_CHOICES.items()
+    }
+    payload["metric_types"] = {
+        name: dict(spec) for name, spec in METRIC_TYPES.items()
+    }
+    payload["ground_state_instances"] = ground_state_instances_payload()
+    return payload

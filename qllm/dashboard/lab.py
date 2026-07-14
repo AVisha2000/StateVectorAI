@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ..claims import get_claim, infer_claim_id
+from ..registry import metric_type_spec
 from ..research_protocol import (
     classify_claim,
     evaluate_analogue_ladder,
@@ -24,6 +25,7 @@ from .evidence import (
 from .gpu_reservation import gpu_reservation_status, job_reservation
 from ._shared import decode_config as _decode_config
 from ._shared import job_variant as _job_variant
+from ._shared import primary_metric_value
 from ._shared import quantum_scale as _quantum_scale
 from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
@@ -71,10 +73,6 @@ _UNASSIGNED_COMPONENT_SCHEMA = {
         )
     ],
 }
-PAIRABLE_VAL_PPL_METRIC_TYPES = frozenset({
-    "strict_autoregressive_next_token",
-    "validation_perplexity",
-})
 
 
 def _final_run_for_job(db: ResultsDB, job: dict) -> dict | None:
@@ -113,6 +111,10 @@ def enrich_job(job: dict, db: ResultsDB | None = None) -> dict:
             generator_seed=config.get("data.gen_seed"),
             data_kind=config.get("data.kind"),
             circuit_applicable=uses_quantum_config(config),
+            minibatch_applicable=(
+                config.get("problem.task_type", "sequence_modeling")
+                == "sequence_modeling"
+            ),
         )
     out["claim_id"] = claim_id
     out["claim"] = claim
@@ -161,7 +163,8 @@ def verdict_for_comparison(payload: dict, metric_type: str | None = None) -> dic
     flags = fairness_flags(payload.get("candidate"), payload.get("baseline"))
     if not flags["complete"]:
         return {"label": "incomplete", "reason": "one or both runs have not finished", "fairness": flags}
-    if metric_type not in PAIRABLE_VAL_PPL_METRIC_TYPES:
+    metric_spec = metric_type_spec(metric_type, require_pairable=True)
+    if metric_spec is None:
         return {
             "label": "unsupported metric",
             "assessment_level": "descriptive",
@@ -179,34 +182,57 @@ def verdict_for_comparison(payload: dict, metric_type: str | None = None) -> dic
             "reason": "one or more undisclosed protocol mismatches remain",
             "fairness": flags,
         }
-    delta = (payload.get("deltas") or {}).get("val_ppl")
-    if delta is None:
-        return {"label": "needs review", "reason": "validation perplexity is unavailable", "fairness": flags}
+    extraction_key = str(metric_spec["extraction_key"])
+    candidate_metric = primary_metric_value(
+        ((payload.get("candidate") or {}).get("final_run")), extraction_key
+    )
+    baseline_metric = primary_metric_value(
+        ((payload.get("baseline") or {}).get("final_run")), extraction_key
+    )
+    if candidate_metric is None or baseline_metric is None:
+        return {
+            "label": "needs review",
+            "reason": (
+                f"{metric_type} ({extraction_key}) is unavailable or does "
+                "not match the persisted primary metric"
+            ),
+            "fairness": flags,
+        }
+    delta = candidate_metric - baseline_metric
+    lower_is_better = bool(metric_spec["lower_is_better"])
     verdict = classify_claim(
         fairness=flags,
-        single_delta=-float(delta),  # val_ppl is lower-is-better.
-        metric_name="validation perplexity",
+        single_delta=-float(delta) if lower_is_better else float(delta),
+        metric_name=str(metric_type).replace("_", " "),
     )
     verdict = with_legacy_assessment_alias(verdict)
     verdict["fairness"] = flags
     return verdict
 
 
-def _resource_normalized_for_payload(payload: dict) -> dict | None:
+def _resource_normalized_for_payload(
+    payload: dict, metric_type: str | None
+) -> dict | None:
+    metric_spec = metric_type_spec(metric_type, require_pairable=True)
+    if metric_spec is None:
+        return None
+    extraction_key = str(metric_spec["extraction_key"])
     candidate = payload.get("candidate") or {}
     baseline = payload.get("baseline") or {}
     crun = candidate.get("final_run")
     brun = baseline.get("final_run")
     if not crun or not brun:
         return None
-    if crun.get("val_ppl") is None or brun.get("val_ppl") is None:
+    candidate_metric = primary_metric_value(crun, extraction_key)
+    baseline_metric = primary_metric_value(brun, extraction_key)
+    if candidate_metric is None or baseline_metric is None:
         return None
     return resource_normalized_delta(
-        candidate_metric=float(crun["val_ppl"]),
-        baseline_metric=float(brun["val_ppl"]),
+        candidate_metric=candidate_metric,
+        baseline_metric=baseline_metric,
         candidate_wall_seconds=crun.get("wall_seconds"),
         baseline_wall_seconds=brun.get("wall_seconds"),
-        lower_is_better=True,
+        lower_is_better=bool(metric_spec["lower_is_better"]),
     )
 
 
@@ -255,7 +281,9 @@ def comparison_research_payload(
         payload.get("candidate"), payload.get("baseline")
     )
     payload["verdict"] = {k: v for k, v in verdict.items() if k != "fairness"}
-    payload["resource_normalized"] = _resource_normalized_for_payload(payload)
+    payload["resource_normalized"] = _resource_normalized_for_payload(
+        payload, effective_metric_type
+    )
     payload["claim_id"] = claim_id
     payload["claim"] = claim
     payload["metric_type"] = effective_metric_type

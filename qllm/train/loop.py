@@ -31,6 +31,7 @@ from ..config import (
 from ..data.datasets import load_dataset_bundle
 from ..data.text import CharTokenizer, sample_batch, train_val_split
 from ..models.model import build_model, uses_quantum
+from ..registry import metric_type_spec
 from ..research_protocol import normalize_seed_axes
 from ..resources import (
     active_quantum_configs,
@@ -52,6 +53,32 @@ from .artifacts import (
     write_checkpoint,
     write_immutable_manifest,
 )
+
+
+DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE = "strict_autoregressive_next_token"
+
+
+def _sequence_primary_metric_name(metric_type: str) -> str:
+    """Resolve the one metric this sequence-only runner can publish."""
+    spec = metric_type_spec(metric_type)
+    if spec is None:
+        raise ValueError(f"Unsupported primary metric_type {metric_type!r}.")
+    extraction_key = str(spec["extraction_key"])
+    if extraction_key != "val_ppl":
+        raise ValueError(
+            f"metric_type {metric_type!r} extracts {extraction_key!r}; "
+            "the sequence runner only produces 'val_ppl'. Use the "
+            "metric-specific sibling runner instead."
+        )
+    return extraction_key
+
+
+def _require_sequence_task(cfg: ExperimentConfig) -> None:
+    if cfg.problem.task_type != "sequence_modeling":
+        raise ValueError(
+            f"task_type {cfg.problem.task_type!r} requires a task-specific "
+            "sibling runner; qllm.train.loop.fit is sequence-modeling only."
+        )
 
 
 def _format_quantum_diagnostics_for_display(value):
@@ -314,8 +341,11 @@ def fit(
     run_options: RunOptions | None = None,
     progress_callback=None,
     publish_guard=None,
+    primary_metric_type: str = DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE,
 ) -> dict:
     """Train on the requested JAX device without mutating global JAX config."""
+    _require_sequence_task(cfg)
+    _sequence_primary_metric_name(primary_metric_type)
     normalized_options = (run_options or RunOptions()).normalized()
     resolved_device = resolve_execution_device(normalized_options.device_target)
     with jax.default_device(resolved_device):
@@ -328,6 +358,7 @@ def fit(
             run_options=normalized_options,
             progress_callback=progress_callback,
             publish_guard=publish_guard,
+            primary_metric_type=primary_metric_type,
             resolved_device=resolved_device,
         )
 
@@ -341,6 +372,7 @@ def _fit_on_device(
     run_options: RunOptions | None = None,
     progress_callback=None,
     publish_guard=None,
+    primary_metric_type: str = DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE,
     resolved_device=None,
 ) -> dict:
     """Train a model end to end from an ExperimentConfig.
@@ -348,6 +380,8 @@ def _fit_on_device(
     Returns dict with the final TrainState, model, tokenizer, and a JSON-able
     summary (written under a UUID-scoped artifact directory by default).
     """
+    _require_sequence_task(cfg)
+    primary_metric_name = _sequence_primary_metric_name(primary_metric_type)
     fit_started = time.perf_counter()
     if init_params is not None and run_options is not None and run_options.resume_from:
         raise ValueError("init_params and resume_from are mutually exclusive.")
@@ -725,7 +759,8 @@ def _fit_on_device(
             total_steps=cfg.train.steps, config=dash_config,
             run_uuid=options.run_uuid,
             experiment_uuid=options.experiment_uuid,
-            manifest=manifest)
+            manifest=manifest,
+            primary_metric_type=primary_metric_type)
 
     tracker = ExperimentTracker(cfg.tracking)
     tracker.log_params(
@@ -919,6 +954,8 @@ def _fit_on_device(
                 manifest=manifest,
                 finalize_manifest=False,
                 resources=resources,
+                primary_metric_type=primary_metric_type,
+                metric_values=final,
             )
         if not options.defer_dashboard_terminal:
             dash.finish_run(
@@ -954,6 +991,9 @@ def _fit_on_device(
             str(best_checkpoint.resolve()) if best_checkpoint.exists() else None
         ),
         "best_step": best_step,
+        "primary_metric_type": primary_metric_type,
+        "primary_metric_name": primary_metric_name,
+        "primary_metric_value": final.get(primary_metric_name),
         "quantum_diagnostics": diagnostics,
         "history": history,
         **final,

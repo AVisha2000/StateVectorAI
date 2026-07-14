@@ -355,6 +355,205 @@
         "title": "AtlasVerdictRef",
         "type": "object"
       },
+      "ClassicalReferenceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "certificate": {
+            "additionalProperties": true,
+            "title": "Certificate",
+            "type": "object"
+          },
+          "certified": {
+            "title": "Certified",
+            "type": "boolean"
+          },
+          "energy": {
+            "title": "Energy",
+            "type": "number"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limitation": {
+            "title": "Limitation",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "reference_id": {
+            "title": "Reference Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference_id",
+          "role",
+          "label",
+          "energy",
+          "method",
+          "certified",
+          "certificate",
+          "limitation"
+        ],
+        "title": "ClassicalReferenceResponse",
+        "type": "object"
+      },
+      "ConfigChoicesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ansatz": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ansatz",
+            "type": "array"
+          },
+          "architecture": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Architecture",
+            "type": "array"
+          },
+          "attention": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Attention",
+            "type": "array"
+          },
+          "backend": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Backend",
+            "type": "array"
+          },
+          "circuit_ansatz": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Circuit Ansatz",
+            "type": "array"
+          },
+          "condition": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Condition",
+            "type": "array"
+          },
+          "dataset": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dataset",
+            "type": "array"
+          },
+          "dressing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dressing",
+            "type": "array"
+          },
+          "embedding": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Embedding",
+            "type": "array"
+          },
+          "encoder": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Encoder",
+            "type": "array"
+          },
+          "feed_forward": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Feed Forward",
+            "type": "array"
+          },
+          "ground_state_instances": {
+            "items": {
+              "$ref": "#/components/schemas/GroundStateInstanceResponse"
+            },
+            "title": "Ground State Instances",
+            "type": "array"
+          },
+          "head": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Head",
+            "type": "array"
+          },
+          "metric_types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MetricTypeSpecResponse"
+            },
+            "title": "Metric Types",
+            "type": "object"
+          },
+          "quantum_architecture": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Quantum Architecture",
+            "type": "array"
+          },
+          "quantum_default": {
+            "$ref": "#/components/schemas/QuantumConfigDefaultsResponse"
+          },
+          "readout": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readout",
+            "type": "array"
+          },
+          "task_type": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Task Type",
+            "type": "array"
+          }
+        },
+        "required": [
+          "architecture",
+          "quantum_architecture",
+          "dataset",
+          "task_type",
+          "ansatz",
+          "circuit_ansatz",
+          "backend",
+          "readout",
+          "dressing",
+          "attention",
+          "embedding",
+          "feed_forward",
+          "head",
+          "encoder",
+          "condition",
+          "metric_types",
+          "ground_state_instances",
+          "quantum_default"
+        ],
+        "title": "ConfigChoicesResponse",
+        "type": "object"
+      },
       "DesignerBounds": {
         "additionalProperties": false,
         "properties": {
@@ -999,6 +1198,70 @@
         "title": "DiagnosticsPayload",
         "type": "object"
       },
+      "GroundStateInstanceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "classical_references": {
+            "items": {
+              "$ref": "#/components/schemas/ClassicalReferenceResponse"
+            },
+            "title": "Classical References",
+            "type": "array"
+          },
+          "energy_units": {
+            "title": "Energy Units",
+            "type": "string"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "instance_id": {
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "n_qubits": {
+            "title": "N Qubits",
+            "type": "integer"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "title": "Provenance",
+            "type": "object"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shape",
+            "type": "array"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/PauliTermResponse"
+            },
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "instance_id",
+          "label",
+          "family",
+          "n_qubits",
+          "energy_units",
+          "shape",
+          "terms",
+          "classical_references",
+          "provenance"
+        ],
+        "title": "GroundStateInstanceResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1049,6 +1312,172 @@
           "evidence"
         ],
         "title": "InterpretationWarning",
+        "type": "object"
+      },
+      "MetricTypeSpecResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comparator_class": {
+            "title": "Comparator Class",
+            "type": "string"
+          },
+          "extraction_key": {
+            "title": "Extraction Key",
+            "type": "string"
+          },
+          "lower_is_better": {
+            "title": "Lower Is Better",
+            "type": "boolean"
+          },
+          "pairable": {
+            "title": "Pairable",
+            "type": "boolean"
+          },
+          "units": {
+            "title": "Units",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lower_is_better",
+          "units",
+          "pairable",
+          "extraction_key",
+          "comparator_class"
+        ],
+        "title": "MetricTypeSpecResponse",
+        "type": "object"
+      },
+      "PauliTermResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "coefficient": {
+            "title": "Coefficient",
+            "type": "number"
+          },
+          "pauli": {
+            "title": "Pauli",
+            "type": "string"
+          },
+          "qubits": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Qubits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "coefficient",
+          "pauli",
+          "qubits"
+        ],
+        "title": "PauliTermResponse",
+        "type": "object"
+      },
+      "QuantumConfigDefaultsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ansatz": {
+            "title": "Ansatz",
+            "type": "string"
+          },
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "diff_method": {
+            "title": "Diff Method",
+            "type": "string"
+          },
+          "dressing": {
+            "title": "Dressing",
+            "type": "string"
+          },
+          "init_scale": {
+            "title": "Init Scale",
+            "type": "number"
+          },
+          "mps_max_bond_dimension": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mps Max Bond Dimension"
+          },
+          "mps_max_truncation_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mps Max Truncation Error"
+          },
+          "mps_relative_truncation": {
+            "title": "Mps Relative Truncation",
+            "type": "boolean"
+          },
+          "n_circuit_layers": {
+            "title": "N Circuit Layers",
+            "type": "integer"
+          },
+          "n_circuits": {
+            "title": "N Circuits",
+            "type": "integer"
+          },
+          "n_qubits": {
+            "title": "N Qubits",
+            "type": "integer"
+          },
+          "readout": {
+            "title": "Readout",
+            "type": "string"
+          },
+          "shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shots"
+          },
+          "trainable": {
+            "title": "Trainable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "n_qubits",
+          "n_circuit_layers",
+          "ansatz",
+          "backend",
+          "device",
+          "diff_method",
+          "shots",
+          "trainable",
+          "readout",
+          "dressing",
+          "init_scale",
+          "n_circuits",
+          "mps_max_bond_dimension",
+          "mps_max_truncation_error",
+          "mps_relative_truncation"
+        ],
+        "title": "QuantumConfigDefaultsResponse",
         "type": "object"
       },
       "ResearchCapabilitiesResponse": {
@@ -1678,9 +2107,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Api Config Choices Api Config Choices Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ConfigChoicesResponse"
                 }
               }
             },

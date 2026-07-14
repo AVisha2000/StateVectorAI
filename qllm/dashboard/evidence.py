@@ -5,6 +5,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from ..registry import metric_type_spec
+from ._shared import primary_metric_value
 from .analogues import DEFAULT_FAIRNESS_REQUIREMENTS
 
 REQUIRED_FAIRNESS = DEFAULT_FAIRNESS_REQUIREMENTS
@@ -109,6 +111,8 @@ def run_resource_payload(final_run: Mapping[str, Any] | None) -> dict[str, Any]:
         for name, value in components.items()
         if isinstance(value, Mapping) and value.get("capabilities") is not None
     }
+    if not components and isinstance(quantum_backend.get("capabilities"), Mapping):
+        capabilities["quantum_backend"] = dict(quantum_backend)
     return {
         "resource_ledger": ledger,
         "backend_capabilities": capabilities or None,
@@ -180,9 +184,9 @@ def interpretation_warnings(
     improvement = normalized.get("improvement")
     candidate_wall = normalized.get("candidate_wall_seconds")
     baseline_wall = normalized.get("baseline_wall_seconds")
-    compatible_cost_metric = metric_type in {
-        "validation_perplexity", "strict_autoregressive_next_token",
-    }
+    compatible_cost_metric = (
+        metric_type_spec(metric_type, require_pairable=True) is not None
+    )
     if compatible_cost_metric and all(
         value is not None
         for value in (margin, improvement, candidate_wall, baseline_wall)
@@ -240,13 +244,28 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     verdict = payload.get("verdict") or {}
     flags = payload.get("fairness") or {}
     resource = payload.get("resource_normalized") or {}
-    deltas = payload.get("deltas") or {}
     candidate = payload.get("candidate") or {}
     baseline = payload.get("baseline") or {}
     cjob = candidate.get("job") or {}
     bjob = baseline.get("job") or {}
     metric_contract = payload.get("metric_contract") or {}
     protocol_valid = not metric_contract.get("rerun_required", False)
+    metric_type = payload.get("metric_type") or metric_contract.get("metric_type")
+    metric_spec = metric_type_spec(metric_type, require_pairable=True)
+    metric_key = (
+        str(metric_spec["extraction_key"]) if metric_spec is not None else None
+    )
+    candidate_metric = primary_metric_value(
+        candidate.get("final_run"), metric_key
+    ) if metric_key else None
+    baseline_metric = primary_metric_value(
+        baseline.get("final_run"), metric_key
+    ) if metric_key else None
+    metric_delta = (
+        candidate_metric - baseline_metric
+        if candidate_metric is not None and baseline_metric is not None
+        else None
+    )
     parameter_ratio = flags.get("parameter_delta_ratio")
     analogue = payload.get("analogue_ladder") or {}
     analogue_by_id = {
@@ -260,12 +279,17 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     fair = (
         available
         and protocol_valid
+        and metric_spec is not None
         and bool(flags.get("complete"))
         and bool(flags.get("valid"))
     )
     improvement = (
-        deltas.get("val_ppl") is not None
-        and float(deltas["val_ppl"]) < 0
+        metric_delta is not None
+        and (
+            float(metric_delta) < 0
+            if bool(metric_spec["lower_is_better"])
+            else float(metric_delta) > 0
+        )
         and fair
     )
     cost_reviewed = resource.get("improvement") is not None
@@ -285,6 +309,22 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
         "contextual_parity",
         "markov_control",
     }
+    metric_detail = (
+        f"{metric_type} extracts {metric_key} ({metric_spec['units']})"
+        if metric_spec is not None
+        else f"unsupported metric_type {metric_type!r}"
+    )
+    if not protocol_valid:
+        fair_detail = (
+            metric_contract.get("limitation") or "metric contract requires a rerun"
+        )
+    elif metric_spec is None:
+        fair_detail = verdict.get("reason") or metric_detail
+    else:
+        fair_detail = (
+            "dataset, seed, steps, eval cadence, device, roles, "
+            "training budget, and preprocessing match"
+        )
 
     steps = [
         _step(
@@ -294,21 +334,23 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
             "linked candidate/baseline pair" if available else payload.get("reason", "no linked baseline"),
         ),
         _step(
+            "metric_supported",
+            "Registered metric contract",
+            metric_spec is not None,
+            metric_detail,
+        ),
+        _step(
             "fair_protocol",
             "Fair protocol",
             fair,
-            (
-                metric_contract.get("limitation")
-                if not protocol_valid
-                else "dataset, seed, steps, eval cadence, device, roles, "
-                "training budget, and preprocessing match"
-            ),
+            fair_detail,
         ),
         _step(
             "run_level_improvement",
             "Run-level improvement",
             improvement,
-            verdict.get("reason") or "requires lower candidate validation perplexity on a fair pair",
+            verdict.get("reason")
+            or f"requires a favorable {metric_type or 'registered metric'} delta on a fair pair",
             "A single fair run is smoke evidence, not an advantage claim.",
         ),
         _step(
@@ -323,7 +365,8 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
         _step(
             "ablation_supported",
             "Ablation-supported improvement",
-            analogue_by_id.get("frozen_random_control", {}).get("status") == "met",
+            improvement
+            and analogue_by_id.get("frozen_random_control", {}).get("status") == "met",
             "requires trainable quantum to beat frozen/random quantum controls",
         ),
         _step(
@@ -359,9 +402,15 @@ def comparison_evidence_ladder(payload: dict[str, Any]) -> dict:
     elif not available:
         label = "incomplete"
         reason = payload.get("reason", "comparison missing")
+    elif metric_spec is None:
+        label = "unsupported metric"
+        reason = verdict.get("reason") or f"unsupported metric_type {metric_type!r}"
     elif not fair:
         label = "unfair comparison"
         reason = "one or more fairness gates failed"
+    elif metric_delta is None:
+        label = "incomplete"
+        reason = verdict.get("reason") or f"{metric_key} is unavailable"
     elif not improvement:
         label = "negative"
         reason = "candidate does not beat the baseline on the fair run"
@@ -397,14 +446,45 @@ def study_evidence_ladder(evidence: dict[str, Any]) -> list[dict]:
     """Study-level rungs shared by study detail and future reports."""
     fair_pairs = int(evidence.get("fair_pairs") or 0)
     wins = int(evidence.get("wins") or 0)
-    mean_delta = evidence.get("mean_delta_val_ppl")
-    std_delta = evidence.get("std_delta_val_ppl")
+    metric_type = evidence.get("metric_type")
+    metric_spec = metric_type_spec(metric_type, require_pairable=True)
+    metric_key = (
+        str(metric_spec["extraction_key"]) if metric_spec is not None else None
+    )
+    mean_delta = evidence.get("mean_delta")
+    std_delta = evidence.get("std_delta")
+    if metric_key == "val_ppl":
+        if mean_delta is None:
+            mean_delta = evidence.get("mean_delta_val_ppl")
+        if std_delta is None:
+            std_delta = evidence.get("std_delta_val_ppl")
     paired = evidence.get("paired_stats") or {}
-    has_multi_seed = int(paired.get("n_pairs") or 0) >= 6
-    candidate_wins = has_multi_seed and wins > fair_pairs / 2 and (mean_delta or 0) < 0
-    low_variance = std_delta is not None and fair_pairs >= 2
+    metric_supported = metric_spec is not None
+    has_multi_seed = metric_supported and int(paired.get("n_pairs") or 0) >= 6
+    favorable_mean = (
+        mean_delta is not None
+        and (
+            float(mean_delta) < 0
+            if bool(metric_spec["lower_is_better"])
+            else float(mean_delta) > 0
+        )
+        if metric_spec is not None
+        else False
+    )
+    candidate_wins = has_multi_seed and wins > fair_pairs / 2 and favorable_mean
+    low_variance = metric_supported and std_delta is not None and fair_pairs >= 2
     return [
         _step("matched_baseline", "Matched baselines", fair_pairs > 0, f"{fair_pairs} fair pair(s)"),
+        _step(
+            "metric_supported",
+            "Registered metric contract",
+            metric_supported,
+            (
+                f"{metric_type} extracts {metric_key} ({metric_spec['units']})"
+                if metric_spec is not None
+                else f"unsupported metric_type {metric_type!r}"
+            ),
+        ),
         _step("multi_seed", "Repeated multi-seed evidence", has_multi_seed, f"{fair_pairs} fair completed seed(s)"),
         _step("candidate_better", "Candidate better on average", candidate_wins, f"{wins}/{fair_pairs} candidate win(s)"),
         _step("variance_reviewed", "Variance reviewed", low_variance, "-" if std_delta is None else f"std {float(std_delta):.3f}"),

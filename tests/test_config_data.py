@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from qllm.config import (
+    ProblemConfig,
+    QuantumConfig,
     from_dict,
     load_yaml,
     to_flat_dict,
@@ -25,7 +28,10 @@ from qllm.registry import (
     CONDITION_TYPES,
     DATASET_KINDS,
     FFN_TYPES,
+    METRIC_TYPES,
     READOUT_TYPES,
+    TASK_TYPES,
+    metric_type_spec,
     supported_choices_payload,
 )
 
@@ -38,6 +44,30 @@ BOUNDARY_SAFE_DATASET_CALLERS = (
     "benchmarks/model_report.py",
     "qllm/dashboard/model_tests.py",
 )
+
+
+def _ground_state_payload(
+    *, quantum: dict | None = None, steps: int = 100
+) -> dict:
+    quantum_payload = {
+        "n_qubits": 2,
+        "n_circuit_layers": 2,
+        "ansatz": "hardware_efficient",
+        "backend": "pennylane",
+        "device": "default.qubit",
+        "diff_method": "backprop",
+        "shots": None,
+        "trainable": True,
+    }
+    quantum_payload.update(quantum or {})
+    return {
+        "problem": {
+            "task_type": "ground_state",
+            "instance_id": "tfim-2q-open-j1-h1",
+        },
+        "model": {"quantum": quantum_payload},
+        "train": {"steps": steps},
+    }
 
 # ---------------------------------------------------------------------------
 # Config
@@ -101,11 +131,135 @@ def test_flat_dict_keys():
     assert "model.quantum.n_qubits" in flat
     assert "train.lr" in flat
     assert "tracking.experiment" in flat
+    assert flat["problem.task_type"] == "sequence_modeling"
+    assert flat["problem.instance_id"] is None
 
 
 def test_configs_are_hashable():
-    cfg = from_dict({}).model
+    cfg = from_dict({})
     hash(cfg)  # frozen dataclasses must be hashable (Flax static fields)
+    assert cfg.problem == ProblemConfig()
+
+
+def test_problem_config_roundtrip_and_canonical_choices():
+    assert TASK_TYPES == (
+        "sequence_modeling",
+        "ground_state",
+        "combinatorial_optimization",
+    )
+    payload = {
+        "problem": {
+            "task_type": "ground_state",
+            "instance_id": "ising-chain-8",
+        }
+    }
+    cfg = from_dict(payload)
+    assert cfg.problem == ProblemConfig(**payload["problem"])
+    assert to_flat_dict(cfg)["problem.instance_id"] == "ising-chain-8"
+    assert supported_choices_payload()["task_type"] == list(TASK_TYPES)
+
+
+def test_config_choices_response_requires_canonical_task_types():
+    from qllm.dashboard.config_choices import validate_config_choices
+
+    payload = supported_choices_payload()
+    payload["quantum_default"] = dataclasses.asdict(QuantumConfig())
+    assert validate_config_choices(payload)["task_type"] == list(TASK_TYPES)
+    payload.pop("task_type")
+    with pytest.raises(ValueError, match="task_type"):
+        validate_config_choices(payload)
+
+
+def test_problem_config_accepts_registered_ground_state_task():
+    assert validate_config(from_dict(_ground_state_payload())) == []
+
+
+def test_problem_config_accepts_opaque_combinatorial_task_identity():
+    problem = {
+        "task_type": "combinatorial_optimization",
+        "instance_id": "maxcut-cube",
+    }
+    assert validate_config(from_dict({"problem": problem})) == []
+
+
+def test_problem_config_rejects_unregistered_ground_state_instance():
+    payload = _ground_state_payload()
+    payload["problem"]["instance_id"] = "ising-chain-8"
+    errors = validate_config(from_dict(payload))
+    assert any("registered ground-state instance" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("quantum", "steps", "expected"),
+    [
+        ({"n_qubits": 3}, 100, "must match the registered"),
+        ({"shots": 10}, 100, "shots must be null"),
+        ({"trainable": False}, 100, "trainable must be true"),
+        ({"ansatz": "reuploading"}, 100, "hardware_efficient"),
+        ({"n_circuit_layers": 9}, 100, "must be at most 8"),
+        (
+            {"backend": "tensorcircuit", "device": "statevector"},
+            100,
+            "requires model.quantum.backend='pennylane'",
+        ),
+        (
+            {"diff_method": "parameter-shift"},
+            100,
+            "diff_method must be 'backprop'",
+        ),
+        ({}, 1001, "train.steps must be at most 1000"),
+    ],
+)
+def test_ground_state_config_is_bounded_to_initial_diagnostic_slice(
+    quantum, steps, expected
+):
+    errors = validate_config(
+        from_dict(_ground_state_payload(quantum=quantum, steps=steps))
+    )
+    assert expected in "\n".join(errors)
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected"),
+    [
+        (
+            {"task_type": "sequence_modeling", "instance_id": "text-1"},
+            "problem.instance_id must be null",
+        ),
+        (
+            {"task_type": "ground_state"},
+            "problem.instance_id must be provided",
+        ),
+        (
+            {"task_type": "combinatorial_optimization"},
+            "problem.instance_id must be provided",
+        ),
+    ],
+)
+def test_problem_config_rejects_required_forbidden_and_empty_values(problem, expected):
+    assert expected in "\n".join(validate_config(from_dict({"problem": problem})))
+
+
+@pytest.mark.parametrize(
+    "instance_id",
+    ["", "UPPER", "with space", "../escape", "path/name", "x" * 129, 7],
+)
+def test_problem_config_rejects_malformed_instance_ids(instance_id):
+    errors = validate_config(from_dict({
+        "problem": {"task_type": "ground_state", "instance_id": instance_id}
+    }))
+    assert any("ASCII registry key matching" in error for error in errors)
+
+
+def test_problem_config_rejects_unrecognized_problem_fields():
+    with pytest.raises(KeyError, match="hamiltonian_id"):
+        from_dict({"problem": {"hamiltonian_id": "tfim-open"}})
+
+
+def test_problem_config_rejects_unknown_task_without_secondary_task_errors():
+    errors = validate_config(from_dict({"problem": {"task_type": "unknown"}}))
+    assert any("problem.task_type must be one of" in error for error in errors)
+    assert not any("must be provided when problem.task_type" in error for error in errors)
 
 
 def test_quantum_diagnostic_display_preserves_unavailable_evidence():
@@ -142,6 +296,37 @@ def test_shared_validation_uses_canonical_registries():
     payload = supported_choices_payload()
     assert payload["architecture"] == list(ARCH_TYPES)
     assert payload["circuit_ansatz"] == ["hardware_efficient", "reuploading"]
+    assert set(payload["metric_types"]) == {
+        "ground_state_energy_error",
+        "strict_autoregressive_next_token",
+        "validation_perplexity",
+    }
+    assert payload["metric_types"]["ground_state_energy_error"] == {
+        "lower_is_better": True,
+        "units": "problem_energy_units",
+        "pairable": False,
+        "extraction_key": "energy_error",
+        "comparator_class": "exact_reference_diagnostic",
+    }
+    assert payload["ground_state_instances"][0]["instance_id"] == (
+        "tfim-2q-open-j1-h1"
+    )
+    assert payload["ground_state_instances"][0]["classical_references"][0][
+        "role"
+    ] == "oracle"
+    assert payload["metric_types"]["validation_perplexity"] == {
+        "lower_is_better": True,
+        "units": "ppl",
+        "pairable": True,
+        "extraction_key": "val_ppl",
+        "comparator_class": "matched_control",
+    }
+    assert metric_type_spec("validation_perplexity", require_pairable=True) == (
+        METRIC_TYPES["validation_perplexity"]
+    )
+    assert metric_type_spec("time_to_target", require_pairable=True) is None
+    with pytest.raises(TypeError):
+        METRIC_TYPES["validation_perplexity"]["extraction_key"] = "energy_error"
 
 
 @pytest.mark.parametrize(

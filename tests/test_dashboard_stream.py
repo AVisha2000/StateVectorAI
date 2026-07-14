@@ -62,7 +62,20 @@ def test_live_snapshot_token_is_stable_and_detects_same_second_change(tmp_path):
     first = live_snapshot(_factory(path))
     assert live_snapshot(_factory(path)) == first
     assert set(first["jobs"][0]) == {"id", "status", "updated_ts", "run_key", "worker_id", "completed_step", "run_uuid"}
-    assert set(first["live_runs"][0]) == {"run_key", "run_uuid", "status", "current_step", "total_steps", "updated_ts", "last_train_loss", "last_val_ppl"}
+    assert set(first["live_runs"][0]) == {
+        "run_key",
+        "run_uuid",
+        "status",
+        "current_step",
+        "total_steps",
+        "updated_ts",
+        "last_train_loss",
+        "last_val_ppl",
+        "primary_metric_name",
+        "last_primary_metric_value",
+    }
+    assert first["live_runs"][0]["primary_metric_name"] == "val_ppl"
+    assert first["live_runs"][0]["last_primary_metric_value"] is None
 
     with db._conn() as con:
         con.execute("UPDATE lab_jobs SET completed_step=1, updated_ts=? WHERE id=?", (first["jobs"][0]["updated_ts"], job_id))

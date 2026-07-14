@@ -13,11 +13,17 @@ from pydantic import BaseModel
 
 from ..claims import get_claim, list_claims
 from ..resultsdb import ResultsDB
+from .atlas import (
+    ATLAS_VERDICT_KEY_PREFIX,
+    ATLAS_VERDICT_SOURCE_KIND,
+    atlas_verdict_key,
+)
 
 
 VERDICT_SNAPSHOT_SCHEMA_VERSION = 1
+VERDICT_SNAPSHOT_LIST_LIMIT = 100
+VERDICT_RECONCILIATION_JOB_LIMIT = 25
 _FORBIDDEN_SCORE_KEYS = frozenset({"advantage_score", "composite_score", "composite_advantage_score"})
-_RECONCILIATION_JOB_LIMIT = 25
 _RECONCILIATION_CURSOR_NAME = "comparison_verdict_snapshots"
 
 
@@ -133,8 +139,15 @@ def build_verdict_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(value, type(default)):
             raise ValueError(f"{key} must be a {type(default).__name__}")
         named[key] = value
+    verdict_key = str(payload.get("verdict_key") or f"{source_kind}:{source_id}")
+    expected_projection_key = atlas_verdict_key(claim["claim_id"])
+    if source_kind == ATLAS_VERDICT_SOURCE_KIND:
+        if str(source_id) != claim["claim_id"] or verdict_key != expected_projection_key:
+            raise ValueError("Claim projection identity must match its canonical claim_id")
+    elif verdict_key.startswith(ATLAS_VERDICT_KEY_PREFIX):
+        raise ValueError("Claim projection verdict keys are reserved")
     return {
-        "verdict_key": str(payload.get("verdict_key") or f"{source_kind}:{source_id}"),
+        "verdict_key": verdict_key,
         "source_kind": source_kind,
         "source_id": str(source_id),
         "claim_id": claim["claim_id"],
@@ -152,7 +165,145 @@ def build_verdict_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def persist_verdict_snapshot(db: ResultsDB, payload: Mapping[str, Any]) -> dict[str, Any]:
-    return db.append_verdict_snapshot(build_verdict_snapshot(payload))
+    snapshot = build_verdict_snapshot(payload)
+    if snapshot["source_kind"] == ATLAS_VERDICT_SOURCE_KIND:
+        raise ValueError("Claim projections are internal persistence records")
+    snapshot = db.append_verdict_snapshot(snapshot)
+    _persist_claim_verdict_projection(db, snapshot)
+    return snapshot
+
+
+def _claim_contracts() -> list[tuple[str, str, str, str]]:
+    return [
+        (
+            claim["claim_id"],
+            claim["level"],
+            claim["status"],
+            claim["replication_status"],
+        )
+        for claim in list_claims()
+    ]
+
+
+def current_claim_verdict_sources(db: ResultsDB) -> list[dict]:
+    """Return one current-ledger source snapshot per claim, excluding projections."""
+    return db.list_current_verdict_snapshots_for_claims(
+        _claim_contracts(),
+        exclude_source_kind=ATLAS_VERDICT_SOURCE_KIND,
+    )
+
+
+def current_claim_verdict_projections(db: ResultsDB) -> list[dict]:
+    """Return only projections that exactly reproduce their current source row."""
+    projections = []
+    for source in current_claim_verdict_sources(db):
+        expected = _claim_verdict_projection(source)
+        projection = next(
+            (
+                candidate
+                for candidate in db.get_verdict_snapshot_history(
+                    atlas_verdict_key(source["claim_id"])
+                )
+                if all(
+                    candidate.get(key) == value
+                    for key, value in expected.items()
+                )
+            ),
+            None,
+        )
+        if projection is not None:
+            projections.append(projection)
+    return projections
+
+
+def reconcile_claim_verdict_projections(db: ResultsDB) -> None:
+    """Persist stable per-claim join keys over append-only source snapshots."""
+    for source in current_claim_verdict_sources(db):
+        try:
+            _persist_claim_verdict_projection(db, source)
+        except ValueError:
+            # A malformed historical projection must not poison all verdict reads.
+            continue
+
+
+def _persist_claim_verdict_projection(db: ResultsDB, source: Mapping[str, Any]) -> dict:
+    projection = _claim_verdict_projection(source)
+    return db.append_verdict_snapshot(
+        projection,
+        projection_source_snapshot_id=int(source["id"]),
+    )
+
+
+def _claim_verdict_projection(source: Mapping[str, Any]) -> dict:
+    evidence = dict(source.get("evidence") or {})
+    evidence["claim_projection_source"] = {
+        "snapshot_id": source["id"],
+        "verdict_key": source["verdict_key"],
+        "source_kind": source["source_kind"],
+        "source_id": source["source_id"],
+    }
+    return build_verdict_snapshot(
+        {
+            "verdict_key": atlas_verdict_key(source["claim_id"]),
+            "source_kind": ATLAS_VERDICT_SOURCE_KIND,
+            "source_id": source["claim_id"],
+            "claim_id": source["claim_id"],
+            "assessment": {
+                "level": source.get("assessment_level"),
+                "status": source.get("assessment_status"),
+            },
+            "source_job_id": source.get("source_job_id"),
+            "source_study_id": source.get("source_study_id"),
+            "source_run_id": source.get("source_run_id"),
+            "scorecard": source.get("scorecard") or {},
+            "fairness": source.get("fairness") or {},
+            "controls": source.get("controls") or {},
+            "caveats": source.get("caveats") or [],
+            "evidence": evidence,
+            "diagnostics": source.get("diagnostics") or {},
+        }
+    )
+
+
+def _is_claim_projection_record(snapshot: Mapping[str, Any]) -> bool:
+    return (
+        snapshot.get("source_kind") == ATLAS_VERDICT_SOURCE_KIND
+        or str(snapshot.get("verdict_key") or "").startswith(
+            ATLAS_VERDICT_KEY_PREFIX
+        )
+    )
+
+
+def _valid_claim_projection(db: ResultsDB, projection: Mapping[str, Any]) -> bool:
+    if not _is_claim_projection_record(projection):
+        return False
+    evidence = projection.get("evidence") or {}
+    source_ref = (
+        evidence.get("claim_projection_source")
+        if isinstance(evidence, Mapping)
+        else None
+    )
+    source_id = (
+        source_ref.get("snapshot_id")
+        if isinstance(source_ref, Mapping)
+        else None
+    )
+    if (
+        isinstance(source_id, bool)
+        or not isinstance(source_id, int)
+        or source_id <= 0
+    ):
+        return False
+    source = db.get_verdict_snapshot(source_id)
+    if source is None or _is_claim_projection_record(source):
+        return False
+    try:
+        expected = _claim_verdict_projection(source)
+    except (KeyError, TypeError, ValueError):
+        return False
+    return all(
+        projection.get(key) == value for key, value in expected.items()
+    )
 
 
 def advantage_report_scorecard(report: Mapping[str, Any] | Any) -> dict[str, dict[str, Any]]:
@@ -278,7 +429,7 @@ def comparison_verdict_snapshot(db: ResultsDB, payload: Mapping[str, Any]) -> di
 
 
 def reconcile_comparison_verdict_snapshots(
-    db: ResultsDB, *, job_limit: int = _RECONCILIATION_JOB_LIMIT
+    db: ResultsDB, *, job_limit: int = VERDICT_RECONCILIATION_JOB_LIMIT
 ) -> None:
     """Materialize eligible recent comparison verdicts without read-order coupling.
 
@@ -289,7 +440,7 @@ def reconcile_comparison_verdict_snapshots(
     """
     from .lab import comparison_research_payload
 
-    bounded = max(1, min(int(job_limit), _RECONCILIATION_JOB_LIMIT))
+    bounded = max(1, min(int(job_limit), VERDICT_RECONCILIATION_JOB_LIMIT))
     claims = list_claims()
     claim_ids = [claim["claim_id"] for claim in claims]
     preset_ids = sorted({
@@ -351,18 +502,41 @@ def reconcile_comparison_verdict_snapshots(
         )
 
 
-def verdict_snapshot_list_response(db: ResultsDB, *, limit: int = 100) -> VerdictSnapshotListResponse:
+def verdict_snapshot_list_response(
+    db: ResultsDB,
+    *,
+    limit: int = VERDICT_SNAPSHOT_LIST_LIMIT,
+) -> VerdictSnapshotListResponse:
+    bounded = max(1, min(int(limit), VERDICT_SNAPSHOT_LIST_LIMIT))
     reconcile_comparison_verdict_snapshots(db)
+    reconcile_claim_verdict_projections(db)
+    projections = current_claim_verdict_projections(db)
+    projected_claims = {snapshot["claim_id"] for snapshot in projections}
+    regular = [
+        snapshot
+        for snapshot in db.list_latest_verdict_snapshots(bounded)
+        if not _is_claim_projection_record(snapshot)
+        and snapshot["claim_id"] not in projected_claims
+    ]
+    rows = (projections + regular)[:bounded]
     return VerdictSnapshotListResponse(
-        snapshots=[_summary(snapshot) for snapshot in db.list_latest_verdict_snapshots(limit)]
+        snapshots=[_summary(snapshot) for snapshot in rows]
     )
 
 
 def verdict_snapshot_detail_response(db: ResultsDB, snapshot_id: int) -> VerdictSnapshotHistoryResponse | None:
     snapshot = db.get_verdict_snapshot(snapshot_id)
-    if snapshot is None:
+    if snapshot is None or (
+        _is_claim_projection_record(snapshot)
+        and not _valid_claim_projection(db, snapshot)
+    ):
         return None
-    history = db.get_verdict_snapshot_history(snapshot["verdict_key"])
+    history = [
+        item
+        for item in db.get_verdict_snapshot_history(snapshot["verdict_key"])
+        if not _is_claim_projection_record(item)
+        or _valid_claim_projection(db, item)
+    ]
     return VerdictSnapshotHistoryResponse(
         snapshot=_detail(snapshot), history=[_summary(item) for item in history]
     )
@@ -391,9 +565,13 @@ def _detail(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
-    "VERDICT_SNAPSHOT_SCHEMA_VERSION", "VerdictSnapshotDetail", "VerdictSnapshotHistoryResponse",
+    "VERDICT_RECONCILIATION_JOB_LIMIT", "VERDICT_SNAPSHOT_LIST_LIMIT",
+    "VERDICT_SNAPSHOT_SCHEMA_VERSION",
+    "VerdictSnapshotDetail", "VerdictSnapshotHistoryResponse",
     "VerdictSnapshotListResponse", "VerdictSnapshotSummary", "advantage_report_scorecard",
-    "build_verdict_snapshot", "comparison_verdict_snapshot", "persist_verdict_snapshot",
-    "reconcile_comparison_verdict_snapshots", "verdict_snapshot_detail_response",
-    "verdict_snapshot_list_response",
+    "build_verdict_snapshot", "comparison_verdict_snapshot",
+    "current_claim_verdict_projections", "current_claim_verdict_sources",
+    "persist_verdict_snapshot",
+    "reconcile_claim_verdict_projections", "reconcile_comparison_verdict_snapshots",
+    "verdict_snapshot_detail_response", "verdict_snapshot_list_response",
 ]

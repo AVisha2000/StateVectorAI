@@ -1,17 +1,21 @@
 """Validated Atlas projection over the canonical research map."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict
 
+from ..claims import list_claims
+
 
 _DOCS_ROOT = Path(__file__).resolve().parents[2] / "docs"
 DEFAULT_ONTOLOGY_PATH = _DOCS_ROOT / "ATLAS_ONTOLOGY.yaml"
 DEFAULT_RESEARCH_MAP_PATH = _DOCS_ROOT / "RESEARCH_MAP.yaml"
+ATLAS_VERDICT_KEY_PREFIX = "claim:"
+ATLAS_VERDICT_SOURCE_KIND = "claim_projection"
 
 _ONTOLOGY_KEYS = {
     "schema_version",
@@ -239,6 +243,68 @@ def atlas_ontology_response(
     )
 
 
+def bind_atlas_verdict_refs(
+    ontology: AtlasOntologyResponse,
+    snapshots: Iterable[Mapping[str, Any]],
+) -> AtlasOntologyResponse:
+    """Bind cells to the newest snapshot that still matches the claim ledger."""
+    claims = {claim["claim_id"]: claim for claim in list_claims()}
+    latest_by_claim: dict[str, tuple[int, Mapping[str, Any]]] = {}
+    for snapshot in snapshots:
+        if not isinstance(snapshot, Mapping):
+            continue
+        snapshot_id = snapshot.get("id")
+        claim_id = snapshot.get("claim_id")
+        if (
+            isinstance(snapshot_id, bool)
+            or not isinstance(snapshot_id, int)
+            or snapshot_id <= 0
+            or not isinstance(claim_id, str)
+        ):
+            continue
+        claim = claims.get(claim_id)
+        if claim is None or any(
+            snapshot.get(field) != expected
+            for field, expected in (
+                ("claim_level", claim["level"]),
+                ("claim_status", claim["status"]),
+                ("replication_status", claim["replication_status"]),
+            )
+        ):
+            continue
+        verdict_key = snapshot.get("verdict_key")
+        source_kind = snapshot.get("source_kind")
+        source_id = snapshot.get("source_id")
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (verdict_key, source_kind, source_id)
+        ):
+            continue
+        prior = latest_by_claim.get(claim_id)
+        if prior is None or snapshot_id > prior[0]:
+            latest_by_claim[claim_id] = (snapshot_id, snapshot)
+
+    payload = ontology.model_dump()
+    for domain in payload["domains"]:
+        for cell in domain["cells"]:
+            selected = latest_by_claim.get(cell["area_id"])
+            if selected is None:
+                cell["verdict_ref"] = None
+                continue
+            snapshot = selected[1]
+            cell["verdict_ref"] = {
+                "verdict_key": atlas_verdict_key(cell["area_id"]),
+                "source_kind": ATLAS_VERDICT_SOURCE_KIND,
+                "source_id": cell["area_id"],
+            }
+    return AtlasOntologyResponse(**payload)
+
+
+def atlas_verdict_key(claim_id: str) -> str:
+    """Return the stable projection key used to join one canonical claim."""
+    return f"{ATLAS_VERDICT_KEY_PREFIX}{claim_id}"
+
+
 def _build_cell(
     raw_cell: Mapping[str, Any],
     *,
@@ -440,7 +506,11 @@ def _reject_extra_keys(
 
 
 __all__ = [
+    "ATLAS_VERDICT_KEY_PREFIX",
+    "ATLAS_VERDICT_SOURCE_KIND",
     "AtlasOntologyError",
     "AtlasOntologyResponse",
+    "atlas_verdict_key",
     "atlas_ontology_response",
+    "bind_atlas_verdict_refs",
 ]

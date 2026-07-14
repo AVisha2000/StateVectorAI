@@ -15,8 +15,22 @@ def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
     but are labelled as a coarse proxy.  In particular, the MPS state-tensor
     bound cannot predict differentiation or nonlocal-gate intermediates.
     """
-    active = active_quantum_configs(cfg.model)
-    token_calls = int(cfg.train.batch_size) * int(cfg.train.seq_len)
+    ground_state = cfg.problem.task_type == "ground_state"
+    if ground_state and cfg.model.quantum is not None:
+        active = [
+            (
+                "vqe_ansatz",
+                cfg.model.quantum,
+                1,
+                "configured_circuit_backend",
+            )
+        ]
+    else:
+        active = active_quantum_configs(cfg.model)
+    token_calls = (
+        0 if ground_state else int(cfg.train.batch_size) * int(cfg.train.seq_len)
+    )
+    configured_work_units = int(cfg.train.steps) if ground_state else token_calls
     components: dict[str, dict] = {}
     work_proxy = 0
 
@@ -65,7 +79,7 @@ def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
             "configured_work_proxy_status": proxy_status,
         }
 
-    score = int(token_calls * work_proxy) if active else 0
+    score = int(configured_work_units * work_proxy) if active else 0
     if not active:
         band = "classical"
     elif score >= 16_000_000:
@@ -141,7 +155,10 @@ def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
         ),
         "score_methodology": {
             "formula": (
-                "train.batch_size * train.seq_len * sum(component state-element "
+                "train.steps * sum(component state-element proxy * logical "
+                "instances * circuit layers)"
+                if ground_state
+                else "train.batch_size * train.seq_len * sum(component state-element "
                 "proxy * logical instances per token * circuit layers)"
             ),
             "mps_proxy": (
@@ -153,6 +170,8 @@ def quantum_resource_estimate(cfg: ExperimentConfig) -> dict:
         "state_dim": int(state_dim),
         "state_dim_status": "exact_logical_dimension_not_storage_allocation",
         "token_calls": int(token_calls),
+        "objective_steps": int(cfg.train.steps) if ground_state else None,
+        "work_unit": "optimizer_step" if ground_state else "token_instance",
         "component_multiplier": int(component_multiplier),
         "uses_quantum_attention": uses_quantum_attn,
         "components": components,

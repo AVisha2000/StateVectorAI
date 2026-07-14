@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -24,7 +25,13 @@ from ..config import QuantumConfig
 from ..registry import supported_choices_payload
 from ..research_service import ResearchQuotaExceeded, ResearchServiceError
 from . import queries as Q
-from .atlas import AtlasOntologyError, AtlasOntologyResponse, atlas_ontology_response
+from .atlas import (
+    AtlasOntologyError,
+    AtlasOntologyResponse,
+    atlas_ontology_response,
+    bind_atlas_verdict_refs,
+)
+from .config_choices import ConfigChoicesResponse, validate_config_choices
 from .datasets import import_hf_text_dataset, list_datasets
 from .designer import (
     DesignerCircuitCapabilitiesResponse,
@@ -90,8 +97,10 @@ from .studies import (
     study_report_payload,
 )
 from .verdicts import (
+    VERDICT_SNAPSHOT_LIST_LIMIT,
     VerdictSnapshotHistoryResponse,
     VerdictSnapshotListResponse,
+    current_claim_verdict_projections,
     verdict_snapshot_detail_response,
     verdict_snapshot_list_response,
 )
@@ -187,11 +196,11 @@ def api_presets() -> list[dict]:
     return list_presets()
 
 
-@app.get("/api/config/choices")
+@app.get("/api/config/choices", response_model=ConfigChoicesResponse)
 def api_config_choices() -> dict:
     payload = supported_choices_payload()
     payload["quantum_default"] = dataclasses.asdict(QuantumConfig())
-    return payload
+    return validate_config_choices(payload)
 
 
 @app.get(
@@ -200,13 +209,19 @@ def api_config_choices() -> dict:
 )
 def api_atlas_ontology() -> AtlasOntologyResponse:
     try:
-        return atlas_ontology_response()
+        ontology = atlas_ontology_response()
     except AtlasOntologyError as exc:
         logger.exception("Invalid Atlas ontology configuration")
         raise HTTPException(
             status_code=500,
             detail="Atlas ontology configuration is invalid.",
         ) from exc
+    try:
+        snapshots = current_claim_verdict_projections(db())
+        return bind_atlas_verdict_refs(ontology, snapshots)
+    except (sqlite3.Error, ValueError):
+        logger.exception("Atlas verdict references are temporarily unavailable")
+        return ontology
 
 
 @app.get(
@@ -245,7 +260,11 @@ def api_claim(claim_id: str) -> dict:
 
 @app.get("/api/verdicts", response_model=VerdictSnapshotListResponse)
 def api_verdicts(
-    limit: int = Query(default=100, ge=1, le=100),
+    limit: int = Query(
+        default=VERDICT_SNAPSHOT_LIST_LIMIT,
+        ge=1,
+        le=VERDICT_SNAPSHOT_LIST_LIMIT,
+    ),
 ) -> VerdictSnapshotListResponse:
     return verdict_snapshot_list_response(db(), limit=limit)
 

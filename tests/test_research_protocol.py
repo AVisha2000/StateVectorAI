@@ -19,6 +19,7 @@ from qllm.claims import (
     infer_claim_id,
     load_claim_registry,
 )
+from qllm.registry import TASK_TYPES
 from qllm.research_protocol import (
     TWO_STREAM_CAUSAL_PROTOCOL,
     TWO_STREAM_CAUSAL_SUITE,
@@ -710,7 +711,7 @@ def test_claim_registry_is_complete_defensive_cached_and_fail_closed(tmp_path, m
     monkeypatch.setattr(claims_module, "_load_yaml_mapping", counted)
     try:
         registry = load_claim_registry()
-        assert len(registry) == 19
+        assert len(registry) == 20
         assert load_claim_registry() is registry
         assert len(calls) == 2
     finally:
@@ -731,7 +732,43 @@ def test_claim_registry_is_complete_defensive_cached_and_fail_closed(tmp_path, m
         load_claim_registry(invalid_path)
 
 
-@pytest.mark.parametrize("mutation", ["duplicate", "missing", "enum", "reason", "overlap"])
+def test_claim_registry_task_dimension_is_explicit_and_conservative():
+    registry = load_claim_registry()
+    assert registry.schema_version == 2
+    null_task_claims = {
+        "barren_plateau_scaling",
+        "kernel_geometry_controls",
+        "projected_quantum_kernels",
+        "coherent_quantum_data_learning",
+        "quantum_generative_models",
+        "fault_tolerant_ml_primitives",
+        "post_variational_shadow_models",
+        "communication_limited_quantum_learning",
+    }
+    assert {
+        claim["claim_id"] for claim in registry if claim["task_type"] is None
+    } == null_task_claims
+    assert all(
+        claim["task_type"] in TASK_TYPES
+        for claim in registry
+        if claim["task_type"] is not None
+    )
+    assert get_claim("two_stream_conditioning")["task_type"] == "sequence_modeling"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate",
+        "missing",
+        "enum",
+        "reason",
+        "overlap",
+        "unknown_task",
+        "missing_task",
+        "old_version",
+    ],
+)
 def test_claim_registry_rejects_invalid_schema_mutations(tmp_path, mutation):
     payload = deepcopy(load_claim_registry().as_dict())
     if mutation == "duplicate":
@@ -742,11 +779,17 @@ def test_claim_registry_rejects_invalid_schema_mutations(tmp_path, mutation):
         payload["claims"][0]["status"] = "promoted"
     elif mutation == "reason":
         payload["claims"][0]["fairness_schema"]["intentional_differences"][0]["reason"] = ""
-    else:
+    elif mutation == "overlap":
         payload["claims"][0]["fairness_schema"]["intentional_differences"].append({
             "path": "data.gen_seed",
             "reason": "must not override required data equality",
         })
+    elif mutation == "unknown_task":
+        payload["claims"][0]["task_type"] = "classification"
+    elif mutation == "missing_task":
+        payload["claims"][0].pop("task_type")
+    else:
+        payload["schema_version"] = 1
     path = tmp_path / f"{mutation}.yaml"
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     with pytest.raises(ClaimRegistryError):

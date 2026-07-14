@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ..claims import get_claim, infer_claim_id
+from ..registry import metric_type_spec
 from ..research_protocol import normalize_seed_axes
 from ..research_protocol import two_stream_metric_contract
 from ..resultsdb import ResultsDB
@@ -16,6 +17,8 @@ from .model_graph import model_family, uses_quantum_config
 from .presets import preset_meta
 from ._shared import curve as _curve
 from ._shared import decode_config as _decode_config
+from ._shared import ground_state_solver_competition_readiness
+from ._shared import primary_metric_value
 
 
 def _live(
@@ -111,6 +114,20 @@ def _model_spec_meta(db: ResultsDB, preset_id: str, config: dict) -> dict:
     }
 
 
+def _problem_instance_payload(config: dict) -> dict | None:
+    if config.get("problem.task_type") != "ground_state":
+        return None
+    instance_id = config.get("problem.instance_id")
+    if not isinstance(instance_id, str) or not instance_id:
+        return None
+    from ..problems import get_ground_state_instance
+
+    try:
+        return get_ground_state_instance(instance_id).to_payload()
+    except KeyError:
+        return None
+
+
 def _job_payload(
     db: ResultsDB, job: dict | None, *, include_curves: bool = True
 ) -> dict | None:
@@ -141,10 +158,16 @@ def _job_payload(
     final_run = _final_run(db, job)
     durability = job_durability_payload(job)
     resources = run_resource_payload(final_run)
+    problem_instance = _problem_instance_payload(config)
     payload = {
         "job": job,
         "preset": preset,
-        "dataset": get_dataset(db, job["dataset_name"]),
+        "dataset": (
+            None
+            if problem_instance is not None
+            else get_dataset(db, job["dataset_name"])
+        ),
+        "problem_instance": problem_instance,
         "live": _live(db, job.get("run_key"), job.get("run_uuid")),
         "curve": (
             _curve(db, job.get("run_key"), job.get("run_uuid"))
@@ -194,6 +217,48 @@ def comparison_payload(
             available=False, baseline_linked=False
         )
         return payload
+    if (job.get("config") or {}).get("problem.task_type") == "ground_state":
+        candidate_payload = _job_payload(
+            db, job, include_curves=include_curves
+        )
+        readiness = ground_state_solver_competition_readiness(
+            (candidate_payload or {}).get("claim")
+        )
+        return {
+            "available": False,
+            "reason": (
+                "Ground-state solver comparison is blocked by the missing "
+                "registered comparison-eligible finite-shot quantum runner, "
+                "registered classical solver runner, and matched paired "
+                "solver evidence."
+            ),
+            "candidate": candidate_payload,
+            "baseline": None,
+            "deltas": None,
+            "metric_contract": None,
+            "claim_id": (candidate_payload or {}).get("claim_id"),
+            "claim": (candidate_payload or {}).get("claim"),
+            "metric_type": (candidate_payload or {}).get("metric_type"),
+            "seed_axes": (candidate_payload or {}).get("seed_axes"),
+            "comparative_inference_enabled": False,
+            "paired_stats": None,
+            "solver_competition_readiness": readiness,
+            "interpretation_warnings": [
+                {
+                    "code": "simulator_diagnostic_only",
+                    "severity": "warning",
+                    "title": "Analytic simulator diagnostic only",
+                    "message": (
+                        "This VQE run has an exact reference but no "
+                        "equal-budget solver comparison."
+                    ),
+                    "evidence": {
+                        "comparative_inference_enabled": False,
+                        "qpu_evidence": False,
+                    },
+                }
+            ],
+        }
     other = _job(db, job.get("compare_to_job_id"))
     if not other:
         candidate_payload = _job_payload(
@@ -230,6 +295,15 @@ def comparison_payload(
     )
     candidate_run = candidate_payload["final_run"] if candidate_payload else None
     baseline_run = baseline_payload["final_run"] if baseline_payload else None
+    metric_contract = _comparison_metric_contract(
+        candidate_payload,
+        baseline_payload,
+    )
+    metric_type = (
+        (metric_contract or {}).get("metric_type")
+        or (candidate_payload or {}).get("metric_type")
+    )
+    metric_spec = metric_type_spec(metric_type, require_pairable=True)
     deltas = None
     if candidate_run and baseline_run:
         deltas = {
@@ -239,10 +313,19 @@ def comparison_payload(
             "wall_seconds": _delta(candidate_run, baseline_run, "wall_seconds"),
             "n_params": _delta(candidate_run, baseline_run, "n_params"),
         }
-    metric_contract = _comparison_metric_contract(
-        candidate_payload,
-        baseline_payload,
-    )
+        if metric_spec is not None:
+            extraction_key = str(metric_spec["extraction_key"])
+            candidate_metric = primary_metric_value(
+                candidate_run, extraction_key
+            )
+            baseline_metric = primary_metric_value(
+                baseline_run, extraction_key
+            )
+            deltas[extraction_key] = (
+                candidate_metric - baseline_metric
+                if candidate_metric is not None and baseline_metric is not None
+                else None
+            )
     payload = {
         "available": True,
         "candidate": candidate_payload,
@@ -251,10 +334,7 @@ def comparison_payload(
         "metric_contract": metric_contract,
         "claim_id": (candidate_payload or {}).get("claim_id"),
         "claim": (candidate_payload or {}).get("claim"),
-        "metric_type": (
-            (metric_contract or {}).get("metric_type")
-            or (candidate_payload or {}).get("metric_type")
-        ),
+        "metric_type": metric_type,
         "seed_axes": (candidate_payload or {}).get("seed_axes"),
     }
     payload["paired_stats"] = None

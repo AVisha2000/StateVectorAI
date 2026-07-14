@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from .registry import (
     QUANTUM_FFN_TYPES,
     QRNN_ONLY_ANSATZ_TYPES,
     READOUT_TYPES,
+    TASK_TYPES,
     choices_text,
 )
 
@@ -154,11 +156,18 @@ class TrackingConfig:
 
 
 @dataclass(frozen=True)
+class ProblemConfig:
+    task_type: str = "sequence_modeling"
+    instance_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     data: DataConfig = field(default_factory=DataConfig)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    problem: ProblemConfig = field(default_factory=ProblemConfig)
 
 
 _SECTION_TYPES = {
@@ -166,6 +175,7 @@ _SECTION_TYPES = {
     "train": TrainConfig,
     "data": DataConfig,
     "tracking": TrackingConfig,
+    "problem": ProblemConfig,
 }
 
 
@@ -246,6 +256,8 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
     model = cfg.model
     train = cfg.train
     data = cfg.data
+    problem = cfg.problem
+    validated_quantum_paths: set[str] = set()
 
     def choice(path: str, value: object, options: tuple[str, ...]) -> bool:
         if not isinstance(value, str) or value not in options:
@@ -286,7 +298,21 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
             return False
         return True
 
+    def instance_id(value: object) -> bool:
+        if isinstance(value, str) and re.fullmatch(
+            r"[a-z0-9][a-z0-9._-]{0,127}", value, flags=re.ASCII
+        ):
+            return True
+        errors.append(
+            "problem.instance_id must be an ASCII registry key matching "
+            "[a-z0-9][a-z0-9._-]{0,127}."
+        )
+        return False
+
     def quantum(path: str, qcfg: QuantumConfig | None) -> None:
+        if path in validated_quantum_paths:
+            return
+        validated_quantum_paths.add(path)
         if qcfg is None:
             errors.append(f"{path} must be provided.")
             return
@@ -391,6 +417,116 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
                 except ValueError as exc:
                     errors.append(f"{path}: {exc}")
 
+    # Problem selection is validated before model/data initialization. Invalid
+    # task types fail closed without task-conditional follow-on errors.
+    task_type_ok = choice("problem.task_type", problem.task_type, TASK_TYPES)
+    if task_type_ok:
+        if problem.task_type == "sequence_modeling":
+            if problem.instance_id is not None:
+                errors.append(
+                    "problem.instance_id must be null when "
+                    "problem.task_type='sequence_modeling'."
+                )
+        else:
+            if problem.instance_id is None:
+                errors.append(
+                    "problem.instance_id must be provided when "
+                    f"problem.task_type={problem.task_type!r}."
+                )
+            else:
+                valid_instance_id = instance_id(problem.instance_id)
+                if valid_instance_id and problem.task_type == "ground_state":
+                    from .problems import get_ground_state_instance
+
+                    try:
+                        instance = get_ground_state_instance(problem.instance_id)
+                    except KeyError:
+                        errors.append(
+                            "problem.instance_id must name a registered ground-state "
+                            f"instance; got {problem.instance_id!r}."
+                        )
+                    else:
+                        quantum("model.quantum", model.quantum)
+                        qcfg = model.quantum
+                        if isinstance(qcfg, QuantumConfig):
+                            if qcfg.n_qubits != instance.n_qubits:
+                                errors.append(
+                                    "model.quantum.n_qubits must match the registered "
+                                    "ground-state instance: "
+                                    f"{qcfg.n_qubits} != {instance.n_qubits}."
+                                )
+                            if qcfg.shots is not None:
+                                errors.append(
+                                    "model.quantum.shots must be null for the initial "
+                                    "ground-state VQE slice; analytic statevector "
+                                    "convergence is simulator-diagnostic evidence only."
+                                )
+                            if qcfg.trainable is not True:
+                                errors.append(
+                                    "model.quantum.trainable must be true for the VQE "
+                                    "optimizer runner."
+                                )
+                            if qcfg.ansatz != "hardware_efficient":
+                                errors.append(
+                                    "model.quantum.ansatz must be "
+                                    "'hardware_efficient' for the initial "
+                                    "ground-state VQE slice."
+                                )
+                            if (
+                                isinstance(qcfg.n_circuit_layers, int)
+                                and not isinstance(qcfg.n_circuit_layers, bool)
+                                and qcfg.n_circuit_layers > 8
+                            ):
+                                errors.append(
+                                    "model.quantum.n_circuit_layers must be at most "
+                                    "8 for the initial ground-state VQE slice."
+                                )
+                            if qcfg.backend != "pennylane" or qcfg.device != "default.qubit":
+                                errors.append(
+                                    "The initial ground-state VQE slice requires "
+                                    "model.quantum.backend='pennylane' and "
+                                    "model.quantum.device='default.qubit'."
+                                )
+                            if qcfg.diff_method != "backprop":
+                                errors.append(
+                                    "model.quantum.diff_method must be 'backprop' "
+                                    "for the initial ground-state VQE slice."
+                                )
+                            if qcfg.backend in BACKEND_TYPES:
+                                from .quantum.capabilities import (
+                                    resolve_backend_capabilities,
+                                )
+
+                                try:
+                                    capabilities = resolve_backend_capabilities(
+                                        qcfg.backend,
+                                        qcfg.device,
+                                        qcfg.diff_method,
+                                        qcfg.shots,
+                                        qcfg.mps_max_bond_dimension,
+                                        qcfg.mps_max_truncation_error,
+                                        qcfg.mps_relative_truncation,
+                                    )
+                                except ValueError:
+                                    pass
+                                else:
+                                    if (
+                                        not capabilities.state_access.supported
+                                        or capabilities.exactness != "exact"
+                                    ):
+                                        errors.append(
+                                            "model.quantum backend execution mode must "
+                                            "provide exact state access for the initial "
+                                            "ground-state VQE slice: "
+                                            f"{capabilities.state_access.limitation}."
+                                        )
+                                    if not capabilities.gradients.supported:
+                                        errors.append(
+                                            "model.quantum backend execution mode must "
+                                            "provide verified analytic gradients for "
+                                            "the initial ground-state VQE slice."
+                                        )
+
     # Registry-backed model choices.
     arch_ok = choice("model.arch", model.arch, ARCH_TYPES)
     choice("model.attn_type", model.attn_type, ATTN_TYPES)
@@ -491,7 +627,15 @@ def validate_config(cfg: ExperimentConfig) -> list[str]:
     # Training constraints used by both text and trajectory samplers.
     if isinstance(train.seed, bool) or not isinstance(train.seed, int):
         errors.append(f"train.seed must be an integer; got {train.seed!r}.")
-    positive_int("train.steps", train.steps)
+    steps_ok = positive_int("train.steps", train.steps)
+    if (
+        problem.task_type == "ground_state"
+        and steps_ok
+        and train.steps > 1000
+    ):
+        errors.append(
+            "train.steps must be at most 1000 for the initial ground-state VQE slice."
+        )
     positive_int("train.batch_size", train.batch_size)
     seq_len_ok = positive_int("train.seq_len", train.seq_len)
     finite_number("train.lr", train.lr, positive=True)

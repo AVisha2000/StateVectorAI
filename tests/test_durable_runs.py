@@ -1235,6 +1235,42 @@ def test_worker_executes_persisted_model_snapshot_and_uuid_artifact_root(
     assert persisted["status"] == "error"
 
 
+def test_worker_preserves_problem_task_and_rejects_before_sequence_work(
+    tmp_path, monkeypatch
+):
+    queue = ExperimentQueue(
+        str(tmp_path / "task-snapshot.db"),
+        start_worker=False,
+        worker_id="task-snapshot-worker",
+        results_dir=tmp_path / "task-snapshot-results",
+    )
+    job = queue.submit(
+        "classical-small",
+        "default-text",
+        "task-snapshot",
+        0,
+        1,
+        1,
+        device_target="cpu",
+    )
+    config = dict(job["config"])
+    config["problem.task_type"] = "ground_state"
+    config["problem.instance_id"] = "tfim-open-n4-j1-h1-v1"
+    config.pop("research.task_type", None)
+    queue.db().update_lab_job(job["id"], config_json=json.dumps(config))
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("sequence-specific worker preparation must not start")
+
+    monkeypatch.setattr(queue, "_confined_data_path", unexpected)
+    monkeypatch.setattr("qllm.train.loop.fit", unexpected)
+    queue._run_one(job["id"])
+
+    failed = queue.get(job["id"])
+    assert failed["status"] == "error"
+    assert "immutable preset task_type" in failed["error"]
+
+
 def test_recovery_cancel_and_legacy_stale_preserve_integrity(tmp_path):
     db = ResultsDB(tmp_path / "recovery.db")
     zero = db.create_lab_job(_job(run_name="zero"))

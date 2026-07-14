@@ -1,5 +1,5 @@
 schema_version: 1
-updated: 2026-07-12
+updated: 2026-07-14
 purpose: >-
   Curated display grouping for the QLLM Atlas. This file owns only domain,
   cell, and primary-dimension placement metadata. Status, claim level,
@@ -121,6 +121,12 @@ domains:
         pipeline_stage: training
         quantum_resource: measurement
         advantage_target: training_time
+      - id: c_vqe_ground_state
+        area_id: vqe_ground_state_optimization
+        kind: unexplored
+        pipeline_stage: training
+        quantum_resource: entanglement
+        advantage_target: energy_or_cost
 
   - id: frontier_paradigms
     label: Frontier quantum-native paradigms

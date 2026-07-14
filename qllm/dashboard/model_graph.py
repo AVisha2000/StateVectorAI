@@ -52,6 +52,28 @@ def _quantum_dict(cfg: ModelConfig | dict) -> dict:
     return dataclasses.asdict(qcfg)
 
 
+def _task_type(cfg: ExperimentConfig | ModelConfig | dict) -> str:
+    if isinstance(cfg, ExperimentConfig):
+        return cfg.problem.task_type
+    if isinstance(cfg, dict):
+        problem = cfg.get("problem")
+        if isinstance(problem, dict) and isinstance(problem.get("task_type"), str):
+            return problem["task_type"]
+        return str(cfg.get("problem.task_type") or "sequence_modeling")
+    return "sequence_modeling"
+
+
+def _problem_instance_id(cfg: ExperimentConfig | ModelConfig | dict) -> str | None:
+    if isinstance(cfg, ExperimentConfig):
+        return cfg.problem.instance_id
+    if isinstance(cfg, dict):
+        problem = cfg.get("problem")
+        if isinstance(problem, dict):
+            return problem.get("instance_id")
+        return cfg.get("problem.instance_id")
+    return None
+
+
 def _node(node_id: str, label: str, kind: str, level: str = "component", **meta) -> dict:
     return {"id": node_id, "label": label, "kind": kind, "level": level, "meta": meta}
 
@@ -139,6 +161,71 @@ def model_graph_from_config(cfg: ExperimentConfig | ModelConfig | dict) -> dict:
     model = cfg.model if isinstance(cfg, ExperimentConfig) else cfg
     arch = _get(model, "arch", "transformer")
     quantum = _quantum_dict(model)
+    if _task_type(cfg) == "ground_state":
+        instance_id = _problem_instance_id(cfg)
+        nodes = [
+            _node(
+                "problem_hamiltonian",
+                "Problem Hamiltonian",
+                "input",
+                instance_id=instance_id,
+                component_type="ground_state_problem",
+                config_path="problem.instance_id",
+            ),
+            _node(
+                "variational_ansatz",
+                "Variational Ansatz",
+                "quantum",
+                component_type="vqe_ansatz",
+                config_path="model.quantum.ansatz",
+                resource=_quantum_resource(quantum),
+            ),
+            _node(
+                "quantum_backend",
+                "Quantum Backend",
+                "quantum",
+                component_type="statevector_backend",
+                config_path="model.quantum.backend",
+                resource=_quantum_resource(quantum),
+            ),
+            _node(
+                "energy_objective",
+                "Energy Objective",
+                "output",
+                component_type="hamiltonian_expectation",
+            ),
+            _node(
+                "exact_reference",
+                "Exact Reference",
+                "classical",
+                component_type="exact_diagonalization",
+            ),
+        ]
+        return {
+            "nodes": nodes,
+            "edges": [
+                ["problem_hamiltonian", "variational_ansatz"],
+                ["variational_ansatz", "quantum_backend"],
+                ["quantum_backend", "energy_objective"],
+                ["exact_reference", "energy_objective"],
+            ],
+            "quantum": quantum,
+            "levels": _level_payload(nodes),
+            "components": _component_payload(nodes),
+            "resources": {
+                "quantum": quantum,
+                "quantum_component_count": 2,
+            },
+            "summary": {
+                "arch": "vqe",
+                "uses_quantum": True,
+                "model_family": "vqe",
+                "quantum_components": [
+                    "variational_ansatz",
+                    "quantum_backend",
+                ],
+            },
+        }
     nodes: list[dict] = []
     edges: list[list[str]] = []
 
@@ -295,6 +382,8 @@ def uses_quantum_config(cfg: ExperimentConfig | ModelConfig | dict) -> bool:
 
 
 def model_family(cfg: ExperimentConfig | ModelConfig | dict) -> str:
+    if _task_type(cfg) == "ground_state":
+        return "vqe"
     model = cfg.model if isinstance(cfg, ExperimentConfig) else cfg
     arch = _get(model, "arch", "transformer")
     if arch == "gru" or arch in QUANTUM_ARCH_TYPES:

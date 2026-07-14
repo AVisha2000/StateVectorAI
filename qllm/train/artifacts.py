@@ -334,6 +334,7 @@ def _resume_config_payload(cfg: Any) -> dict[str, Any]:
             "model": _jsonable(cfg.get("model")),
             "train": _jsonable(cfg.get("train")),
             "data": _jsonable(cfg.get("data")),
+            "problem": _jsonable(cfg.get("problem")),
             "tracking_evidence": {"log_grad_norms": tracking_grad_norms},
         }
     tracking = getattr(cfg, "tracking", None)
@@ -341,6 +342,7 @@ def _resume_config_payload(cfg: Any) -> dict[str, Any]:
         "model": _jsonable(getattr(cfg, "model", None)),
         "train": _jsonable(getattr(cfg, "train", None)),
         "data": _jsonable(getattr(cfg, "data", None)),
+        "problem": _jsonable(getattr(cfg, "problem", None)),
         "tracking_evidence": {
             "log_grad_norms": getattr(tracking, "log_grad_norms", None),
         },

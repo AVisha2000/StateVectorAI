@@ -89,7 +89,8 @@ def live_snapshot(
             dict(row)
             for row in con.execute(
                 "SELECT run_key, run_uuid, status, current_step, total_steps, "
-                "updated_ts, last_train_loss, last_val_ppl FROM live_runs "
+                "updated_ts, last_train_loss, last_val_ppl, "
+                "primary_metric_name, last_primary_metric_value FROM live_runs "
                 "ORDER BY updated_ts DESC, run_key ASC LIMIT ?",
                 (int(limit),),
             ).fetchall()

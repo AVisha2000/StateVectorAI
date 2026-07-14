@@ -49,6 +49,53 @@ def test_openapi_snapshot_is_current_and_contains_core_api():
     for key in ("queued", "running", "runs"):
         assert status_schema["properties"][key]["type"] == "integer"
 
+    config_choices = document["components"]["schemas"]["ConfigChoicesResponse"]
+    assert config_choices["additionalProperties"] is False
+    assert {
+        "ground_state_instances",
+        "metric_types",
+        "quantum_default",
+        "task_type",
+    } <= set(
+        config_choices["required"]
+    )
+    assert config_choices["properties"]["task_type"] == {
+        "items": {"type": "string"},
+        "title": "Task Type",
+        "type": "array",
+    }
+    assert config_choices["properties"]["metric_types"]["additionalProperties"] == {
+        "$ref": "#/components/schemas/MetricTypeSpecResponse"
+    }
+    metric_spec = document["components"]["schemas"]["MetricTypeSpecResponse"]
+    assert metric_spec["additionalProperties"] is False
+    assert set(metric_spec["required"]) == {
+        "lower_is_better",
+        "units",
+        "pairable",
+        "extraction_key",
+        "comparator_class",
+    }
+    ground_instance = document["components"]["schemas"][
+        "GroundStateInstanceResponse"
+    ]
+    assert ground_instance["additionalProperties"] is False
+    assert {
+        "instance_id",
+        "n_qubits",
+        "energy_units",
+        "terms",
+        "classical_references",
+        "provenance",
+    } <= set(ground_instance["required"])
+    reference = document["components"]["schemas"][
+        "ClassicalReferenceResponse"
+    ]
+    assert reference["additionalProperties"] is False
+    assert {"reference_id", "role", "certificate", "limitation"} <= set(
+        reference["required"]
+    )
+
     designer_request = document["components"]["schemas"][
         "DesignerCircuitRequest"
     ]

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 claims:
   - claim_id: variational_component_swaps
@@ -7,6 +7,7 @@ claims:
     level: diagnostic
     status: contradicted
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: validation_perplexity
     evidence:
       - source: RESULTS.md
@@ -105,6 +106,7 @@ claims:
     level: diagnostic
     status: supported
     replication_status: within_study_resampling
+    task_type: null
     metric_type: gradient_variance
     evidence:
       - source: RESULTS.md
@@ -161,6 +163,7 @@ claims:
     level: diagnostic
     status: inconclusive
     replication_status: within_study_resampling
+    task_type: null
     metric_type: kernel_target_alignment
     evidence:
       - source: RESULTS.md
@@ -222,6 +225,7 @@ claims:
     level: diagnostic
     status: blocked
     replication_status: single_task_instance
+    task_type: sequence_modeling
     metric_type: predictive_memory_to_target
     evidence:
       - source: RESULTS.md
@@ -293,6 +297,7 @@ claims:
     level: diagnostic
     status: supported
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: time_to_target
     evidence:
       - source: RESULTS.md
@@ -324,6 +329,7 @@ claims:
     level: diagnostic
     status: relabeled
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: validation_perplexity
     evidence:
       - source: RESULTS.md
@@ -356,6 +362,7 @@ claims:
     level: mechanism
     status: relabeled
     replication_status: single_task_instance
+    task_type: sequence_modeling
     metric_type: constrained_accuracy
     evidence:
       - source: RESULTS.md
@@ -429,6 +436,7 @@ claims:
     level: mechanism
     status: supported
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: excess_cross_entropy
     evidence:
       - source: RESULTS.md
@@ -460,6 +468,7 @@ claims:
     level: diagnostic
     status: contradicted
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: strict_autoregressive_next_token
     evidence:
       - source: RESULTS.md
@@ -492,6 +501,7 @@ claims:
     level: diagnostic
     status: rerun_required
     replication_status: multi_seed_single_instance
+    task_type: sequence_modeling
     metric_type: strict_autoregressive_next_token
     evidence:
       - source: RESULTS.md
@@ -524,6 +534,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: sequence_modeling
     metric_type: constrained_accuracy
     evidence: []
     contradictions: []
@@ -596,6 +607,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: held_out_predictive_quality
     evidence: []
     contradictions: []
@@ -612,6 +624,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: held_out_predictive_quality
     evidence: []
     contradictions: []
@@ -628,6 +641,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: sequence_modeling
     metric_type: validation_perplexity
     evidence: []
     contradictions: []
@@ -644,6 +658,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: exact_likelihood
     evidence: []
     contradictions: []
@@ -660,6 +675,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: sequence_modeling
     metric_type: time_to_target
     evidence:
       - source: RESULTS.md
@@ -691,6 +707,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: logical_resource_estimate
     evidence: []
     contradictions: []
@@ -707,6 +724,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: held_out_predictive_quality
     evidence: []
     contradictions: []
@@ -723,6 +741,7 @@ claims:
     level: untested
     status: untested
     replication_status: none
+    task_type: null
     metric_type: communication_complexity
     evidence: []
     contradictions: []
@@ -747,3 +766,107 @@ claims:
         limitation: A narrow classical protocol does not establish a communication edge.
     analysis_settings: *future_analysis
     next_decisive_test: Reproduce one theorem-backed protocol and compare transmitted resources, entanglement consumed, repetitions, latency, and classical shared-randomness baselines.
+
+  - claim_id: vqe_ground_state_optimization
+    research_area_id: vqe_ground_state_optimization
+    statement: Whether the registered analytic-simulator VQE runner can reproduce the ground-state energy of exactly diagonalizable toy Hamiltonians within a prespecified energy-error tolerance.
+    level: untested
+    status: untested
+    replication_status: none
+    task_type: ground_state
+    metric_type: ground_state_energy_error
+    evidence: []
+    contradictions: []
+    limitations:
+      - Analytic statevector backpropagation is a simulator diagnostic, not finite-shot, QPU, or hardware-relevant evidence.
+      - One exactly diagonalizable two-qubit instance cannot establish scaling or solver advantage.
+      - Exact diagonalization is a certified reference rather than an equal-budget classical competitor.
+      - solver_competition_v1 is declared, but solver-competition runners and comparative evidence are absent.
+    fairness_schema:
+      schema_id: solver_competition_v1
+      comparator_kind: best_in_class_solver
+      pairing_axis: problem_instance
+      nested_seed_axis: model_seed
+      required_equal:
+        - problem.instance_id
+        - problem.instance_hash
+        - problem.energy_units
+        - optimum.reference_id
+        - optimum.role
+        - optimum.value
+        - optimum.units
+        - budget.contract_hash
+      required_present:
+        - run_uuid
+        - manifest_hash
+        - solver.solver_id
+        - solver.solver_version
+        - solver.runner_id
+        - solver.runner_version
+        - solver.algorithm_family
+        - solver.hyperparameters
+        - solver.selected_trial_id
+        - solver.configuration_hash
+        - solver.code_hash
+        - solver.environment_hash
+        - solver.role
+        - solver.model_seed
+        - solver.computation_kind
+        - solver.registration_status
+      equal_budget_fields:
+        - search.max_trials
+        - search.max_objective_evaluations
+        - search.max_wall_seconds
+        - evaluation.model_seeds
+        - evaluation.max_objective_evaluations_per_seed
+        - evaluation.max_wall_seconds_per_seed
+        - evaluation.shots_per_objective
+        - evaluation.target_metric
+        - evaluation.target_value
+        - evaluation.termination_rule
+      intentional_differences:
+        - path: solver.solver_id
+          reason: Best-in-class competition intentionally compares distinct registered solvers.
+        - path: solver.solver_version
+          reason: Each solver version is declared rather than forced to match.
+        - path: solver.algorithm_family
+          reason: Solver families may differ under the same prespecified competition budget.
+        - path: solver.hyperparameters
+          reason: Each arm may use its selected configuration within an equal search budget.
+      resource_requirements:
+        - objective_evaluations
+        - wall_seconds
+        - state_preparations
+        - total_shots
+        - peak_memory_bytes
+        - state_representation
+      allowed_optimum_roles: [best_known_optimum, certified_optimum]
+    analogue_ladder:
+      - rung_id: exact_diagonalization_reference
+        required: true
+        comparator: certified exact diagonalization of the identical registered Hamiltonian
+        match_mode: logical_resources
+        limitation: Exact diagonalization supplies ground truth and is not an equal-budget solver comparison.
+      - rung_id: strong_classical_challenger
+        required: true
+        comparator: best-product-state or stronger declared classical variational solver on the identical instance
+        match_mode: parameters
+        limitation: Beating a product-state reference alone cannot establish a solver edge.
+      - rung_id: resource_accounting
+        required: true
+        comparator: optimizer steps, logical objective calls, shots, wall time, and state representation
+        match_mode: circuit_evaluations
+        limitation: Analytic gradient calls must never be presented as measured QPU circuit executions.
+    analysis_settings:
+      phase: exploratory
+      alpha: 0.05
+      target_power: 0.8
+      bootstrap_resamples: 20000
+      bootstrap_seed: 0
+      sign_flip_draws: 20000
+      sign_flip_seed: 0
+      minimum_confirmatory_pairs: 6
+      practical_equivalence_margin: 0.001
+      suites: []
+      preset_ids: [vqe-tfim-2q]
+    next_decisive_test: Implement solver-competition runners that record declared solver versions, equal budgets, problem-instance pairing, and certified or best-known optima; comparative evidence remains absent until those runs complete.

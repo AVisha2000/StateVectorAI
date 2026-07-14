@@ -22,6 +22,7 @@ from ..config import (
     validate_config,
 )
 from ..claims import METRIC_TYPES, get_claim, infer_claim_id
+from ..registry import metric_type_spec
 from ..research_protocol import TWO_STREAM_CAUSAL_PROTOCOL, normalize_seed_axes
 from ..resultsdb import ResultsDB
 from ..train.artifacts import RunOptions, read_checkpoint, validate_manifest
@@ -47,6 +48,53 @@ from .security import resolve_data_path, resolve_within
 
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE = "strict_autoregressive_next_token"
+_GROUND_STATE_PRIMARY_METRIC_TYPE = "ground_state_energy_error"
+
+
+def _sequence_primary_metric_type(metric_type: str | None) -> str:
+    """Choose honest sequence-runner storage without promoting claim metadata."""
+    requested = str(metric_type or _DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE)
+    spec = metric_type_spec(requested)
+    if spec is None:
+        # Some historical claim metrics are intentionally descriptive only.
+        # The sequence runner still stores the val_ppl value it actually emits.
+        return _DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE
+    extraction_key = str(spec["extraction_key"])
+    if extraction_key != "val_ppl":
+        raise ValueError(
+            f"metric_type {requested!r} extracts {extraction_key!r} and requires "
+            "a metric-specific sibling runner; the sequence runner only "
+            "produces 'val_ppl'."
+        )
+    return requested
+
+
+def _ground_state_primary_metric_type(metric_type: str | None) -> str:
+    requested = str(metric_type or _GROUND_STATE_PRIMARY_METRIC_TYPE)
+    spec = metric_type_spec(requested)
+    if spec is None:
+        raise ValueError(f"Unsupported ground-state metric_type {requested!r}.")
+    extraction_key = str(spec["extraction_key"])
+    if requested != _GROUND_STATE_PRIMARY_METRIC_TYPE or extraction_key != "energy_error":
+        raise ValueError(
+            f"metric_type {requested!r} extracts {extraction_key!r}; the VQE "
+            "runner only produces registered ground-state energy error."
+        )
+    return requested
+
+
+def _primary_metric_type_for_task(
+    task_type: str, metric_type: str | None
+) -> str:
+    if task_type == "sequence_modeling":
+        return _sequence_primary_metric_type(metric_type)
+    if task_type == "ground_state":
+        return _ground_state_primary_metric_type(metric_type)
+    raise ValueError(
+        f"task_type {task_type!r} requires a task-specific sibling runner."
+    )
 
 
 def _transient_sqlite_error(exc: sqlite3.OperationalError) -> bool:
@@ -207,25 +255,40 @@ class ExperimentQueue:
         artifact_dir: str | None = None,
     ) -> dict:
         db = self.db()
-        dataset = get_dataset(db, dataset_name)
-        if dataset is None:
-            raise ValueError(f"Unknown dataset '{dataset_name}'")
-        corpus_path = str(
-            self._confined_data_path(
-                dataset["corpus_path"], label="dataset corpus path"
-            )
-        )
         device_target = (device_target or "auto").strip().lower()
         if device_target not in ("auto", "cpu", "gpu"):
             raise ValueError("Device target must be one of: auto, cpu, gpu.")
+        allow_gpu_scale = device_target == "gpu"
+        cfg = self._config_for_source(preset_id)
+        self._require_queue_task(cfg, "candidate")
+        task_type = cfg.problem.task_type
+        corpus_path = None
+        if task_type == "ground_state":
+            if device_target != "cpu":
+                raise ValueError(
+                    "The initial ground-state VQE slice is CPU-only; set "
+                    "device_target='cpu'."
+                )
+            if batch_size is not None or seq_len is not None:
+                raise ValueError(
+                    "batch_size and seq_len do not apply to ground-state VQE jobs."
+                )
+            self._require_ground_state_instance_name(cfg, dataset_name)
+        else:
+            dataset = get_dataset(db, dataset_name)
+            if dataset is None:
+                raise ValueError(f"Unknown dataset '{dataset_name}'")
+            corpus_path = str(
+                self._confined_data_path(
+                    dataset["corpus_path"], label="dataset corpus path"
+                )
+            )
         if device_target == "gpu" and not self.gpu_ready():
             raise ValueError(
                 "GPU was requested, but JAX does not currently see a GPU. "
                 "Open the GPU page and follow the CUDA/JAX setup guidance."
             )
-        allow_gpu_scale = device_target == "gpu"
         explicit_run_name = run_name is not None
-        cfg = self._config_for_source(preset_id)
         cfg = apply_quantum_overrides(
             preset_id, cfg, quantum_overrides, allow_gpu_scale=allow_gpu_scale
         )
@@ -241,6 +304,13 @@ class ExperimentQueue:
         if batch_size is not None and int(batch_size) < 1:
             raise ValueError("Batch size must be at least 1.")
         seed = int(seed)
+        if task_type == "ground_state" and queue_classical_comparison:
+            raise ValueError(
+                "Ground-state solver comparisons remain disabled: no "
+                "registered comparison-eligible finite-shot quantum runner "
+                "or registered classical solver runner is available for "
+                "matched evidence."
+            )
         analogue = self._analogue_for_source(preset_id, cfg)
         wants_comparison = bool(queue_classical_comparison and analogue)
         checkpoint_every = int(checkpoint_every or 0)
@@ -292,11 +362,23 @@ class ExperimentQueue:
                 raise ValueError(
                     "Recovery must retain the checkpoint run_name/artifact identity."
                 )
-        cfg = self._config_for_job(
-            cfg, corpus_path, run_name,
-            seed, steps, eval_every, batch_size, seq_len,
-        )
+        if task_type == "ground_state":
+            cfg = self._config_for_ground_state_job(
+                cfg, run_name, seed, steps, eval_every
+            )
+        else:
+            cfg = self._config_for_job(
+                cfg,
+                str(corpus_path),
+                run_name,
+                seed,
+                steps,
+                eval_every,
+                batch_size,
+                seq_len,
+            )
         self._require_valid_config(cfg, "candidate")
+        self._require_queue_task(cfg, "candidate")
         resolved_claim_id = infer_claim_id(
             explicit=claim_id,
             preset_id=preset_id,
@@ -304,10 +386,20 @@ class ExperimentQueue:
         if claim_id and resolved_claim_id is None:
             raise ValueError(f"Unknown or ambiguous claim_id '{claim_id}'.")
         claim = get_claim(resolved_claim_id) if resolved_claim_id else None
+        claim_task_type = (claim or {}).get("task_type")
+        if claim_task_type is not None and cfg.problem.task_type != claim_task_type:
+            raise ValueError(
+                f"task_type must match claim '{resolved_claim_id}': "
+                f"{claim_task_type}"
+            )
         resolved_metric_type = str(
             metric_type
             or (claim or {}).get("metric_type")
-            or "strict_autoregressive_next_token"
+            or (
+                _GROUND_STATE_PRIMARY_METRIC_TYPE
+                if task_type == "ground_state"
+                else _DEFAULT_SEQUENCE_PRIMARY_METRIC_TYPE
+            )
         )
         if resolved_metric_type not in METRIC_TYPES:
             raise ValueError(f"Unsupported metric_type '{resolved_metric_type}'.")
@@ -316,11 +408,15 @@ class ExperimentQueue:
                 f"metric_type must match claim '{resolved_claim_id}': "
                 f"{claim['metric_type']}"
             )
+        _primary_metric_type_for_task(task_type, resolved_metric_type)
         axes = normalize_seed_axes(
             seed,
-            generator_seed=cfg.data.gen_seed,
-            data_kind=cfg.data.kind,
+            generator_seed=(
+                cfg.data.gen_seed if task_type == "sequence_modeling" else None
+            ),
+            data_kind=(cfg.data.kind if task_type == "sequence_modeling" else None),
             circuit_applicable=uses_quantum_config(cfg),
+            minibatch_applicable=task_type == "sequence_modeling",
             explicit=seed_axes,
             reject_unsupported=True,
         )
@@ -329,7 +425,7 @@ class ExperimentQueue:
             twin_name = f"{run_name}-classical"
             prepared_twin_cfg = self._config_for_job(
                 self._config_from_analogue(analogue),
-                corpus_path,
+                str(corpus_path),
                 twin_name,
                 seed,
                 steps,
@@ -338,6 +434,7 @@ class ExperimentQueue:
                 seq_len,
             )
             self._require_valid_config(prepared_twin_cfg, "classical analogue")
+            self._require_sequence_task(prepared_twin_cfg, "classical analogue")
         estimate = quantum_resource_estimate(cfg)
         if estimate["band"] == "extreme" and estimate["uses_quantum_attention"]:
             raise ValueError(
@@ -347,8 +444,19 @@ class ExperimentQueue:
             )
         job_config = to_flat_dict(cfg)
         job_config["research.claim_id"] = resolved_claim_id
+        job_config["research.task_type"] = cfg.problem.task_type
         job_config["research.metric_type"] = resolved_metric_type
         job_config["research.seed_axes"] = axes
+        if task_type == "ground_state":
+            from ..problems import get_ground_state_instance
+
+            instance = get_ground_state_instance(str(cfg.problem.instance_id))
+            job_config["research.reference_ladder"] = [
+                reference.to_payload()
+                for reference in instance.classical_references
+            ]
+            job_config["research.comparative_inference_enabled"] = False
+            job_config["research.simulator_diagnostic"] = True
         job_config["lab.config_snapshot_version"] = 1
         job_config["lab.checkpoint_every"] = checkpoint_every
         job_config["lab.submission.comparison_mode"] = (
@@ -423,6 +531,7 @@ class ExperimentQueue:
             twin_cfg = prepared_twin_cfg
             twin_config = to_flat_dict(twin_cfg)
             twin_config["research.claim_id"] = resolved_claim_id
+            twin_config["research.task_type"] = twin_cfg.problem.task_type
             twin_config["research.metric_type"] = resolved_metric_type
             twin_config["lab.config_snapshot_version"] = 1
             twin_config["lab.checkpoint_every"] = checkpoint_every
@@ -576,6 +685,10 @@ class ExperimentQueue:
         spec = self.db().get_model_spec(spec_id)
         if spec is None:
             raise ValueError(f"Unknown model spec {spec_id}")
+        self._require_sequence_task(
+            self._config_for_source(f"model-spec:{spec_id}"),
+            "model spec",
+        )
         return self.submit(
             preset_id=f"model-spec:{spec_id}",
             dataset_name=dataset_name,
@@ -621,6 +734,13 @@ class ExperimentQueue:
         job = self.get(job_id)
         if job is None:
             raise ValueError(f"Unknown job {job_id}")
+        if (job.get("config") or {}).get("problem.task_type") == "ground_state":
+            raise ValueError(
+                "Ground-state post-hoc classical analogue queueing is "
+                "disabled: no registered comparison-eligible finite-shot "
+                "quantum runner or registered classical solver runner is "
+                "available for matched evidence."
+            )
         if job.get("comparison_role") == "baseline":
             raise ValueError("This job is already a classical analogue baseline.")
         if job.get("compare_to_job_id") and not rerun:
@@ -799,12 +919,65 @@ class ExperimentQueue:
             ),
         )
 
+
+    @staticmethod
+    def _config_for_ground_state_job(
+        cfg,
+        run_name: str,
+        seed: int,
+        steps: int,
+        eval_every: int,
+    ):
+        return dataclasses.replace(
+            cfg,
+            train=dataclasses.replace(
+                cfg.train,
+                seed=seed,
+                steps=steps,
+                eval_every=eval_every,
+            ),
+            tracking=dataclasses.replace(
+                cfg.tracking,
+                enabled=False,
+                run_name=run_name,
+                log_quantum_diagnostics=False,
+                log_grad_norms=False,
+            ),
+        )
+
     @staticmethod
     def _require_valid_config(cfg, label: str) -> None:
         errors = validate_config(cfg)
         if errors:
             raise ValueError(
                 f"Invalid {label} config:\n- " + "\n- ".join(errors)
+            )
+
+    @staticmethod
+    def _require_sequence_task(cfg, label: str) -> None:
+        if cfg.problem.task_type != "sequence_modeling":
+            raise ValueError(
+                f"Invalid {label} config: task_type {cfg.problem.task_type!r} "
+                "requires a task-specific sibling runner; the dashboard queue "
+                "is sequence-modeling only."
+            )
+
+    @staticmethod
+    def _require_queue_task(cfg, label: str) -> None:
+        if cfg.problem.task_type not in {"sequence_modeling", "ground_state"}:
+            raise ValueError(
+                f"Invalid {label} config: task_type {cfg.problem.task_type!r} "
+                "requires a task-specific sibling runner that is not yet "
+                "available in the dashboard queue."
+            )
+
+    @staticmethod
+    def _require_ground_state_instance_name(cfg, dataset_name: str) -> None:
+        instance_id = cfg.problem.instance_id
+        if dataset_name != instance_id:
+            raise ValueError(
+                "Ground-state jobs use dataset_name as the immutable problem "
+                f"instance key; expected {instance_id!r}, got {dataset_name!r}."
             )
 
     @staticmethod
@@ -1047,6 +1220,25 @@ class ExperimentQueue:
                 raise ValueError(
                     "Job config_json must decode to an object; raw evidence was preserved."
                 )
+            declared_snapshot_task = str(
+                existing_config.get("problem.task_type")
+                or existing_config.get("research.task_type")
+                or "sequence_modeling"
+            )
+            if not str(job.get("preset_id") or "").startswith("model-spec:"):
+                preset_task = self._config_for_source(
+                    str(job["preset_id"])
+                ).problem.task_type
+                if declared_snapshot_task != preset_task:
+                    raise ValueError(
+                        "Persisted job task_type conflicts with the immutable "
+                        f"preset task_type: {declared_snapshot_task!r} != "
+                        f"{preset_task!r}."
+                    )
+            prevalidated_primary_metric_type = _primary_metric_type_for_task(
+                declared_snapshot_task,
+                existing_config.get("research.metric_type"),
+            )
             required_snapshot_keys = {
                 "model.arch",
                 "train.seed",
@@ -1083,9 +1275,6 @@ class ExperimentQueue:
                         + "; ".join(snapshot_mismatches)
                     )
             else:
-                dataset = get_dataset(db, job["dataset_name"])
-                if dataset is None:
-                    raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
                 cfg = self._config_for_source(job["preset_id"])
                 cfg = apply_quantum_overrides(
                     job["preset_id"],
@@ -1093,25 +1282,81 @@ class ExperimentQueue:
                     self._quantum_overrides_from_job(job),
                     allow_gpu_scale=device_target == "gpu",
                 )
-                cfg = self._config_for_job(
+                if cfg.problem.task_type == "ground_state":
+                    if any(
+                        value is not None
+                        for value in self._train_overrides_from_job(job)
+                    ):
+                        raise ValueError(
+                            "batch_size and seq_len do not apply to "
+                            "ground-state VQE jobs."
+                        )
+                    self._require_ground_state_instance_name(
+                        cfg, job["dataset_name"]
+                    )
+                    cfg = self._config_for_ground_state_job(
+                        cfg,
+                        job["run_name"],
+                        int(job["seed"]),
+                        int(job["steps"]),
+                        int(job["eval_every"]),
+                    )
+                else:
+                    dataset = get_dataset(db, job["dataset_name"])
+                    if dataset is None:
+                        raise ValueError(f"Unknown dataset '{job['dataset_name']}'")
+                    cfg = self._config_for_job(
+                        cfg,
+                        dataset["corpus_path"],
+                        job["run_name"],
+                        int(job["seed"]),
+                        int(job["steps"]),
+                        int(job["eval_every"]),
+                        *self._train_overrides_from_job(job),
+                    )
+            declared_task_type = existing_config.get("research.task_type")
+            if (
+                declared_task_type is not None
+                and declared_task_type != cfg.problem.task_type
+            ):
+                raise ValueError(
+                    "Persisted research.task_type conflicts with "
+                    f"problem.task_type: {declared_task_type!r} != "
+                    f"{cfg.problem.task_type!r}."
+                )
+            self._require_queue_task(cfg, "persisted job")
+            task_type = cfg.problem.task_type
+            if task_type == "ground_state":
+                if device_target != "cpu":
+                    raise ValueError(
+                        "The initial ground-state VQE slice is CPU-only; "
+                        "persisted jobs must request device_target='cpu'."
+                    )
+                self._require_ground_state_instance_name(
+                    cfg, job["dataset_name"]
+                )
+            else:
+                safe_corpus_path = str(
+                    self._confined_data_path(
+                        cfg.data.corpus_path,
+                        label="persisted dataset corpus path",
+                    )
+                )
+                cfg = dataclasses.replace(
                     cfg,
-                    dataset["corpus_path"],
-                    job["run_name"],
-                    int(job["seed"]),
-                    int(job["steps"]),
-                    int(job["eval_every"]),
-                    *self._train_overrides_from_job(job),
+                    data=dataclasses.replace(
+                        cfg.data, corpus_path=safe_corpus_path
+                    ),
                 )
-            safe_corpus_path = str(
-                self._confined_data_path(
-                    cfg.data.corpus_path, label="persisted dataset corpus path"
-                )
-            )
-            cfg = dataclasses.replace(
-                cfg,
-                data=dataclasses.replace(cfg.data, corpus_path=safe_corpus_path),
-            )
             self._require_valid_config(cfg, "persisted job")
+            primary_metric_type = (
+                prevalidated_primary_metric_type
+                if task_type == declared_snapshot_task
+                else _primary_metric_type_for_task(
+                    task_type,
+                    existing_config.get("research.metric_type"),
+                )
+            )
             if device_target == "gpu" and not self.gpu_ready():
                 raise ValueError(
                     "GPU was requested, but JAX does not currently see a GPU."
@@ -1170,7 +1415,10 @@ class ExperimentQueue:
                 "artifact_dir": artifact_dir,
                 "resume_from": persisted_resume,
             }
-            from ..train.loop import fit
+            if task_type == "ground_state":
+                from ..train.vqe import run_vqe as execute
+            else:
+                from ..train.loop import fit as execute
 
             def on_progress(progress: dict) -> None:
                 checkpoint_path = progress.get("checkpoint_path")
@@ -1214,7 +1462,7 @@ class ExperimentQueue:
                 ):
                     ownership_lost.set()
 
-            result = fit(
+            result = execute(
                 cfg,
                 verbose=False,
                 should_cancel=lambda: (
@@ -1236,6 +1484,7 @@ class ExperimentQueue:
                     device_target=job.get("device_target") or "auto",
                 ),
                 progress_callback=on_progress,
+                primary_metric_type=primary_metric_type,
                 publish_guard=lambda: db.heartbeat_lab_job(
                     job_id,
                     self.worker_id,

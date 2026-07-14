@@ -13,7 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from qllm.config import BlockConfig, ExperimentConfig, ModelConfig, QuantumConfig, to_flat_dict, validate_config
+from qllm.config import (
+    BlockConfig,
+    ExperimentConfig,
+    ModelConfig,
+    ProblemConfig,
+    QuantumConfig,
+    to_flat_dict,
+    validate_config,
+)
 from qllm.dashboard.datasets import import_hf_text_dataset, list_datasets
 from qllm.dashboard.analogues import (
     AnalogueSpec,
@@ -50,6 +58,7 @@ from qllm.dashboard.runner import ExperimentQueue
 from qllm.dashboard.studies import (
     create_study,
     list_studies,
+    queue_study,
     study_payload,
     study_report_payload,
 )
@@ -191,6 +200,15 @@ def test_durability_and_resource_view_models_preserve_recorded_evidence():
     assert view["resource_ledger"] == resources
     assert view["backend_capabilities"] == {"embedding": capability}
 
+    direct_capability = {"schema_version": 1, "execution": "statevector"}
+    direct_resources = {
+        "quantum_backend": {"capabilities": direct_capability},
+    }
+    direct_view = run_resource_payload({"resources": direct_resources})
+    assert direct_view["backend_capabilities"] == {
+        "quantum_backend": direct_resources["quantum_backend"],
+    }
+
 
 def test_malformed_legacy_manifest_is_readable_with_protocol_warning():
     payload = job_durability_payload({
@@ -227,8 +245,13 @@ def test_presets_expose_run_workspace_metadata():
         assert preset["architecture"]
         if preset["kind"] in {"quantum", "hybrid"}:
             twin_id = preset["classical_twin_id"]
-            assert twin_id in by_id
-            assert by_id[twin_id]["kind"] == "classical"
+            if preset["config"]["problem.task_type"] == "ground_state":
+                assert twin_id is None
+                assert preset["classical_analogue"] is None
+                assert preset["reference_ladder"]
+            else:
+                assert twin_id in by_id
+                assert by_id[twin_id]["kind"] == "classical"
 
 
 def test_model_graph_marks_quantum_components():
@@ -351,7 +374,13 @@ def test_classical_analogue_resolver_uses_curated_twins_and_component_swaps():
 
 
 def test_flat_config_adapter_preserves_sections_and_ignores_lab_metadata():
-    source = ExperimentConfig(model=ModelConfig(d_model=32, n_heads=4))
+    source = ExperimentConfig(
+        model=ModelConfig(d_model=32, n_heads=4),
+        problem=ProblemConfig(
+            task_type="ground_state",
+            instance_id="tfim-open-n4-j1-h1-v1",
+        ),
+    )
     flat = to_flat_dict(source)
     flat.update({
         "lab.resource.band": "low",
@@ -361,6 +390,7 @@ def test_flat_config_adapter_preserves_sections_and_ignores_lab_metadata():
     assert restored.model.d_model == 32
     assert restored.model.n_heads == 4
     assert restored.train == source.train
+    assert restored.problem == source.problem
 
 
 def test_model_spec_crud_validate_and_diff(tmp_path):
@@ -395,6 +425,29 @@ def test_model_spec_crud_validate_and_diff(tmp_path):
     })
     diff = spec_diff(db, child["id"], spec["id"])
     assert any(change["path"] == "model.ffn_type" for change in diff["changes"])
+
+
+def test_model_spec_rejects_non_sequence_task_before_graph_construction(
+    monkeypatch
+):
+    cfg = ExperimentConfig(
+        problem=ProblemConfig(
+            task_type="ground_state",
+            instance_id="tfim-open-n4-j1-h1-v1",
+        )
+    )
+
+    def unexpected_graph(_cfg):
+        raise AssertionError("sequence model graph must not be constructed")
+
+    monkeypatch.setattr(
+        "qllm.dashboard.model_specs._graph_with_circuits", unexpected_graph
+    )
+    review = validation_payload(dataclasses.asdict(cfg))
+
+    assert review["ok"] is False
+    assert review["graph"] is None
+    assert any("task-specific sibling runner" in error for error in review["errors"])
 
 
 def test_classical_model_spec_supports_omitted_quantum_config(tmp_path):
@@ -745,6 +798,11 @@ def test_dataset_import_api_forwards_provenance_controls(monkeypatch, tmp_path):
     assert choices["quantum_architecture"] == [
         "qrnn", "contextual_qrnn", "routed_contextual",
     ]
+    assert (
+        choices["metric_types"]["validation_perplexity"]["extraction_key"]
+        == "val_ppl"
+    )
+    assert choices["metric_types"]["validation_perplexity"]["pairable"] is True
     assert choices["quantum_default"]["ansatz"] == "reuploading"
 
 
@@ -779,6 +837,57 @@ def test_queue_transitions_queued_and_cancelled(tmp_path):
     assert rows == 1
 
 
+def test_cancelled_job_resumes_without_relaxing_immutable_submission_match(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "results.db"
+    results_dir = tmp_path / "results"
+    run_uuid = "00000000-0000-0000-0000-000000000001"
+    experiment_uuid = "00000000-0000-0000-0000-000000000002"
+    artifact_dir = results_dir / "runs" / run_uuid
+    checkpoint = artifact_dir / "checkpoints" / "latest.msgpack"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"checkpoint is validated by the reader fixture")
+    queue = ExperimentQueue(
+        str(db_path), start_worker=False, results_dir=results_dir
+    )
+    request = {
+        "preset_id": "classical-small",
+        "dataset_name": "default-text",
+        "run_name": "cancelled-recovery",
+        "seed": 0,
+        "steps": 2,
+        "eval_every": 1,
+        "experiment_uuid": experiment_uuid,
+        "run_uuid": run_uuid,
+        "artifact_dir": str(artifact_dir),
+    }
+    queued = queue.submit(**request)
+    assert queue.cancel(queued["id"])["status"] == "cancelled"
+    monkeypatch.setattr(
+        "qllm.dashboard.runner.read_checkpoint",
+        lambda _path: {
+            "manifest": {
+                "run_uuid": run_uuid,
+                "experiment_uuid": experiment_uuid,
+                "run_name": "cancelled-recovery",
+            },
+            "completed_step": 1,
+        },
+    )
+
+    resumed = queue.submit(**request, resume_from=str(checkpoint))
+
+    assert resumed["status"] == "queued"
+    assert resumed["id"] == queued["id"]
+    assert resumed["resume_from"] == str(checkpoint.resolve())
+    assert resumed["config"]["lab.resume_from"] == str(checkpoint.resolve())
+
+    assert queue.cancel(resumed["id"])["status"] == "cancelled"
+    with pytest.raises(ValueError, match="conflicts with submitted run_uuid"):
+        queue.submit(**{**request, "steps": 3}, resume_from=str(checkpoint))
+
+
 def test_queue_rejects_invalid_candidate_before_job_insert(tmp_path):
     db_path = tmp_path / "results.db"
     q = ExperimentQueue(str(db_path), start_worker=False)
@@ -787,6 +896,46 @@ def test_queue_rejects_invalid_candidate_before_job_insert(tmp_path):
             "classical-small", "default-text", "invalid", 0, 2, 1,
             seq_len=256,
         )
+    assert ResultsDB(db_path).fetch_lab_jobs() == []
+
+
+def test_queue_rejects_non_sequence_model_spec_before_sequence_preparation(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    cfg = ExperimentConfig(
+        problem=ProblemConfig(
+            task_type="ground_state",
+            instance_id="tfim-open-n4-j1-h1-v1",
+        )
+    )
+    spec_id = db.create_model_spec({
+        "name": "ground-state-fixture",
+        "config": dataclasses.asdict(cfg),
+    })
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("sequence-specific preparation must not start")
+
+    monkeypatch.setattr(queue, "gpu_ready", unexpected)
+    monkeypatch.setattr(queue, "_confined_data_path", unexpected)
+    monkeypatch.setattr(queue, "_confined_path", unexpected)
+    monkeypatch.setattr("qllm.dashboard.runner.read_checkpoint", unexpected)
+
+    with pytest.raises(ValueError, match="task-specific sibling runner"):
+        queue.submit_model_spec(
+            spec_id,
+            "default-text",
+            "wrong-runner",
+            0,
+            2,
+            1,
+            device_target="gpu",
+            resume_from=str(tmp_path / "missing.msgpack"),
+        )
+
     assert ResultsDB(db_path).fetch_lab_jobs() == []
 
 
@@ -1175,6 +1324,13 @@ def test_study_creation_queues_candidates_baselines_and_controls(tmp_path):
     assert study["role_counts"]["candidate"] == 2
     assert study["role_counts"]["baseline"] == 2
     assert study["role_counts"]["control"] == 2
+    assert study["task"] == "Language modelling"
+    assert study["task_type"] == "sequence_modeling"
+    assert db.get_study(study["id"])["protocol"]["task_type"] == "sequence_modeling"
+    assert all(
+        job["config"]["research.task_type"] == "sequence_modeling"
+        for job in study["jobs"]
+    )
     assert list_studies(db)[0]["name"] == "ffn-study"
     assert all(job["group_id"] == study["group_id"] for job in study["jobs"])
 
@@ -1637,14 +1793,24 @@ def test_legacy_study_protocol_infers_additive_claim_and_metric_fields(tmp_path)
         "eval_every": 1,
     })
     stored = dict(db.get_study(study["id"])["protocol"])
-    for key in ("claim_id", "claim", "metric_type", "analysis_settings", "seed_axes"):
+    for key in (
+        "claim_id",
+        "claim",
+        "task_type",
+        "metric_type",
+        "analysis_settings",
+        "seed_axes",
+    ):
         stored.pop(key, None)
     db.update_study(study["id"], protocol=stored)
     _complete_study_jobs(db, study["id"])
 
     payload = study_payload(db, study["id"])
     assert "claim_id" not in payload["protocol"]
+    assert "task_type" not in payload["protocol"]
     assert payload["resolved_protocol"]["claim_id"] == "variational_component_swaps"
+    assert payload["resolved_protocol"]["task_type"] == "sequence_modeling"
+    assert payload["task_type"] == "sequence_modeling"
     assert payload["claim_id"] == "variational_component_swaps"
     assert payload["metric_type"] == "validation_perplexity"
     assert payload["evidence"]["label"] == "paired smoke only"
@@ -1655,13 +1821,103 @@ def test_legacy_study_protocol_infers_additive_claim_and_metric_fields(tmp_path)
         row["metric_type"] == "validation_perplexity"
         for row in report["pair_rows"]
     )
+    assert report["protocol"]["task_type"] == "sequence_modeling"
+
+
+def test_legacy_cross_cutting_study_defaults_task_in_memory_without_rewrite(
+    tmp_path
+):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "legacy-cross-cutting",
+        "candidate_preset_id": "classical-small",
+        "dataset_names": ["default-text"],
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+        "queue_now": False,
+    })
+    stored = dict(db.get_study(study["id"])["protocol"])
+    stored["claim_id"] = "barren_plateau_scaling"
+    stored.pop("claim", None)
+    stored.pop("task_type", None)
+    db.update_study(study["id"], protocol=stored)
+
+    payload = study_payload(db, study["id"], include_jobs=False)
+
+    assert "task_type" not in payload["protocol"]
+    assert payload["resolved_protocol"]["task_type"] == "sequence_modeling"
+    assert payload["task_type"] == "sequence_modeling"
+    assert "task_type" not in db.get_study(study["id"])["protocol"]
+
+
+@pytest.mark.parametrize(
+    ("payload_update", "error"),
+    [
+        ({"task_type": "unknown"}, "task_type must be one of"),
+        (
+            {"task_type": "ground_state"},
+            "task_type must match claim 'variational_component_swaps'",
+        ),
+        (
+            {"claim_id": "barren_plateau_scaling"},
+            "cross-cutting; task_type must be provided explicitly",
+        ),
+    ],
+)
+def test_study_task_type_rejects_invalid_or_ambiguous_specs_before_insert(
+    tmp_path, payload_update, error
+):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    payload = {
+        "name": "task-contract",
+        "candidate_preset_id": "quantum-ffn-4q",
+        "dataset_names": ["default-text"],
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+        "queue_now": False,
+        **payload_update,
+    }
+
+    with pytest.raises(ValueError, match=error):
+        create_study(db, queue, payload)
+
+    assert db.fetch_studies() == []
+
+
+def test_queue_study_rejects_tampered_task_protocol_before_job_insert(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(str(db_path), start_worker=False)
+    study = create_study(db, queue, {
+        "name": "draft",
+        "candidate_preset_id": "classical-small",
+        "dataset_names": ["default-text"],
+        "seeds": [0],
+        "steps": 2,
+        "eval_every": 1,
+        "queue_now": False,
+    })
+    protocol = dict(db.get_study(study["id"])["protocol"])
+    protocol["task_type"] = "ground_state"
+    db.update_study(study["id"], protocol=protocol)
+
+    with pytest.raises(ValueError, match="Candidate preset task_type"):
+        queue_study(db, queue, study["id"])
+
+    assert db.fetch_study_jobs(study["id"]) == []
 
 
 def test_claim_api_and_preset_analogue_use_canonical_contract(monkeypatch, tmp_path):
     monkeypatch.setenv("QLLM_DB", str(tmp_path / "api.db"))
     server = importlib.import_module("qllm.dashboard.server")
     claims = server.api_claims()
-    assert len(claims) == 19
+    assert len(claims) == 20
     assert server.api_claim("variational_component_swaps")["status"] == "contradicted"
     with pytest.raises(Exception) as exc_info:
         server.api_claim("missing-claim")
@@ -1772,6 +2028,12 @@ def test_unsupported_claim_metric_is_never_relabelled_as_perplexity(tmp_path):
     assert payload["metric_type"] == "time_to_target"
     assert payload["verdict"]["label"] == "unsupported metric"
     assert payload["assessment_status"] == "unsupported"
+    assert payload["evidence_ladder"]["label"] == "unsupported metric"
+    ladder = {
+        row["key"]: row for row in payload["evidence_ladder"]["steps"]
+    }
+    assert ladder["metric_supported"]["ok"] is False
+    assert ladder["run_level_improvement"]["ok"] is False
     with pytest.raises(ValueError, match="does not support metric_type 'time_to_target'"):
         create_study(db, queue, {
             "name": "unsupported-qrnn",
@@ -1849,3 +2111,308 @@ def test_study_controls_are_cell_matched_and_missing_baseline_is_reported(tmp_pa
         row["path"] == "comparison.pair"
         for row in missing_payload["fairness_mismatches"]
     )
+
+
+def test_vqe_preset_exposes_registered_problem_and_task_graph():
+    preset = next(
+        row for row in list_presets() if row["id"] == "vqe-tfim-2q"
+    )
+    assert preset["config"]["problem.task_type"] == "ground_state"
+    assert preset["config"]["problem.instance_id"] == "tfim-2q-open-j1-h1"
+    assert preset["comparison_policy"] == "none"
+    assert [row["role"] for row in preset["reference_ladder"]] == [
+        "oracle",
+        "descriptive_challenger",
+    ]
+    graph = model_graph_from_config(build_preset("vqe-tfim-2q"))
+    assert graph["summary"]["arch"] == "vqe"
+    assert graph["summary"]["model_family"] == "vqe"
+    assert {node["id"] for node in graph["nodes"]} == {
+        "problem_hamiltonian",
+        "variational_ansatz",
+        "quantum_backend",
+        "energy_objective",
+        "exact_reference",
+    }
+
+
+@pytest.mark.parametrize(
+    ("updates", "error"),
+    [
+        ({"dataset_name": "default-text"}, "immutable problem instance"),
+        ({"device_target": "auto"}, "device_target='cpu'"),
+        ({"device_target": "gpu"}, "device_target='cpu'"),
+        ({"batch_size": 1}, "do not apply"),
+        ({"seq_len": 8}, "do not apply"),
+        (
+            {"queue_classical_comparison": True},
+            "solver comparisons remain disabled",
+        ),
+        (
+            {"metric_type": "validation_perplexity"},
+            "metric_type must match claim",
+        ),
+    ],
+)
+def test_vqe_queue_rejects_contract_drift_before_insert(
+    tmp_path, updates, error
+):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(
+        str(db_path),
+        start_worker=False,
+        results_dir=tmp_path / "results",
+        data_dir=tmp_path / "data",
+    )
+    request = {
+        "preset_id": "vqe-tfim-2q",
+        "dataset_name": "tfim-2q-open-j1-h1",
+        "run_name": "vqe-invalid",
+        "seed": 0,
+        "steps": 1,
+        "eval_every": 1,
+        "device_target": "cpu",
+    }
+    request.update(updates)
+    with pytest.raises(ValueError, match=error):
+        queue.submit(**request)
+    assert ResultsDB(db_path).fetch_lab_jobs() == []
+
+
+def test_vqe_queue_dispatches_sibling_runner_and_workspace_is_task_aware(
+    monkeypatch, tmp_path,
+):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(
+        str(db_path),
+        start_worker=False,
+        results_dir=tmp_path / "results",
+        data_dir=tmp_path / "data",
+    )
+    queued = queue.submit(
+        "vqe-tfim-2q",
+        "tfim-2q-open-j1-h1",
+        "vqe-queue-smoke",
+        0,
+        1,
+        1,
+        device_target="cpu",
+    )
+    queue._run_one(queued["id"])
+
+    db = ResultsDB(db_path)
+    done = queue.get(queued["id"])
+    assert done["status"] == "done"
+    assert done["completed_step"] == 1
+    assert done["config"]["research.task_type"] == "ground_state"
+    assert done["config"]["research.metric_type"] == (
+        "ground_state_energy_error"
+    )
+    run = db.get_run(
+        "lab",
+        "vqe-tfim-2q",
+        "tfim-2q-open-j1-h1",
+        0,
+        1,
+        run_uuid=done["run_uuid"],
+    )
+    assert run["primary_metric_name"] == "energy_error"
+    assert run["energy_error"] >= 0.0
+    assert run["val_loss"] is run["val_ppl"] is run["val_bpc"] is None
+
+    workspace_module = importlib.import_module("qllm.dashboard.workspace")
+    canonical_get_claim = workspace_module.get_claim
+
+    def declared_solver_schema(claim_id):
+        claim = canonical_get_claim(claim_id)
+        if claim is None:
+            return None
+        return {
+            **claim,
+            "fairness_schema": {
+                **(claim.get("fairness_schema") or {}),
+                "schema_id": "solver_competition_v1",
+            },
+        }
+
+    monkeypatch.setattr(workspace_module, "get_claim", declared_solver_schema)
+    workspace = workspace_payload(db, queued["id"])
+    assert workspace["dataset"] is None
+    assert workspace["backend_capabilities"] == {
+        "quantum_backend": run["resources"]["quantum_backend"],
+    }
+    assert workspace["problem_instance"]["instance_id"] == (
+        "tfim-2q-open-j1-h1"
+    )
+    assert workspace["problem_instance"]["classical_references"][0][
+        "role"
+    ] == "oracle"
+    assert workspace["comparison"]["comparative_inference_enabled"] is False
+    assert workspace["comparison"]["paired_stats"] is None
+    readiness = workspace["comparison"]["solver_competition_readiness"]
+    assert readiness["schema_declared"] is True
+    assert readiness["comparison_ready"] is False
+    assert readiness["comparative_inference_enabled"] is False
+    assert readiness["paired_stats"] is None
+    assert "registered classical solver runner" in readiness[
+        "missing_prerequisites"
+    ]
+    assert "registered comparison-eligible finite-shot quantum runner" in (
+        workspace["comparison"]["reason"]
+    )
+    assert workspace["curve"]["energy_error"]
+
+
+def test_ground_state_post_hoc_analogue_rejects_before_dataset_resolution(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "results.db"
+    queue = ExperimentQueue(
+        str(db_path),
+        start_worker=False,
+        results_dir=tmp_path / "results",
+        data_dir=tmp_path / "data",
+    )
+    candidate = queue.submit(
+        "vqe-tfim-2q",
+        "tfim-2q-open-j1-h1",
+        "vqe-no-post-hoc-baseline",
+        0,
+        1,
+        1,
+        device_target="cpu",
+    )
+    before = ResultsDB(db_path).fetch_lab_jobs()
+
+    def unexpected_dataset_resolution(*_args, **_kwargs):
+        raise AssertionError("dataset resolution must not run")
+
+    monkeypatch.setattr("qllm.dashboard.runner.get_dataset", unexpected_dataset_resolution)
+    with pytest.raises(ValueError, match="registered classical solver runner"):
+        queue.queue_classical_analogue(candidate["id"])
+
+    after = ResultsDB(db_path).fetch_lab_jobs()
+    assert [row["id"] for row in after] == [row["id"] for row in before]
+    assert after[0]["compare_to_job_id"] is None
+
+
+def test_ground_state_study_is_descriptive_and_never_paired(tmp_path):
+    db_path = tmp_path / "results.db"
+    db = ResultsDB(db_path)
+    queue = ExperimentQueue(
+        str(db_path),
+        start_worker=False,
+        results_dir=tmp_path / "results",
+        data_dir=tmp_path / "data",
+    )
+    with pytest.raises(
+        ValueError, match="claim's prespecified diagnostic tolerance"
+    ):
+        create_study(
+            db,
+            queue,
+            {
+                "name": "vqe-threshold-drift",
+                "task_type": "ground_state",
+                "candidate_preset_id": "vqe-tfim-2q",
+                "seeds": [0],
+                "steps": 1,
+                "eval_every": 1,
+                "device_target": "cpu",
+                "baseline_policy": "none",
+                "queue_analogues": False,
+                "energy_error_threshold": 10.0,
+            },
+    )
+    assert db.fetch_studies() == []
+    with pytest.raises(ValueError, match="registered classical solver runner"):
+        create_study(
+            db,
+            queue,
+            {
+                "name": "vqe-baseline-attempt",
+                "task_type": "ground_state",
+                "candidate_preset_id": "vqe-tfim-2q",
+                "seeds": [0],
+                "steps": 1,
+                "eval_every": 1,
+                "device_target": "cpu",
+                "baseline_policy": "analogue",
+            },
+        )
+    assert db.fetch_studies() == []
+    study = create_study(
+        db,
+        queue,
+        {
+            "name": "vqe-diagnostic",
+            "research_question": "Does the bounded VQE slice reach tolerance?",
+            "task": "Registered TFIM ground-state diagnostic",
+            "task_type": "ground_state",
+            "candidate_preset_id": "vqe-tfim-2q",
+            "seeds": [0, 1],
+            "steps": 100,
+            "eval_every": 10,
+            "device_target": "cpu",
+            "baseline_policy": "none",
+            "queue_analogues": False,
+            "analysis_mode": "single_candidate_diagnostic",
+            "energy_error_threshold": 0.001,
+        },
+    )
+    assert study["job_count"] == 2
+    assert study["role_counts"] == {"candidate": 2}
+    assert all(
+        job["dataset_name"] == "tfim-2q-open-j1-h1"
+        for job in study["jobs"]
+    )
+    queue._run_one(study["jobs"][0]["id"])
+    partial = study_payload(db, study["id"])
+    assert partial["diagnostic_outcome"] == "incomplete"
+    queue._run_one(study["jobs"][1]["id"])
+
+    payload = study_payload(db, study["id"])
+    evidence = payload["evidence"]
+    assert all(
+        job["backend_capabilities"] == {
+            "quantum_backend": job["final_run"]["resources"]["quantum_backend"],
+        }
+        for job in payload["jobs"]
+    )
+    assert payload["analysis_mode"] == "single_candidate_diagnostic"
+    assert payload["diagnostic_outcome"] == "within_tolerance"
+    assert payload["comparative_inference_enabled"] is False
+    readiness = payload["solver_competition_readiness"]
+    assert readiness["comparison_ready"] is False
+    assert readiness["comparative_inference_enabled"] is False
+    assert readiness["paired_stats"] is None
+    assert "registered comparison-eligible finite-shot quantum runner" in (
+        readiness["missing_prerequisites"]
+    )
+    assert payload["claim_level"] == "untested"
+    assert payload["replication_status"] == "none"
+    assert len(payload["descriptive_observations"]) == 2
+    assert evidence["label"] == "simulator diagnostic"
+    assert evidence["assessment_status"] == "descriptive"
+    assert evidence["paired_stats"] is None
+    assert evidence["fair_pairs"] == 0
+    assert evidence["aggregate_available"] is False
+    assert evidence["comparative_inference_enabled"] is False
+    assert len(evidence["analyses"]) == 1
+    assert evidence["analyses"][0]["completed_initialization_seeds"] == 2
+    assert evidence["analyses"][0]["paired_stats"] is None
+    assert evidence["reference_ladder"]["comparison_enabled"] is False
+    assert evidence["reference_ladder"]["required_complete"] is True
+
+    report = study_report_payload(db, study["id"])
+    assert report["pair_rows"] == []
+    assert report["verdict"]["label"] == "simulator diagnostic"
+    assert report["verdict"]["outcome"] == "within_tolerance"
+    assert report["verdict"]["paired_stats"] is None
+    assert report["verdict"]["comparative_inference_enabled"] is False
+    report_readiness = report["solver_competition_readiness"]
+    assert report_readiness["comparison_ready"] is False
+    assert report_readiness["comparative_inference_enabled"] is False
+    assert report_readiness["paired_stats"] is None
+    assert report["statistics"]["fair_pairs"] == 0
+    assert "not QPU evidence" in "\n".join(report["limitations"])

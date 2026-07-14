@@ -1,5 +1,5 @@
 schema_version: 1
-updated: 2026-07-10
+updated: 2026-07-14
 purpose: >-
   Machine-readable map of QLLM research areas, including negative results,
   open hypotheses, evidence limits, dependencies, and the next decisive test.
@@ -449,6 +449,27 @@ areas:
       Reproduce one small theorem-backed protocol and compare transmitted bits or
       qubits, entanglement consumed, repetitions, latency, and classical shared-randomness
       baselines under the same distributed access model.
+
+  - id: vqe_ground_state_optimization
+    label: Variational ground-state optimization against exact toy references
+    portfolio: candidate
+    pipeline_stages: [model, training, evaluation]
+    quantum_resources: [entanglement, measurement]
+    advantage_targets: [energy_or_cost, training_time]
+    status: unexplored
+    claim_level: untested
+    replication_status: none
+    suites: []
+    results_sections: []
+    present_conclusion: No repo evidence yet; the initial analytic VQE slice is infrastructure and a simulator diagnostic.
+    blockers:
+      - Finite-shot measurement budgets and hardware-feasible optimizer costs are not implemented.
+      - Exact diagonalization certifies toy ground truth but is not an equal-budget solver comparator.
+      - solver_competition_v1 is declared, but no registered comparison-eligible finite-shot quantum runner, registered classical solver runner, or matched multi-instance solver evidence exists.
+    next_decisive_test: >-
+      Implement registered finite-shot quantum and classical solver runners, then
+      execute complete multi-instance grids under one server-derived prespecified
+      budget before any solver-edge assessment.
 
 relations:
   - from: kernel_geometry_controls
