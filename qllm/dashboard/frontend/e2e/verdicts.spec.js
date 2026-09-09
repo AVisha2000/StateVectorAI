@@ -4,7 +4,7 @@ import { mockApi, JOBS } from './fixtures.js'
 test.beforeEach(async ({ page }) => { await mockApi(page) })
 
 test('Verdicts store: distinct claim/replication columns; null outcome first-class', async ({ page }) => {
-  await page.goto('/verdicts')
+  await page.goto('/portal/verdicts')
   await expect(page.getByRole('columnheader', { name: 'Claim level' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Replication' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Assessment' })).toBeVisible()
@@ -15,13 +15,13 @@ test('Verdicts store: distinct claim/replication columns; null outcome first-cla
 
 test('Verdicts falls back to derived verdicts when the store is absent', async ({ page }) => {
   await mockApi(page, { '/verdicts': null }) // store 404s → derive from jobs with a comparison
-  await page.goto('/verdicts')
+  await page.goto('/portal/verdicts')
   await expect(page.getByText(/persistent verdict store.*isn.t reachable|derived on the fly/i)).toBeVisible()
   await expect(page.getByText('#7 qrnn-s42')).toBeVisible()
 })
 
 test('Verdict detail (snapshot): scorecard has no composite score; promotion human-gated', async ({ page }) => {
-  await page.goto('/verdicts')
+  await page.goto('/portal/verdicts')
   await page.getByRole('link', { name: /Open/ }).first().click()
   await expect(page).toHaveURL(/\/verdicts\/101$/)
   await expect(page.getByRole('heading', { name: /qrnn-vs-gru|Verdict/ })).toBeVisible()
@@ -33,7 +33,7 @@ test('Verdict detail (snapshot): scorecard has no composite score; promotion hum
 })
 
 test('Verdict detail: revision history timeline makes the append-only ledger visible', async ({ page }) => {
-  await page.goto('/verdicts/101')
+  await page.goto('/portal/verdicts/101')
   const card = page.locator('.card', { hasText: 'Revision history' })
   await expect(card).toBeVisible()
   // both revisions on record, newest (rev 2) first and marked current
@@ -50,13 +50,13 @@ test('Verdict detail: revision history timeline makes the append-only ledger vis
 
 test('Verdict detail (comparison fallback): a run without a snapshot renders its pair', async ({ page }) => {
   // /verdicts/7 has no snapshot → falls back to /jobs/7/comparison
-  await page.goto('/verdicts/7')
+  await page.goto('/portal/verdicts/7')
   await expect(page.getByText(/Advantage scorecard|Candidate vs its matched control|Perplexity/i).first()).toBeVisible()
   await expect(page.getByText(/simulator/i).first()).toBeVisible() // wall-time labeled simulator cost
 })
 
 test('Scaling: KPIs, charts, and the barren-plateau fit light up from diagnostics', async ({ page }) => {
-  await page.goto('/runs/scaling/scale-grp')
+  await page.goto('/portal/runs/scaling/scale-grp')
   await expect(page.getByRole('heading', { name: 'Scaling', exact: true })).toBeVisible()
   await expect(page.locator('.kpi', { hasText: 'Progress' }).locator('.v')).toHaveText('3/3')
   await expect(page.locator('.chart-wrap svg').first()).toBeVisible()
@@ -68,7 +68,7 @@ test('Scaling: KPIs, charts, and the barren-plateau fit light up from diagnostic
 })
 
 test('Scaling: sweep runs table lists every point and links each back to its run', async ({ page }) => {
-  await page.goto('/runs/scaling/scale-grp')
+  await page.goto('/portal/runs/scaling/scale-grp')
   const card = page.locator('.card', { hasText: 'Runs in this sweep' })
   await expect(card).toBeVisible()
   // all three sweep points listed (q4/q6/q8), each with its grid cell

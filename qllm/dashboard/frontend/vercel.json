@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "VITE_PLAYGROUND_MODE=1 npm run build",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/playground" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

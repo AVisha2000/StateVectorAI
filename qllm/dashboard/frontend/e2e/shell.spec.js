@@ -4,15 +4,15 @@ import { mockApi } from './fixtures.js'
 test.beforeEach(async ({ page }) => { await mockApi(page) })
 
 test('sidebar shows all three nav groups and every surface link', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal')
   const sidebar = page.locator('.sidebar')
-  for (const name of ['Overview', 'Discover', 'Library', 'Atlas', 'Designer', 'Bench', 'Runs', 'Studies', 'Verdicts', 'Datasets', 'Queue & Backends']) {
+  for (const name of ['Workboard', 'Discover', 'Library', 'Atlas', 'Lab overview', 'Designer', 'Bench', 'Runs', 'Studies', 'Verdicts', 'Datasets', 'Queue & Backends']) {
     await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 })
 
 test('theme toggle flips and persists to localStorage', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal')
   const toggle = page.getByRole('button', { name: /Switch to (dark|light) theme/ })
   const before = await page.evaluate(() => document.documentElement.dataset.theme)
   await toggle.click()
@@ -25,18 +25,18 @@ test('legacy routes redirect to their new surfaces', async ({ page }) => {
   const redirects = [['/launch', '/bench'], ['/jobs', '/runs'], ['/results', '/verdicts'], ['/models', '/designer'], ['/explore', '/atlas'], ['/gpu', '/system']]
   for (const [from, to] of redirects) {
     await page.goto(from)
-    await expect(page).toHaveURL(new RegExp(`${to}$`))
+    await expect(page).toHaveURL(new RegExp(`/portal${to}$`))
   }
 })
 
 test('unknown route shows Not Found without breaking the shell', async ({ page }) => {
-  await page.goto('/nope-nope')
+  await page.goto('/portal/nope-nope')
   await expect(page.getByRole('link', { name: 'Atlas' })).toBeVisible()
   await expect(page.getByText(/not found/i)).toBeVisible()
 })
 
 test('Overview: tiles reflect job counts and the running table lists live runs', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal/lab')
   const running = page.locator('.tile', { hasText: 'Running' })
   await expect(running.locator('.v')).toHaveText('1')
   await expect(page.locator('.tile', { hasText: 'Failed' }).locator('.v')).toHaveText('1')
@@ -44,7 +44,7 @@ test('Overview: tiles reflect job counts and the running table lists live runs',
 })
 
 test('Overview: Latest-verdicts strip lists recent snapshots with claim + replication', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal/lab')
   const card = page.locator('.card', { hasText: 'Latest verdicts' })
   await expect(card).toBeVisible()
   await expect(card.getByText('empirical')).toBeVisible()
@@ -56,12 +56,12 @@ test('Overview: Latest-verdicts strip lists recent snapshots with claim + replic
 
 test('Overview: Latest-verdicts degrades when the store is unreachable', async ({ page }) => {
   await mockApi(page, { '/verdicts': null })
-  await page.goto('/')
+  await page.goto('/portal/lab')
   await expect(page.getByText(/verdict store isn.t reachable/i)).toBeVisible()
 })
 
 test('Overview: Multi-seed studies strip lists studies with evidence + fair pairs', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal/lab')
   const card = page.locator('.card', { hasText: 'Multi-seed studies' })
   await expect(card).toBeVisible()
   await expect(card.getByText('qffn-multiseed')).toBeVisible()
@@ -73,12 +73,12 @@ test('Overview: Multi-seed studies strip lists studies with evidence + fair pair
 
 test('Overview: Multi-seed studies strip degrades when studies are unreachable', async ({ page }) => {
   await mockApi(page, { '/studies': null })
-  await page.goto('/')
+  await page.goto('/portal/lab')
   await expect(page.getByText(/Studies aren.t reachable yet/i)).toBeVisible()
 })
 
 test('System: /status five fields render and quantum backends are listed', async ({ page }) => {
-  await page.goto('/system')
+  await page.goto('/portal/system')
   await expect(page.getByText('CPU · active')).toBeVisible()
   await expect(page.locator('.kpi', { hasText: 'Runs recorded' }).locator('.v')).toHaveText('312')
   await expect(page.locator('.kpi', { hasText: 'Running' }).locator('.v')).toHaveText('1')
@@ -88,7 +88,7 @@ test('System: /status five fields render and quantum backends are listed', async
 })
 
 test('Datasets: table renders the registered datasets', async ({ page }) => {
-  await page.goto('/datasets')
+  await page.goto('/portal/datasets')
   await expect(page.getByText('monitored_ising')).toBeVisible()
   await expect(page.getByText('contextual')).toBeVisible()
 })

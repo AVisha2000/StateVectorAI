@@ -1,0 +1,31 @@
+.conversation-trial {
+  padding: 12px;
+  margin-top: 10px;
+  border: 1px solid #91ad9366;
+  border-radius: 8px;
+  background: #203c36;
+  color: #ede8d4;
+}
+.conversation-trial h4 { margin: 0 0 14px; font-size: 15px; font-weight: 500; line-height: 1.4; }
+.conversation-trial label { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.conversation-trial output { font-variant-numeric: tabular-nums; color: #f5cd94; }
+.conversation-trial input { width: 100%; min-height: 32px; margin: 0; accent-color: #e9bc80; }
+.conversation-trial-range { display: flex; justify-content: space-between; font-size: 11px; color: #c3d0bd; margin-bottom: 10px; }
+.conversation-trial button { min-height: 44px; border: 1px solid #acbea280; border-radius: 5px; padding: 8px; font-size: 12px; background: #2e5146; color: #f2ecd7; }
+.conversation-trial button:hover:not([aria-disabled="true"]) { background: #41674f; }
+.conversation-trial button[aria-disabled="true"] { opacity: .65; cursor: wait; }
+.conversation-trial-run { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; }
+.conversation-trial-output { padding-top: 12px; font-size: 11px; }
+.conversation-trial-output > span { color: #cfdbc7; }
+.conversation-trial-output dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 0; }
+.conversation-trial-output dt { font-size: 11px; color: #c3d0bd; }
+.conversation-trial-output dd { margin: 3px 0 0; font-size: 19px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rw-message .conversation-trial p { font-size: 11px; line-height: 1.6; }
+.rw-message .conversation-trial-stale { color: #f5cd94; }
+.rw-message .conversation-trial-error { color: #ffd6ba; }
+.conversation-trial-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.conversation-trial-actions button { display: flex; justify-content: center; align-items: center; gap: 5px; }
+.conversation-trial details { margin-top: 12px; font-size: 11px; }
+.conversation-trial summary { cursor: pointer; padding: 6px 0; }
+.conversation-trial code { display: block; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; color: #f1d09e; }
+.conversation-trial small { display: block; margin-top: 9px; font-size: 10px; color: #c3d0bd; }

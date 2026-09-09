@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.js'
 import { LIVE_REFETCH_MS } from './queryClient.js'
 import { useStreamActive } from './stream.js'
+import { RESEARCH_WORLD_SNAPSHOT, researchWorldSnapshotIsValid } from './researchWorld.js'
 
 // Thin typed-ish query hooks over the existing REST api. Live surfaces refetch
 // on an interval; static ones do not. The /api/stream/jobs SSE stream replaces
@@ -13,6 +14,72 @@ export function useOverview() {
     queryFn: api.overview,
     refetchInterval: LIVE_REFETCH_MS,
   })
+}
+
+// Coordination reads share one query layer. The only human-facing mutation is
+// bounded decision resolution through the backend's explicit actor boundary.
+export function useWork() {
+  return useQuery({
+    queryKey: ['work'],
+    queryFn: api.work,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useDecisions() {
+  return useQuery({
+    queryKey: ['decisions'],
+    queryFn: api.decisions,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useDecision(id) {
+  return useQuery({
+    queryKey: ['decision', id],
+    queryFn: () => api.decision(id),
+    enabled: Boolean(id),
+    ...quiet404QueryOptions,
+  })
+}
+
+export function useResolveDecision(id) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (payload) => api.resolveDecision(id, payload),
+    onSuccess: (decision) => {
+      client.setQueryData(['decision', id], decision)
+      client.invalidateQueries({ queryKey: ['decisions'] })
+      client.invalidateQueries({ queryKey: ['work'] })
+      client.invalidateQueries({ queryKey: ['lineage', decision.work_id] })
+    },
+  })
+}
+
+export function useWorkDetail(id) {
+  return useQuery({ queryKey: ['work', id], queryFn: () => api.workDetail(id), enabled: Boolean(id), ...quiet404QueryOptions })
+}
+
+export function useWorkOverlaps(id) {
+  return useQuery({ queryKey: ['work-overlaps', id], queryFn: () => api.workOverlaps(id), enabled: Boolean(id), ...quiet404QueryOptions })
+}
+
+export function useLineage(id) {
+  return useQuery({ queryKey: ['lineage', id], queryFn: () => api.lineage(id), enabled: Boolean(id), ...quiet404QueryOptions })
+}
+
+export function useEvidence(id) {
+  return useQuery({ queryKey: ['evidence', id], queryFn: () => api.evidence(id), enabled: Boolean(id), ...quiet404QueryOptions })
+}
+
+export function useClaimProposal(id) {
+  return useQuery({ queryKey: ['claim-proposal', id], queryFn: () => api.claimProposal(id), enabled: Boolean(id), ...quiet404QueryOptions })
+}
+
+export function useReview(id) {
+  return useQuery({ queryKey: ['review', id], queryFn: () => api.review(id), enabled: Boolean(id), ...quiet404QueryOptions })
 }
 
 export function useStatus() {
@@ -44,6 +111,27 @@ export function usePresets() {
 
 export function useConfigChoices() {
   return useQuery({ queryKey: ['config-choices'], queryFn: api.configChoices })
+}
+
+// One-shot snapshot seam: the bundled fixture renders immediately and remains
+// visible if the optional endpoint is unavailable or malformed.
+export function useResearchWorldSnapshot({ injectedSnapshot } = {}) {
+  const injected = injectedSnapshot !== undefined
+  return useQuery({
+    queryKey: ['research-world'],
+    queryFn: async () => {
+      const snapshot = await api.researchWorld()
+      if (!researchWorldSnapshotIsValid(snapshot)) throw new Error('Research World snapshot unavailable.')
+      return snapshot
+    },
+    enabled: !injected,
+    initialData: injected ? injectedSnapshot : RESEARCH_WORLD_SNAPSHOT,
+    retry: false,
+    refetchOnWindowFocus: false,
+    // The fixture is immediate fallback data, not fresh server data: fetch
+    // once on mount while keeping focus/refetch polling disabled.
+    staleTime: 0,
+  })
 }
 
 // A single run. Live-refetches while the job is in flight; a finished/failed run

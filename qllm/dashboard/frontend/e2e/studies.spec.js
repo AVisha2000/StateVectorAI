@@ -4,7 +4,7 @@ import { mockApi } from './fixtures.js'
 test.beforeEach(async ({ page }) => { await mockApi(page) })
 
 test('Studies list renders and links to a study', async ({ page }) => {
-  await page.goto('/studies')
+  await page.goto('/portal/studies')
   await expect(page.getByRole('heading', { name: /Studies — multi-seed rigor/ })).toBeVisible()
   await expect(page.getByText('qffn-multiseed')).toBeVisible()
   await page.getByRole('link', { name: /Open/ }).first().click()
@@ -12,13 +12,13 @@ test('Studies list renders and links to a study', async ({ page }) => {
 })
 
 test('Studies is reachable from the sidebar', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/portal')
   await page.locator('.sidebar').getByRole('link', { name: 'Studies' }).click()
   await expect(page).toHaveURL(/\/studies$/)
 })
 
 test('Study detail: multi-seed KPIs, delta strip, ladder, and integrity framing', async ({ page }) => {
-  await page.goto('/studies/1')
+  await page.goto('/portal/studies/1')
   await expect(page.getByRole('heading', { name: 'qffn-multiseed' })).toBeVisible()
   // aggregate KPIs — replication (fair pairs) distinct from the claim label
   await expect(page.locator('.kpi', { hasText: 'Replication' }).locator('.v')).toHaveText('4')
@@ -35,7 +35,7 @@ test('Study detail: multi-seed KPIs, delta strip, ladder, and integrity framing'
 })
 
 test('Study detail: study-runs rows link back to each run', async ({ page }) => {
-  await page.goto('/studies/1')
+  await page.goto('/portal/studies/1')
   const card = page.locator('.card', { hasText: 'Study runs' })
   await expect(card).toBeVisible()
   await card.getByRole('link', { name: /Open/ }).first().click()
@@ -43,7 +43,7 @@ test('Study detail: study-runs rows link back to each run', async ({ page }) => 
 })
 
 test('Study detail: seed-band aggregates per-seed val_ppl trajectories', async ({ page }) => {
-  await page.goto('/studies/1')
+  await page.goto('/portal/studies/1')
   const band = page.locator('.card', { hasText: 'Seed-band val_ppl over steps' })
   await expect(band).toBeVisible()
   // three per-seed workspaces → a real band renders (composed area+line svg)
@@ -55,7 +55,7 @@ test('Study detail: seed-band aggregates per-seed val_ppl trajectories', async (
 test('Study detail: seed-band degrades when per-seed curves are absent', async ({ page }) => {
   // strip the per-seed workspaces → 404 → graceful note, no crash
   await mockApi(page, { '/jobs/201/workspace': null, '/jobs/202/workspace': null, '/jobs/203/workspace': null })
-  await page.goto('/studies/1')
+  await page.goto('/portal/studies/1')
   const band = page.locator('.card', { hasText: 'Seed-band val_ppl over steps' })
   await expect(band).toBeVisible()
   await expect(band.getByText(/No per-seed training curves are available/i)).toBeVisible()
@@ -63,6 +63,6 @@ test('Study detail: seed-band degrades when per-seed curves are absent', async (
 
 test('Studies empty state points to the Bench', async ({ page }) => {
   await mockApi(page, { '/studies': [] })
-  await page.goto('/studies')
+  await page.goto('/portal/studies')
   await expect(page.getByText(/No studies yet/i)).toBeVisible()
 })

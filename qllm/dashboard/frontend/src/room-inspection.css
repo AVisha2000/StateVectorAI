@@ -1,0 +1,79 @@
+/* A bench is a place in the room, not a miniature beside a large form. */
+.meeting-experiment.is-playground .rw-local-demo {
+  order: -1;
+  padding: 0;
+  border: 0;
+}
+@media (min-width: 761px) {
+  .interactive-meeting .meeting-place.is-launch-mode {
+    grid-template-columns: minmax(0, 1fr) minmax(330px, 1fr);
+  }
+  .interactive-meeting.is-room-focused .meeting-place.is-launch-mode {
+    grid-template-columns: minmax(0, 1fr) minmax(330px, 420px);
+  }
+  .interactive-meeting .meeting-place.is-launch-mode .meeting-scene-wrap {
+    align-self: stretch;
+    aspect-ratio: auto;
+    min-height: 300px;
+    max-height: none;
+  }
+}
+.interactive-meeting .is-launch-mode .meeting-camera-tools {
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  flex-wrap: wrap;
+}
+.interactive-meeting .is-launch-mode .meeting-camera-tools button:first-child {
+  display: flex;
+}
+.interactive-meeting .is-launch-mode .meeting-control-hint {
+  display: block;
+  padding: 9px;
+  border-radius: 8px;
+  background: #132e2bbd;
+  font-size: 11px;
+}
+.interactive-meeting .is-launch-mode .meeting-control-hint span {
+  display: block;
+  max-width: 420px;
+  margin: auto;
+  line-height: 1.5;
+}
+.meeting-scene-wrap[data-view="inspection"] .meeting-hotspot {
+  display: none;
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .interactive-meeting.is-equipment-open:not(.is-room-focused)
+    .meeting-place.is-launch-mode {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 180px minmax(160px, 1fr) auto;
+  }
+  .interactive-meeting.is-equipment-open:not(.is-room-focused)
+    .meeting-place.is-launch-mode
+    .meeting-scene-wrap {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 180px;
+    height: 180px;
+  }
+  .interactive-meeting.is-equipment-open:not(.is-room-focused)
+    .meeting-material {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .interactive-meeting.is-equipment-open:not(.is-room-focused)
+    .meeting-inventory {
+    grid-row: 4;
+  }
+}
+@media (max-width: 760px) {
+  .interactive-meeting .meeting-place.is-launch-mode .meeting-scene-wrap {
+    height: 280px;
+    min-height: 280px;
+  }
+  .interactive-meeting .is-launch-mode .meeting-control-hint {
+    bottom: 5px;
+    padding: 6px;
+  }
+}

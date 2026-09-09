@@ -1,0 +1,240 @@
+.meeting-scene-wrap.is-aiming .meeting-game-canvas canvas {
+  cursor: ns-resize;
+  touch-action: none;
+}
+.meeting-scene-wrap.is-aiming .meeting-hotspot,
+.meeting-scene-wrap.is-aiming .meeting-control-hint,
+.meeting-scene-wrap.is-aiming .meeting-reticle {
+  display: none;
+}
+.meeting-scene-wrap.is-aiming .meeting-camera-tools {
+  display: none;
+}
+.meeting-scene-wrap.is-aiming .meeting-game-canvas {
+  left: 326px;
+}
+.room-launcher {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  bottom: auto;
+  left: 12px;
+  right: auto;
+  width: 302px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  margin: auto;
+  padding: 14px 12px;
+  border: 1px solid #a9bea076;
+  border-radius: 12px;
+  background: #16342ef5;
+  color: #eee8d2;
+  box-shadow: 0 12px 35px #06191566;
+}
+.room-launcher header,
+.room-launcher header > span,
+.room-launcher-main,
+.room-launcher-angle,
+.room-launcher-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.room-launcher-main {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+.room-launcher header > span {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.room-launcher header {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.room-launcher header > span {
+  font:
+    11px ui-monospace,
+    monospace;
+  letter-spacing: 0.1em;
+}
+.room-launcher small {
+  font-size: 11px;
+  color: #c2cdb8;
+  letter-spacing: 0;
+}
+.room-launcher button {
+  min-height: 44px;
+  border: 1px solid #a9bea057;
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: #eee8d2;
+  background: #2a4b3f;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.room-launcher button:hover:not(:disabled) {
+  background: #3a614d;
+}
+.room-launcher button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.room-launcher button:focus-visible {
+  outline: 2px solid #f3c889;
+  outline-offset: 3px;
+}
+.room-launcher kbd {
+  font:
+    10px ui-monospace,
+    monospace;
+  border: 1px solid #b7c6a64d;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.room-launcher-angle {
+  gap: 8px;
+}
+.room-launcher-angle > button {
+  width: 44px;
+  padding: 6px;
+  font-size: 22px;
+}
+.room-launcher-angle output {
+  min-width: 55px;
+  text-align: center;
+  font:
+    35px Georgia,
+    serif;
+}
+.room-launcher-angle output span {
+  font-size: 21px;
+}
+.room-launcher .room-launcher-fire {
+  background: #e6bb89;
+  color: #203d31;
+  font-weight: 600;
+  min-width: 100px;
+}
+.room-launcher-fire kbd {
+  display: none;
+}
+.room-launcher .room-launcher-fire:hover:not(:disabled) {
+  background: #f3cc9c;
+}
+.room-launcher-prediction {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+}
+.room-launcher-prediction small {
+  grid-column: 1 / -1;
+}
+.room-launcher-prediction > span {
+  font-size: 11px;
+  color: #c2cdb8;
+}
+.room-launcher-prediction strong {
+  font:
+    22px Georgia,
+    serif;
+}
+.room-launcher > p {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c2cdb8;
+}
+.room-launcher-result {
+  justify-content: space-between;
+  border-top: 1px solid #b0c19b33;
+  margin-top: 10px;
+  padding-top: 10px;
+  font-size: 12px;
+}
+.room-launcher-result strong {
+  display: block;
+  font-weight: 500;
+  font-size: 15px;
+  margin-top: 4px;
+}
+.room-launcher .room-launcher-details {
+  min-height: 44px;
+  background: transparent;
+  border: 0;
+  padding: 7px 0 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: #d2d8bf;
+}
+.room-launcher .room-launcher-error {
+  color: #ffd4b7;
+}
+.landing-challenge { margin-top: 12px; border-top: 1px solid #b0c19b33; padding-top: 12px; }
+.landing-challenge-start { width: 100%; justify-content: space-between !important; }
+.landing-challenge-start span, .landing-challenge-target > span { font-size: 10px; letter-spacing: .06em; color: #e7c994; }
+.landing-challenge-target > strong { display: block; font: 20px Georgia, serif; margin-top: 4px; }
+.landing-challenge-target strong small { display: block; font: 13px ui-monospace, monospace; margin-top: 4px; color: #eee8d2; }
+.landing-challenge-target p, .landing-challenge-history p { font-size: 12px; line-height: 1.5; color: #c2cdb8; margin: 8px 0; }
+.landing-challenge-feedback { display: grid; gap: 5px; margin-top: 10px; padding: 10px; border: 1px solid #b0c19b33; border-radius: 8px; font-size: 13px; }
+.landing-challenge-feedback > span { font-size: 12px; color: #ced5c0; }
+.landing-challenge-feedback.is-hit { border-color: #a3d0a7; background: #3b674a55; }
+.landing-challenge-feedback button { justify-self: start; margin-top: 3px; }
+.landing-challenge-history summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 12px; text-decoration: underline; text-underline-offset: 4px; }
+.landing-challenge-history summary:focus-visible { outline: 2px solid #f3c889; outline-offset: 2px; }
+.landing-challenge-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.landing-challenge-history ul, .landing-challenge-history ol { padding-left: 20px; font-size: 12px; line-height: 1.6; }
+.landing-challenge-history ol { max-height: 200px; overflow: auto; }
+.landing-challenge-history li > span { display: block; color: #ced5c0; }
+@media (max-width: 760px) {
+  .interactive-meeting .meeting-scene-wrap.is-aiming {
+    min-height: 690px;
+    height: 690px;
+  }
+  .meeting-scene-wrap.is-aiming .meeting-game-canvas {
+    left: 0;
+    bottom: 354px;
+  }
+  .room-launcher {
+    left: 10px;
+    right: 10px;
+    padding: 10px 12px;
+    bottom: 8px;
+    top: auto;
+    width: auto;
+    max-height: 346px;
+  }
+  .room-launcher-main {
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+  }
+  .room-launcher-prediction {
+    margin-left: 0;
+    width: 100%;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+  }
+  .room-launcher-prediction small {
+    grid-column: 1 / -1;
+  }
+  .room-launcher .room-launcher-fire {
+    min-width: 126px;
+  }
+  .room-launcher-fire kbd {
+    display: none;
+  }
+  .room-launcher-result {
+    gap: 8px;
+  }
+  .room-launcher-result button {
+    padding: 8px;
+  }
+}

@@ -22,42 +22,42 @@ test.describe('visual', { tag: '@visual' }, () => {
   for (const theme of THEMES) {
     test(`Overview ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/')
+      await page.goto('/portal')
       await expect(page.getByRole('heading', { name: /Overview/ })).toBeVisible()
       await expect(page).toHaveScreenshot(`overview-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
     test(`Runs ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/runs')
+      await page.goto('/portal/runs')
       await expect(page.getByText('qrnn-s42')).toBeVisible()
       await expect(page).toHaveScreenshot(`runs-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
     test(`Verdict detail ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/verdicts/101')
+      await page.goto('/portal/verdicts/101')
       await expect(page.getByRole('heading', { name: /qrnn-vs-gru|Verdict/ })).toBeVisible()
       await expect(page).toHaveScreenshot(`verdict-detail-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
     test(`Bench ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/bench')
+      await page.goto('/portal/bench')
       await expect(page.getByRole('heading', { name: 'Candidate' })).toBeVisible()
       await expect(page).toHaveScreenshot(`bench-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
     test(`Designer ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/designer')
+      await page.goto('/portal/designer')
       await expect(page.locator('.circuit-wrap svg')).toBeVisible()
       await expect(page).toHaveScreenshot(`designer-${theme}.png`, { fullPage: true, mask: mask(page) })
     })
 
     test(`Study detail ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/studies/1')
+      await page.goto('/portal/studies/1')
       await expect(page.getByRole('heading', { name: 'qffn-multiseed' })).toBeVisible()
       await expect(page.locator('.chart-wrap svg').first()).toBeVisible()
       await expect(page).toHaveScreenshot(`study-detail-${theme}.png`, { fullPage: true, mask: mask(page) })
@@ -65,7 +65,7 @@ test.describe('visual', { tag: '@visual' }, () => {
 
     test(`Atlas graph ${theme}`, async ({ page }) => {
       await setup(page, theme)
-      await page.goto('/atlas')
+      await page.goto('/portal/atlas')
       await page.getByRole('button', { name: 'Graph' }).click()
       await expect(page.locator('.atlas-graph-svg g[role="button"]')).toHaveCount(19)
       await expect(page).toHaveScreenshot(`atlas-graph-${theme}.png`, { fullPage: true, mask: mask(page) })

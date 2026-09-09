@@ -1,0 +1,103 @@
+.meeting-note-pocket {
+  position: absolute;
+  z-index: 3;
+  top: 68px;
+  left: 22px;
+  max-width: calc(100% - 44px);
+  padding: 12px;
+  border: 1px solid #a8b99955;
+  border-radius: 10px;
+  background: #16322ef2;
+  color: #eee9d6;
+  box-shadow: 0 8px 24px #05171333;
+}
+.meeting-note-pocket > span,
+.meeting-note-pocket > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meeting-note-pocket > span {
+  margin-bottom: 9px;
+  font-size: 14px;
+}
+.meeting-note-pocket small {
+  color: #c0cfba;
+  font-size: 12px;
+}
+.meeting-note-pocket > small {
+  display: block;
+  margin-top: 8px;
+  max-width: 220px;
+  line-height: 1.4;
+}
+.meeting-note-pocket button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #a8b99966;
+  border-radius: 6px;
+  background: #2b4b40;
+}
+.meeting-note-pocket button:hover:not(:disabled) {
+  background: #466348;
+}
+.meeting-note-pocket button:focus-visible {
+  outline: 2px solid #f1ca94;
+  outline-offset: 2px;
+}
+.meeting-note-pocket button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.meeting-note-pocket kbd {
+  color: #d5dbbd;
+  font:
+    11px ui-monospace,
+    monospace;
+  border: 1px solid #a8b99955;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.meeting-note:focus-visible {
+  outline: 2px solid #315646;
+  outline-offset: 4px;
+}
+.meeting-scene-wrap[data-note-held="true"] .meeting-game-error {
+  right: auto;
+  max-width: min(290px, calc(100% - 40px));
+  bottom: 82px;
+  padding: 9px;
+  line-height: 1.4;
+}
+.meeting-note-pocket.is-compact {
+  left: auto;
+  right: 22px;
+  padding: 6px;
+}
+.meeting-note-pocket.is-compact > span,
+.meeting-note-pocket.is-compact > small,
+.meeting-note-pocket.is-compact .meeting-note-return {
+  display: none;
+}
+@media (max-width: 760px) {
+  .interactive-meeting
+    .meeting-place:not(.with-material)
+    .meeting-scene-wrap[data-note-held="true"] {
+    min-height: 390px;
+    height: 390px;
+  }
+  .meeting-note-pocket {
+    top: 64px;
+    left: 12px;
+    max-width: calc(100% - 24px);
+    padding: 10px;
+  }
+  .meeting-note-pocket.is-compact {
+    right: 12px;
+  }
+}

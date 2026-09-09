@@ -5,7 +5,11 @@ import {
   NAV_GROUPS,
   NAV_ITEMS,
   LEGACY_REDIRECTS,
+  PORTAL_BASE,
   THEME_STORAGE_KEY,
+  isPortalPath,
+  portalPath,
+  portalRelativePath,
   resolveInitialTheme,
   navTitleForPath,
 } from './appShell.js'
@@ -26,10 +30,12 @@ test('redesign navigation groups are ordered and complete', () => {
   assert.deepEqual(
     NAV_ITEMS.map((item) => [item.to, item.label]),
     [
-      ['/', 'Overview'],
+      ['/', 'Workboard'],
+      ['/decisions', 'Decisions'],
       ['/discover', 'Discover'],
       ['/library', 'Library'],
       ['/atlas', 'Atlas'],
+      ['/lab', 'Lab overview'],
       ['/designer', 'Designer'],
       ['/bench', 'Bench'],
       ['/runs', 'Runs'],
@@ -45,20 +51,34 @@ test('every nav item carries an icon and the overview item ends its route', () =
   for (const item of NAV_ITEMS) {
     assert.ok(item.icon, `${item.to} is missing an icon`)
   }
-  const overview = NAV_ITEMS.find((item) => item.to === '/')
-  assert.equal(overview.end, true)
+  const workboard = NAV_ITEMS.find((item) => item.to === '/')
+  assert.equal(workboard.end, true)
 })
 
 test('legacy routes redirect to a real new surface', () => {
   const surfaces = new Set(NAV_ITEMS.map((item) => item.to))
   for (const [from, to] of Object.entries(LEGACY_REDIRECTS)) {
     assert.ok(from.startsWith('/'), `${from} must be an absolute path`)
-    assert.ok(surfaces.has(to), `${from} redirects to unknown surface ${to}`)
+    assert.ok(surfaces.has(portalRelativePath(to)), `${from} redirects to unknown surface ${to}`)
   }
 })
 
+test('portal boundary owns the prefix without changing portal-relative links', () => {
+  assert.equal(PORTAL_BASE, '/portal')
+  assert.equal(portalPath('/'), '/portal')
+  assert.equal(portalPath('/decisions/one'), '/portal/decisions/one')
+  assert.equal(portalRelativePath('/portal/research/one'), '/research/one')
+  assert.equal(portalRelativePath('/portal'), '/')
+  assert.equal(isPortalPath('/portal'), true)
+  assert.equal(isPortalPath('/portal/decisions'), true)
+  assert.equal(isPortalPath('/portalfoo'), false)
+})
+
 test('breadcrumb title resolves from the active path', () => {
-  assert.equal(navTitleForPath('/'), 'Overview')
+  assert.equal(navTitleForPath('/'), 'Workboard')
+  assert.equal(navTitleForPath('/lab'), 'Lab overview')
+  assert.equal(navTitleForPath('/decisions/abc123'), 'Decisions')
+  assert.equal(navTitleForPath('/research/work-123'), 'Research record')
   assert.equal(navTitleForPath('/runs'), 'Runs')
   assert.equal(navTitleForPath('/runs/abc123'), 'Runs')
   assert.equal(navTitleForPath('/atlas'), 'Atlas')

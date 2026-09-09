@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => { await mockApi(page) })
 const LIVE_SWAPS_LABEL = 'Variational quantum embedding, attention, FFN, and full-block swaps'
 
 test('Atlas list: live canonical ontology, all outcome tiles, 19 cells', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   // live data → no seed-fallback notice
   await expect(page.getByText(/seed ontology/i)).toHaveCount(0)
   // every outcome bucket has a summary tile, nulls included at full weight
@@ -23,20 +23,20 @@ test('Atlas list: live canonical ontology, all outcome tiles, 19 cells', async (
 
 test('Atlas falls back to the bundled seed when the live ontology is absent', async ({ page }) => {
   await mockApi(page, { '/atlas/ontology': null })
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await expect(page.getByText(/bundled seed ontology/i)).toBeVisible()
   await expect(page.getByText('19 of 19 cells')).toBeVisible() // seed still renders the full map
 })
 
 test('Atlas filters by claim level', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.locator('label').filter({ hasText: 'Claim' }).locator('select').selectOption('untested')
   await expect(page.getByText('19 of 19 cells')).toHaveCount(0)
   await expect(page.getByText(/of 19 cells/)).toBeVisible()
 })
 
 test('Atlas graph: 19 clickable cells; click opens detail with claim/replication distinct', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const cells = page.locator('.atlas-graph-svg g[role="button"]')
   await expect(cells).toHaveCount(19)
@@ -48,19 +48,35 @@ test('Atlas graph: 19 clickable cells; click opens detail with claim/replication
 })
 
 test('Atlas: ?node= deep-link selects a cell from the URL', async ({ page }) => {
-  await page.goto('/atlas?node=c_variational_swaps')
+  await page.goto('/portal/atlas?node=c_variational_swaps')
   await expect(page.locator('.atlas-side').getByText(LIVE_SWAPS_LABEL)).toBeVisible()
 })
 
 test('Atlas: selecting a cell writes it to the URL (shareable)', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByText('Quantum recurrent model representability and optimization').click()
   await expect(page).toHaveURL(/node=c_qrnn/)
   await expect(page.locator('.atlas-side').getByText('Claim level (map)')).toBeVisible()
 })
 
+test('Atlas: Design a test carries a durable area and proposal hypothesis to Bench', async ({ page }) => {
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/portal/atlas?node=c_theorem_faithful')
+  const design = page.getByRole('link', { name: /Design a test/i })
+  await expect(design).toHaveAttribute('href', /source=atlas.*area_id=theorem_faithful_contextual_sequence_learning.*hypothesis=/)
+  await design.click()
+  await expect(page).toHaveURL(/\/bench\?source=atlas.*area_id=theorem_faithful_contextual_sequence_learning/)
+  await expect(page.getByText(/Atlas proposal — not evidence/i)).toBeVisible()
+  await expect(page.locator('.notice')).toContainText(/Evaluate whether Theorem-faithful contextual quantum sequence learning changes memory efficiency under matched controls/i)
+  await expect(page.locator('.bench-hyp')).toHaveValue(/Theorem-faithful contextual quantum sequence learning/)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(pageErrors).toEqual([])
+})
+
 test('Atlas: collapse all hides graph cells; expand all restores them', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const cells = page.locator('.atlas-graph-svg g[role="button"]')
   await expect(cells).toHaveCount(19)
@@ -71,14 +87,14 @@ test('Atlas: collapse all hides graph cells; expand all restores them', async ({
 })
 
 test('Atlas: list domain header collapses its cells', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await expect(page.getByText(LIVE_SWAPS_LABEL)).toBeVisible()
   await page.locator('.atlas-group-toggle').first().click()
   await expect(page.getByText(LIVE_SWAPS_LABEL)).toHaveCount(0)
 })
 
 test('Atlas: graph cells are keyboard-operable', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   await page.locator('.atlas-graph-svg g[role="button"]').first().focus()
   await page.keyboard.press('Enter')
@@ -86,7 +102,7 @@ test('Atlas: graph cells are keyboard-operable', async ({ page }) => {
 })
 
 test('Atlas: a classical-holds (null) cell is styled with the classical, non-green token', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   const chip = page.locator('.atlas-oc-classical_holds').first()
   await expect(chip).toBeVisible()
   const color = await chip.evaluate((el) => getComputedStyle(el).color)
@@ -97,7 +113,7 @@ test('Atlas: a classical-holds (null) cell is styled with the classical, non-gre
 // ---- research-map upgrade (force-cluster layout, territories, routes, zoom) --
 
 test('Atlas map: zoom toolbar zooms and resets (data-zoom reflects the level)', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const frame = page.locator('.atlas-map-frame')
   await expect(frame).toHaveAttribute('data-zoom', '1.00')
@@ -108,7 +124,7 @@ test('Atlas map: zoom toolbar zooms and resets (data-zoom reflects the level)', 
 })
 
 test('Atlas map: selection ring never overwrites the claim/replication border', async ({ page }) => {
-  await page.goto('/atlas?node=c_variational_swaps')
+  await page.goto('/portal/atlas?node=c_variational_swaps')
   await page.getByRole('button', { name: 'Graph' }).click()
   await expect(page.locator('.atlas-sel-ring')).toHaveCount(1)
   const cell = page.locator('[data-cell-id="c_variational_swaps"]')
@@ -120,7 +136,7 @@ test('Atlas map: selection ring never overwrites the claim/replication border', 
 })
 
 test('Atlas map: domain territories render; collapse swaps hulls for inert seals', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   await expect(page.locator('.atlas-hull')).toHaveCount(6)
   await page.getByRole('button', { name: 'Collapse all' }).click()
@@ -133,7 +149,7 @@ test('Atlas map: domain territories render; collapse swaps hulls for inert seals
 })
 
 test('Atlas map: typed routes render with dash + terminal semantics', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const routes = page.locator('.atlas-route')
   await expect(routes).toHaveCount(10) // the canonical ontology's relations
@@ -147,7 +163,7 @@ test('Atlas map: typed routes render with dash + terminal semantics', async ({ p
 })
 
 test('Atlas map: null-outcome cards keep full resting prominence in the new skin', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const face = page.locator('.atlas-node-oc-classical_holds .atlas-cell-face').first()
   await expect(face).toBeVisible()
@@ -160,7 +176,7 @@ test('Atlas map: null-outcome cards keep full resting prominence in the new skin
 })
 
 test('Atlas map: keyboard zoom on the frame; Enter on a cell still selects', async ({ page }) => {
-  await page.goto('/atlas')
+  await page.goto('/portal/atlas')
   await page.getByRole('button', { name: 'Graph' }).click()
   const frame = page.locator('.atlas-map-frame')
   await frame.focus()

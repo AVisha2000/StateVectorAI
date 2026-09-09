@@ -1,0 +1,335 @@
+.meeting-experiment.is-playground {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 24px;
+}
+.meeting-place.is-launch-mode {
+  display: grid;
+  grid-template-columns: minmax(175px, 0.7fr) minmax(0, 1.5fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.is-launch-mode .meeting-room-title {
+  grid-column: 1 / -1;
+  padding-bottom: 12px;
+}
+.meeting-place.is-launch-mode .meeting-scene-wrap {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  aspect-ratio: 1;
+  min-height: 190px;
+  max-height: 350px;
+  flex: none;
+}
+.is-launch-mode .meeting-material {
+  grid-column: 2;
+  grid-row: 2;
+  border-left: 1px solid #9fae7e77;
+}
+.meeting-place.is-launch-mode .meeting-inventory {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+.is-launch-mode .meeting-hotspot,
+.is-launch-mode .meeting-control-hint {
+  display: none;
+}
+.is-launch-mode .meeting-camera-tools {
+  left: 8px;
+  top: 8px;
+}
+.is-launch-mode .meeting-camera-tools button:first-child {
+  display: none;
+}
+.meeting-experiment.is-playground .physics-local-demo {
+  order: -1;
+  border: 0;
+  padding: 0;
+}
+.is-playground .experiment-writing {
+  border-top: 1px solid #8f9f8055;
+  padding: 12px 0 0;
+}
+.is-playground .experiment-writing > summary {
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 0;
+  color: #385a47;
+}
+.launch-bench {
+  color: #243d35;
+}
+.launch-bench header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.launch-bench h4 {
+  font:
+    400 27px/1.2 Georgia,
+    serif;
+  margin: 6px 0 0 !important;
+}
+.launch-bench .launch-toy-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 7px 10px;
+  border: 1px solid #7d937566;
+  border-radius: 20px;
+}
+.launch-bench > p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #53664e;
+  margin: 10px 0 14px;
+}
+.launch-playfield {
+  display: block;
+  width: 100%;
+  max-height: 230px;
+  border: 1px solid #7f98716b;
+  border-radius: 14px;
+  background: #e6ead7;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+.launch-hills {
+  fill: #d1dcc1;
+}
+.launch-grid path {
+  stroke: #9caa8c;
+  opacity: 0.3;
+  stroke-width: 0.7;
+}
+.launch-grid text,
+.launch-height-label {
+  fill: #50664f;
+  font:
+    10px system-ui,
+    sans-serif;
+}
+.launch-sky-note {
+  fill: #526550;
+  font:
+    10px system-ui,
+    sans-serif;
+}
+.launch-baseline {
+  fill: none;
+  stroke: #7b8772;
+  stroke-width: 2;
+  stroke-dasharray: 6 6;
+}
+.launch-prediction {
+  fill: none;
+  stroke: #b17843;
+  stroke-width: 2;
+  stroke-dasharray: 3 5;
+}
+.launch-recorded {
+  fill: none;
+  stroke: #2b6659;
+  stroke-width: 3;
+}
+.launch-previous {
+  fill: none;
+  stroke: #66849a;
+  stroke-width: 2;
+  stroke-dasharray: 2 3;
+}
+.launch-bench .launch-discovery {
+  font-size: 12px;
+  color: #355b4d;
+  line-height: 1.55;
+}
+.launch-ground {
+  fill: none;
+  stroke: #7e9473;
+  stroke-width: 3;
+}
+.launch-aim-line {
+  fill: none;
+  stroke: #ac7442;
+  stroke-width: 3;
+}
+.launch-aim-target {
+  fill: #bf8d541a;
+  stroke: #a87038;
+  stroke-width: 1.5;
+}
+.launch-aim-dot {
+  fill: #a46a34;
+}
+.launch-angle-label {
+  fill: #67471e;
+  font:
+    600 14px system-ui,
+    sans-serif;
+}
+.launch-flying-rocket {
+  filter: drop-shadow(0 2px 2px #193c332a);
+}
+.launch-controls {
+  display: flex;
+  gap: 22px;
+  align-items: end;
+  margin-top: 13px;
+}
+.launch-bench .launch-controls label {
+  flex: 1;
+  min-width: 100px;
+  margin: 0;
+  font-size: 13px;
+}
+.launch-controls output {
+  float: right;
+  font-size: 16px;
+  font-weight: 600;
+}
+.launch-bench .launch-controls input {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  min-height: 32px;
+  accent-color: #375e47;
+  cursor: pointer;
+}
+.launch-bench .launch-controls .launch-fire {
+  width: auto;
+  flex: none;
+  min-height: 46px;
+  border-radius: 10px;
+  white-space: nowrap;
+  background: #254f42;
+  color: #f1ecd2 !important;
+  font-size: 13px;
+  padding: 10px 20px;
+}
+.launch-presets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #5a6a51;
+}
+.launch-presets > span {
+  margin-right: auto;
+}
+.launch-presets button {
+  min-width: 48px;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #91a07b88;
+  border-radius: 8px;
+  color: #35523e;
+  background: transparent;
+  cursor: pointer;
+}
+.launch-presets button[aria-pressed="true"] {
+  background: #d3dcc1;
+  border-color: #526c40;
+}
+.launch-key {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 13px 0;
+  font-size: 11px;
+  color: #526448;
+}
+.launch-key span:first-child {
+  color: #2b6659;
+}
+.launch-key span:nth-child(2) {
+  color: #815628;
+}
+.launch-result {
+  padding: 12px 15px;
+  background: #dce4cb;
+  border-left: 3px solid #4b765b;
+  border-radius: 3px 10px 10px 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.launch-result strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.launch-result span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #506248;
+}
+.launch-bench > details {
+  font-size: 12px;
+  margin-top: 14px;
+  line-height: 1.6;
+  color: #566650;
+}
+.launch-bench summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.launch-bench code {
+  display: block;
+  white-space: normal;
+  font-size: 12px;
+}
+.launch-bench button:focus-visible,
+.launch-bench input:focus-visible,
+.launch-bench summary:focus-visible {
+  outline: 2px solid #755628;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .meeting-place.is-launch-mode {
+    display: flex;
+  }
+  .interactive-meeting .meeting-place.is-launch-mode .meeting-scene-wrap {
+    aspect-ratio: auto;
+    min-height: 150px;
+    height: 150px;
+    align-self: stretch;
+  }
+  .interactive-meeting .is-launch-mode .meeting-material {
+    max-height: none;
+    flex: none;
+    border-left: 0;
+  }
+  .interactive-meeting .is-launch-mode .meeting-material-body {
+    max-height: none;
+    overflow: visible;
+  }
+  .meeting-experiment.is-playground {
+    padding: 17px 14px;
+  }
+  .launch-bench h4 {
+    font-size: 23px;
+  }
+  .launch-bench .launch-toy-label {
+    display: none;
+  }
+  .launch-controls {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .launch-controls label {
+    min-width: 120px;
+  }
+  .launch-controls .launch-fire {
+    padding: 10px 14px;
+  }
+  .launch-presets {
+    gap: 6px;
+  }
+  .launch-key {
+    gap: 11px;
+  }
+}

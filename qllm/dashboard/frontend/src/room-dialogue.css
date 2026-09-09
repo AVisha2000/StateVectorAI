@@ -1,0 +1,80 @@
+/* An explicit conversation takes a lower panel; walking remains full-scene.
+   This is the same transcript/composer, not a second chat state or canvas HUD. */
+.interactive-meeting.is-room-dialogue .rw-session-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(180px, 1fr) auto;
+  min-height: 0;
+  overflow: auto;
+}
+.interactive-meeting.is-room-dialogue .meeting-place { min-height: 180px; }
+.interactive-meeting.is-first-person.is-room-dialogue .meeting-place:not(.with-material) .meeting-scene-wrap.is-play-view:not(.is-aiming) {
+  height: 100%;
+  min-height: 180px;
+  padding: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(180px, 1fr);
+}
+.is-room-dialogue .is-play-view > .meeting-game-canvas { grid-row: 1; margin: 0; }
+.meeting-scene-wrap[inert] > .meeting-room-controls,
+.meeting-scene-wrap[inert] > .meeting-note-pocket,
+.meeting-scene-wrap[inert] > .meeting-control-hint,
+.meeting-scene-wrap[inert] .meeting-reticle { display: none; }
+.interactive-meeting.is-room-dialogue .rw-conversation {
+  width: min(100%, 820px);
+  height: auto;
+  justify-self: center;
+  min-height: 0;
+  max-height: none;
+  border: 1px solid #8b9e754d;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #18342f;
+}
+.is-room-dialogue .rw-conversation-title { padding: 10px 18px; gap: 10px; }
+.is-room-dialogue .rw-conversation-title h3 { font: 20px/1.2 Georgia, serif; }
+.is-room-dialogue .rw-conversation-title p { font-size: 12px; }
+.is-room-dialogue .rw-conversation-avatar { display: none; }
+.meeting-history-button {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #8b9e7555;
+  border-radius: 6px;
+  background: #25483c;
+  color: #e9e5d0;
+  font-size: 14px;
+}
+.interactive-meeting.is-room-dialogue .rw-transcript {
+  flex: none;
+  min-height: 0;
+  max-height: 120px;
+  padding: 10px 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.is-room-dialogue .rw-message { margin-bottom: 12px; }
+.is-room-dialogue .rw-message:last-child { margin-bottom: 0; }
+.is-room-dialogue .rw-message > span { font-size: 12px; letter-spacing: .04em; }
+.interactive-meeting.is-room-dialogue .rw-message p { font-size: 16px; line-height: 1.5; margin-top: 4px; }
+.is-room-dialogue .meeting-conversation-shortcuts { padding: 4px 18px; gap: 8px; }
+.is-room-dialogue .meeting-conversation-shortcuts button { min-height: 44px; font-size: 14px; padding: 6px 10px; }
+.interactive-meeting.is-room-dialogue .rw-compose { padding: 8px 18px max(10px, env(safe-area-inset-bottom)); }
+.is-room-dialogue .rw-compose > label { font-size: 14px; margin-bottom: 4px; }
+.is-room-dialogue .rw-compose > div { padding: 4px 6px; align-items: center; }
+.interactive-meeting.is-room-dialogue .rw-compose textarea { font-size: 16px; line-height: 1.5; padding: 10px 2px; }
+.is-room-dialogue .rw-compose button { width: 44px; height: 44px; flex-shrink: 0; }
+.interactive-meeting.is-room-dialogue .rw-compose > p { font-size: 12px; margin: 6px 0 0; }
+.is-room-dialogue .meeting-history-button:focus-visible,
+.is-room-dialogue .rw-transcript:focus-visible { outline: 2px solid #edc499; outline-offset: -2px; }
+@media (max-width: 760px) {
+  .interactive-meeting.is-room-dialogue .rw-session-layout { height: calc(100dvh - 58px); }
+  .interactive-meeting.is-room-dialogue .rw-conversation { border-radius: 0; border-left: 0; border-right: 0; }
+  .interactive-meeting.is-room-dialogue .rw-conversation-title { padding: 6px 12px; }
+  .is-room-dialogue .rw-conversation-title h3 { font-size: 18px; }
+  .meeting-history-button { font-size: 12px; }
+  .interactive-meeting.is-room-dialogue .rw-transcript { max-height: 96px; padding: 8px 12px; }
+  .is-room-dialogue .meeting-conversation-shortcuts { padding: 4px 12px; flex-wrap: nowrap; overflow-x: auto; }
+  .is-room-dialogue .meeting-conversation-shortcuts button { flex: 0 0 auto; padding: 6px 8px; }
+  .interactive-meeting.is-room-dialogue .rw-compose { padding: 6px 12px max(8px, env(safe-area-inset-bottom)); }
+}

@@ -1,0 +1,175 @@
+/* In play, controls reserve their own space. The canvas is never underneath
+   the carried-item row or movement rail. Launcher/overview retain their layout. */
+.interactive-meeting.is-first-person .meeting-room-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.meeting-scene-wrap.is-play-view {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(120px, 1fr) auto;
+  gap: 0 8px;
+  padding-top: 8px;
+  background: #142d2c;
+  overflow: visible;
+}
+.is-play-view > .meeting-game-canvas {
+  position: relative;
+  inset: auto;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.is-play-view > .meeting-note-pocket {
+  position: static;
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+  align-self: start;
+  max-width: none;
+  min-width: 0;
+  margin-right: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.is-play-view > .meeting-note-pocket > span { display: none; }
+.is-play-view > .meeting-note-pocket > div { gap: 6px; }
+.is-play-view > .meeting-note-pocket button { gap: 7px; padding: 8px; }
+.is-play-view > .meeting-note-pocket > small { max-width: 310px; margin: 6px 0; }
+.is-play-view > .meeting-control-hint {
+  position: static;
+  grid-column: 1 / -1;
+  grid-row: 3;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  text-shadow: none;
+}
+.is-play-view > .meeting-control-hint > span { display: none; }
+.is-play-view .meeting-hud-actions { max-width: 580px; margin: 0 auto; min-height: 44px; }
+.meeting-context-action > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #b3c29255;
+  border-radius: 6px;
+  background: #24473e;
+  color: #eee8d1;
+  pointer-events: auto;
+}
+.meeting-context-action > .meeting-context-idle {
+  border: 0;
+  background: none;
+  color: #bfcdbb;
+  font-size: 12px;
+}
+.is-play-view .meeting-touch-walk { gap: 6px; }
+.is-play-view .meeting-touch-walk button { width: 44px; min-height: 44px; font-size: 17px; }
+.meeting-touch-walk button { touch-action: none; user-select: none; -webkit-user-select: none; }
+.meeting-touch-walk button:active { background: #e5c998; color: #173530; border-color: #f1dba9; }
+.meeting-room-controls {
+  grid-column: 1;
+  grid-row: 1;
+  margin-left: 12px;
+  align-self: start;
+  z-index: 7;
+}
+.meeting-room-controls > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #a8b99966;
+  border-radius: 6px;
+  background: #24443c;
+  color: #eee8d1;
+  font-size: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.meeting-room-controls > summary::-webkit-details-marker { display: none; }
+.meeting-room-controls[open] > summary { background: #48614b; }
+.meeting-controls-panel {
+  position: absolute;
+  left: 12px;
+  top: 60px;
+  width: min(350px, calc(100% - 24px));
+  max-height: min(500px, calc(100dvh - 150px));
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #a8b99966;
+  border-radius: 8px;
+  background: #173530;
+  box-shadow: 0 12px 30px #07181755;
+}
+.meeting-controls-panel .meeting-camera-tools {
+  position: static;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.meeting-controls-panel .meeting-camera-tools button { font-size: 14px; }
+.meeting-controls-panel .meeting-camera-tools button[aria-label="Room overview"]::after { content: "Room overview"; }
+.meeting-controls-panel > p { font-size: 12px; line-height: 1.6; margin: 12px 0; color: #c9d5c1; }
+.meeting-controls-panel > .meeting-controls-section { color: #e8e8d0; font-size: 14px; margin-bottom: 8px; }
+.interactive-meeting .meeting-controls-panel .meeting-inventory {
+  padding: 0;
+  border: 0;
+  background: none;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.interactive-meeting .meeting-controls-panel .meeting-inventory button {
+  max-width: none;
+  min-height: 44px;
+  flex-direction: row;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  gap: 10px;
+  font-size: 14px;
+}
+.meeting-controls-return { min-height: 44px; width: 100%; margin-top: 12px; border: 1px solid #a8b99966; border-radius: 6px; background: #2b4b40; font-size: 14px; }
+.meeting-room-controls summary:focus-visible,
+.meeting-room-controls button:focus-visible,
+.meeting-context-action > button:focus-visible,
+.meeting-touch-walk button:focus-visible { outline: 2px solid #f1ca94; outline-offset: 2px; }
+.meeting-room-controls summary:hover,
+.meeting-context-action > button:hover { background: #3e5c49; }
+.meeting-scene-wrap.is-play-view > .meeting-game-error {
+  top: 68px;
+  bottom: auto;
+  left: 12px;
+  right: 12px;
+  max-width: 380px;
+  z-index: 4;
+}
+@media (max-width: 760px) {
+  .interactive-meeting.is-first-person .meeting-place:not(.with-material) .meeting-scene-wrap.is-play-view:not(.is-aiming) {
+    height: max(360px, calc(100dvh - 58px));
+    min-height: max(360px, calc(100dvh - 58px));
+  }
+  .is-play-view > .meeting-note-pocket { margin-right: 8px; }
+  .meeting-room-controls { margin-left: 8px; }
+  .is-play-view > .meeting-note-pocket button { font-size: 12px; gap: 4px; padding: 8px 6px; }
+  .is-play-view > .meeting-note-pocket > small { font-size: 12px; }
+}
+@media (max-width: 420px) {
+  .is-play-view .meeting-hud-actions { grid-template-columns: 1fr; }
+  .is-play-view .meeting-context-action > button { min-height: 44px; }
+  .is-play-view .meeting-touch-walk { justify-content: center; }
+}

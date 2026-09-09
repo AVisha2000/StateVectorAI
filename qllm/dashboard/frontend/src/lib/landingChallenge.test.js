@@ -1,0 +1,81 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { LANDING_TARGETS, judgeLanding, completedLandingTargets, presentedLandingTarget, landingObservation } from "./landingChallenge.js";
+import { initialMeeting, meetingEvent, advanceGestureClock } from "./meetingInteraction.js";
+import { simulateStudio } from "./studioSimulation.js";
+import { projectile, flightPresentation } from "./projectileToy.js";
+
+const studio = { id: "physics", name: "Lyra Vale", title: "Boundaries", label: "Physics" };
+const event = (state, type, extra = {}) => meetingEvent(state, studio, { type, ...extra });
+const start = () => event(initialMeeting(studio), "landing-challenge", { action: "start" });
+test("all targets are reachable with integer angles; exact interval endpoints count, misses use nearest edge", () => {
+  for (const target of LANDING_TARGETS) {
+    assert.ok(Array.from({ length: 51 }, (_, i) => i + 20).some((angle) => judgeLanding(target, projectile(angle).range).hit));
+    const low = target.range - target.tolerance, high = target.range + target.tolerance;
+    assert.equal(judgeLanding(target, low).hit, true);
+    assert.equal(judgeLanding(target, high).hit, true);
+    assert.equal(judgeLanding(target, low - 1e-8).direction, "short");
+    assert.equal(judgeLanding(target, high + 1e-8).direction, "long");
+    assert.ok(Math.abs(judgeLanding(target, low - 2).distance - 2) < 1e-12);
+    assert.ok(Math.abs(judgeLanding(target, high + 2).distance - 2) < 1e-12);
+    assert.equal(judgeLanding(target, NaN), null);
+  }
+});
+test("aiming never creates attempts; captured target survives selection changes and free play", () => {
+  let state = start();
+  state = event(state, "launcher", { action: "aim", angle: 24 });
+  assert.equal(state.launcherChallenge.shots.length, 0);
+  state = event(state, "landing-challenge", { action: "next" });
+  assert.equal(presentedLandingTarget(state.launcherChallenge, "meadow").id, "meadow");
+  state = event(state, "result", { result: simulateStudio("physics", 24), targetId: "meadow" });
+  assert.equal(state.launcherChallenge.targetId, "clearing");
+  assert.equal(state.launcherChallenge.shots[0].angle, 24);
+  assert.equal(presentedLandingTarget(state.launcherChallenge).id, "meadow");
+  assert.equal(presentedLandingTarget(state.launcherChallenge, "clearing").id, "meadow");
+  assert.deepEqual(completedLandingTargets(state.launcherChallenge), []);
+  state = event(state, "landing-challenge", { action: "stop" });
+  assert.equal(presentedLandingTarget(state.launcherChallenge).id, "meadow");
+  state = event(state, "challenge-landed", { flightId: 1 });
+  assert.deepEqual(completedLandingTargets(state.launcherChallenge), ["meadow"]);
+  assert.equal(presentedLandingTarget(state.launcherChallenge), undefined);
+  const messages = state.messages.length;
+  state = event(state, "challenge-landed", { flightId: 1 });
+  assert.equal(state.messages.length, messages);
+  state = event(state, "landing-challenge", { action: "start" });
+  assert.equal(state.launcherChallenge.targetId, "clearing");
+});
+test("superseded and stale flights cannot award targets; unrelated state and exact quoted observation survive", () => {
+  let state = { ...start(), draft: "My unfinished idea" };
+  const board = state.board, cards = state.resultCards;
+  state = event(state, "result", { result: simulateStudio("physics", 24), targetId: "meadow" });
+  state = event(state, "result", { result: simulateStudio("physics", 45), targetId: "meadow" });
+  assert.equal(state.launcherChallenge.shots[0].status, "interrupted");
+  state = event(state, "challenge-landed", { flightId: 1 });
+  assert.deepEqual(completedLandingTargets(state.launcherChallenge), []);
+  state = event(state, "challenge-landed", { flightId: 2 });
+  const shot = state.launcherChallenge.shots[1];
+  assert.equal(shot.direction, "long");
+  const quote = landingObservation(shot);
+  assert.match(quote, /Meadow pad: 45° landed at 40.77 m/);
+  assert.match(quote, /29.2–30.8 m \(inclusive\).*9.97 m long/);
+  assert.match(quote, /not research evidence/);
+  state = event(state, "quote", { kind: "observation", text: quote });
+  assert.ok(state.draft.includes("My unfinished idea"));
+  assert.equal(state.quote, quote);
+  assert.equal(state.board, board);
+  assert.equal(state.resultCards, cards);
+});
+test("shared clock pause holds an airborne attempt; reduced motion and a returned settled flight acknowledge once", () => {
+  let state = event(start(), "result", { result: simulateStudio("physics", 24), targetId: "meadow" });
+  let clock = advanceGestureClock({ elapsed: 0, id: 0, start: 0, age: 10, instant: true }, .05, 1, false, false);
+  for (let i = 0; i < 100; i++) clock = advanceGestureClock(clock, .05, 1, true, false);
+  assert.equal(flightPresentation(24, clock.age).landed, false);
+  assert.equal(state.launcherChallenge.shots[0].status, "flying");
+  clock = advanceGestureClock(clock, .05, 1, false, true);
+  assert.equal(flightPresentation(24, clock.age).landed, true);
+  state = event(state, "challenge-landed", { flightId: 1 });
+  const originalCount = state.messages.length;
+  state = event(state, "challenge-landed", { flightId: 1 });
+  assert.equal(state.messages.length, originalCount);
+  assert.deepEqual(completedLandingTargets(state.launcherChallenge), ["meadow"]);
+});

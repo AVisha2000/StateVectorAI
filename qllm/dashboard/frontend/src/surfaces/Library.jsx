@@ -15,6 +15,19 @@ function authorLine(authors) {
   return list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).join(', ')} +${list.length - 3}`
 }
 
+function scanFailureHint(status, notReachable) {
+  if (notReachable || status === 404) {
+    return 'The local research capability service is unreachable on this branch, so arXiv scanning is unavailable.'
+  }
+  if (status === 429) {
+    return 'The local daily metadata-scan quota is exhausted. Retry after the quota window resets; no papers were imported.'
+  }
+  if (status === 400 || status === 422) {
+    return 'The local service rejected this scan request. Adjust the topic or result limit; no papers were imported.'
+  }
+  return 'The local service could not complete the metadata scan. Retry later or inspect the server log; no papers were imported.'
+}
+
 // Renders the research-service D4 boundary honestly: which providers are on, the
 // cost budget, and which capabilities stay human-gated.
 function CapabilitiesPanel({ caps, notReachable }) {
@@ -76,6 +89,7 @@ export default function Library() {
   // Show the D4 explainer whenever we don't have live capabilities — a clean 404
   // (endpoint not on this branch) or any other fetch failure both qualify.
   const notReachable = !caps.data && !caps.isLoading
+  const scanFailure = scanFailureHint(scanMut.error?.status, notReachable)
 
   return (
     <>
@@ -111,7 +125,7 @@ export default function Library() {
             ) : null}
             {scanMut.isError ? (
               <p className="hint" style={{ marginTop: 10, color: 'var(--warn)' }}>
-                {scanMut.error?.message || 'Scan failed'} — the research service may not be running on this branch yet.
+                {scanMut.error?.message || 'Scan failed'} — {scanFailure}
               </p>
             ) : null}
           </div>

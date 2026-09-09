@@ -42,6 +42,7 @@ export const STREAM_REFRESH_KEYS = Object.freeze([['jobs'], ['overview'], ['work
 export function useJobsStream() {
   const queryClient = useQueryClient()
   useEffect(() => {
+    if (import.meta.env?.VITE_PLAYGROUND_MODE === '1') return undefined
     if (typeof EventSource === 'undefined') return undefined
     let es
     try {

@@ -31,10 +31,15 @@ export default function Bench() {
   // quantum size and rides along as quantum_overrides on the queued job.
   const location = useLocation()
   const designer = location.state?.designer || null
+  const atlasParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const atlasAreaId = atlasParams.get('area_id')
+  const atlasHypothesis = atlasParams.get('hypothesis')
+  const fromAtlas = atlasParams.get('source') === 'atlas'
+  const atlasContextComplete = Boolean(atlasAreaId && atlasHypothesis)
 
   const [presetId, setPresetId] = useState('')
   const [datasetName, setDatasetName] = useState('')
-  const [hypothesis, setHypothesis] = useState('')
+  const [hypothesis, setHypothesis] = useState(() => atlasHypothesis || '')
   const [rigor, setRigor] = useState('standard')
   const [steps, setSteps] = useState(2000)
   const [evalEvery, setEvalEvery] = useState(100)
@@ -44,11 +49,13 @@ export default function Bench() {
   const [qubits, setQubits] = useState(() => (designer?.overrides?.n_qubits != null ? String(designer.overrides.n_qubits) : '4, 6, 8'))
   const [depths, setDepths] = useState(() => (designer?.overrides?.n_circuit_layers != null ? String(designer.overrides.n_circuit_layers) : '2'))
 
-  // Resolve the selected preset, defaulting once presets load.
+  // Direct Bench opens retain the curated default. An Atlas proposal is not a
+  // preset recommendation, so it deliberately requires an explicit choice.
   const preset = useMemo(() => {
     if (presetId) return presets.find((p) => p.id === presetId)
+    if (fromAtlas) return null
     return defaultPreset(presets)
-  }, [presets, presetId])
+  }, [presets, presetId, fromAtlas])
 
   const level = rigorLevel(rigor)
   const analogue = preset?.classical_analogue
@@ -82,7 +89,9 @@ export default function Bench() {
   }
   const estimate = estimateRuns({ ...config, rigor })
   const gpuGated = requiresGpuGate(deviceTarget)
-  const canQueue = Boolean(preset && config.datasetName) && !gpuGated
+  const canQueue = Boolean(preset && config.datasetName)
+    && (!fromAtlas || atlasContextComplete)
+    && !gpuGated
 
   const queue = useMutation({
     mutationFn: async () => {
@@ -128,6 +137,23 @@ export default function Bench() {
         </div>
       ) : null}
 
+      {fromAtlas ? (
+        <div className="notice" style={{ marginTop: 14 }}>
+          {atlasContextComplete ? (
+            <>
+              <span className="tag warn">Atlas proposal — not evidence</span>{' '}
+              Area <span className="mono">{atlasAreaId}</span>: {atlasHypothesis}{' '}
+              Choose a candidate preset explicitly before queueing; the Atlas does not select one for this proposal.
+            </>
+          ) : (
+            <>
+              <span className="tag crit">Incomplete Atlas handoff</span>{' '}
+              Return to the Atlas and use <b>Design a test</b>. Queueing stays disabled because the canonical area and proposed hypothesis were not both supplied.
+            </>
+          )}
+        </div>
+      ) : null}
+
       {/* Hypothesis */}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="bd">
@@ -152,6 +178,7 @@ export default function Bench() {
           <div className="bd">
             <label className="microlabel">Preset</label>
             <select className="mini block" value={preset?.id || ''} onChange={(e) => setPresetId(e.target.value)}>
+              {fromAtlas ? <option value="" disabled>Select a candidate preset…</option> : null}
               {presets.map((p) => <option key={p.id} value={p.id}>{p.label} ({p.id})</option>)}
             </select>
             <div style={{ fontWeight: 560, marginTop: 10 }}>{preset?.summary || preset?.label}</div>

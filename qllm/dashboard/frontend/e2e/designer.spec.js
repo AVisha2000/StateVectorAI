@@ -7,7 +7,7 @@ const circuit = (page) => page.locator('.circuit-wrap svg')
 const select = (page, label) => page.locator('label').filter({ hasText: label }).locator('select')
 
 test('Designer: circuit renders and each ansatz produces a distinct layout', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await expect(circuit(page)).toBeVisible()
   // hardware_efficient → RY gates
   await expect(circuit(page).getByText('RY').first()).toBeVisible()
@@ -21,13 +21,13 @@ test('Designer: circuit renders and each ansatz produces a distinct layout', asy
 })
 
 test('Designer: readout offers only registry values (z, zz — never all)', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   const options = await select(page, 'Readout').locator('option').allTextContents()
   expect(options.sort()).toEqual(['z', 'zz'])
 })
 
 test('Designer: ising (QRNN-only) pins backend/readout to compatibility values', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await select(page, 'Ansatz').selectOption('ising')
   // architecture=qrnn requirement surfaces, backend/readout lock to pennylane/z
   await expect(page.getByText(/QRNN-only family/i)).toBeVisible()
@@ -38,7 +38,7 @@ test('Designer: ising (QRNN-only) pins backend/readout to compatibility values',
 })
 
 test('Designer: tensorcircuit_mps demands a max bond dimension and labels it approximate', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await select(page, 'Backend').selectOption('tensorcircuit_mps')
   const bond = page.locator('label').filter({ hasText: 'Max bond dim' }).locator('input')
   await expect(bond).toBeVisible()
@@ -49,7 +49,7 @@ test('Designer: tensorcircuit_mps demands a max bond dimension and labels it app
 })
 
 test('Designer: live round-trip validates and shows registry-derived params', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await expect(page.locator('.card', { hasText: 'Round-trip' }).getByText('live')).toBeVisible()
   await page.getByRole('button', { name: /Validate against registry/i }).click()
   await expect(page.getByText(/✓ valid — registry-backed, side-effect-free/i)).toBeVisible()
@@ -63,20 +63,20 @@ test('Designer: a registry rejection is shown as a rejection, not an outage', as
   await mockApi(page, {
     'POST /designer/circuit': { status: 400, body: { detail: "ansatz 'ising' requires architecture='qrnn'." } },
   })
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await page.getByRole('button', { name: /Validate against registry/i }).click()
   await expect(page.getByText(/Rejected by the registry:.*requires architecture/i)).toBeVisible()
 })
 
 test('Designer: degrades gracefully when the endpoint is absent (older backend)', async ({ page }) => {
   await mockApi(page, { '/designer/circuit': null })
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await page.getByRole('button', { name: /Validate against registry/i }).click()
   await expect(page.getByText(/doesn.t serve/i)).toBeVisible()
 })
 
 test('Designer: properties update with size; classical toggle swaps the panel', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await expect(page.locator('.metric-row', { hasText: 'Param gates (drawn)' })).toBeVisible()
   await expect(page.locator('.metric-row', { hasText: 'Entangling gates (drawn)' })).toBeVisible()
   await page.getByRole('button', { name: 'Classical' }).click()
@@ -84,7 +84,7 @@ test('Designer: properties update with size; classical toggle swaps the panel', 
 })
 
 test('Designer → Bench: Send to Bench carries the circuit as a prefill', async ({ page }) => {
-  await page.goto('/designer')
+  await page.goto('/portal/designer')
   await select(page, 'Ansatz').selectOption('reuploading')
   await page.getByRole('button', { name: /Send to Bench/i }).click()
   await expect(page).toHaveURL(/\/bench$/)

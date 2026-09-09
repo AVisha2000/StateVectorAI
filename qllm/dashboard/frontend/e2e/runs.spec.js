@@ -4,7 +4,7 @@ import { mockApi } from './fixtures.js'
 test.beforeEach(async ({ page }) => { await mockApi(page) })
 
 test('Runs table lists all jobs and filters by status', async ({ page }) => {
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   await expect(page.getByText('qrnn-s42')).toBeVisible()
   await expect(page.getByText('gru-s42')).toBeVisible()
   await expect(page.getByText('qattn-s77')).toBeVisible()
@@ -19,7 +19,7 @@ test('Runs table lists all jobs and filters by status', async ({ page }) => {
 })
 
 test('Runs: free-text search and dataset filter narrow the table', async ({ page }) => {
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   const box = page.getByRole('searchbox', { name: 'Search runs' })
   await box.fill('qattn')
   await expect(page.getByText('qattn-s77')).toBeVisible()
@@ -32,7 +32,7 @@ test('Runs: free-text search and dataset filter narrow the table', async ({ page
 })
 
 test('Runs: table rows are keyboard-operable', async ({ page }) => {
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   await page.getByRole('button', { name: /Open run qrnn-s42/i }).focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/runs\/7$/)
@@ -40,18 +40,18 @@ test('Runs: table rows are keyboard-operable', async ({ page }) => {
 
 test('Runs shows a graceful error when /jobs fails', async ({ page }) => {
   await page.route('**/api/jobs', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }))
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   await expect(page.getByText(/Could not load|Is the dashboard API running/i)).toBeVisible()
 })
 
 test('Runs empty state when there are no jobs', async ({ page }) => {
   await mockApi(page, { '/jobs': [] })
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   await expect(page.getByText(/No runs match/i)).toBeVisible()
 })
 
 test('Run detail: header, diagnostics KPIs, charts, and warnings', async ({ page }) => {
-  await page.goto('/runs')
+  await page.goto('/portal/runs')
   await page.getByText('qrnn-s42').click()
   await expect(page).toHaveURL(/\/runs\/7$/)
   await expect(page.getByText('#7 qrnn-s42')).toBeVisible()
@@ -71,7 +71,7 @@ test('Run detail: header, diagnostics KPIs, charts, and warnings', async ({ page
 })
 
 test('Run detail: model-structure graph shows quantum and classical blocks', async ({ page }) => {
-  await page.goto('/runs/7')
+  await page.goto('/portal/runs/7')
   await expect(page.getByText('Model structure')).toBeVisible()
   const svg = page.locator('.model-graph svg')
   await expect(svg).toBeVisible()
@@ -81,7 +81,7 @@ test('Run detail: model-structure graph shows quantum and classical blocks', asy
 })
 
 test('Run detail: scaling-group backlink appears when the run is part of a sweep', async ({ page }) => {
-  await page.goto('/runs/7')
+  await page.goto('/portal/runs/7')
   const link = page.getByRole('link', { name: /scaling group/i })
   await expect(link).toBeVisible()
   await link.click()
@@ -92,12 +92,12 @@ test('Run detail: scaling-group backlink appears when the run is part of a sweep
 test('Run detail: no scaling-group backlink when the run has no group', async ({ page }) => {
   // diagnostics without a group_id → no backlink
   await mockApi(page, { '/jobs/7/diagnostics': { job: { id: 7, run_name: 'qrnn-s42', status: 'running' }, diagnostics: {}, interpretation_warnings: [] } })
-  await page.goto('/runs/7')
+  await page.goto('/portal/runs/7')
   await expect(page.getByText('#7 qrnn-s42')).toBeVisible()
   await expect(page.getByRole('link', { name: /scaling group/i })).toHaveCount(0)
 })
 
 test('Run detail: unknown id degrades gracefully', async ({ page }) => {
-  await page.goto('/runs/424242')
+  await page.goto('/portal/runs/424242')
   await expect(page.getByText(/Could not load this run|not found/i)).toBeVisible()
 })

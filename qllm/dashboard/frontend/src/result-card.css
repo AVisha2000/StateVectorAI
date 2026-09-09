@@ -1,0 +1,150 @@
+.result-card {
+  padding: 20px;
+  border: 1px solid #8e9a794d;
+  background: #efebd9;
+  border-radius: 10px;
+  color: #294a3b;
+}
+.result-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  font:
+    11px ui-monospace,
+    monospace;
+  letter-spacing: 0.05em;
+}
+.result-card header small {
+  font-size: 12px;
+  font-family: inherit;
+  letter-spacing: 0;
+}
+.result-card h3 {
+  margin: 18px 0 8px;
+  font:
+    400 25px/1.15 Georgia,
+    serif;
+}
+.result-card p {
+  margin: 8px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.result-card-value {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.result-card-value strong {
+  font:
+    400 36px Georgia,
+    serif;
+}
+.result-card-value span {
+  font-size: 14px;
+}
+.result-card dl {
+  display: grid;
+  gap: 9px;
+  margin: 15px 0;
+}
+.result-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.result-card dd {
+  margin: 0;
+  font-weight: 600;
+}
+.result-card > svg {
+  display: block;
+  width: 100%;
+  max-height: 150px;
+  background: #dce3ce;
+  border-radius: 6px;
+}
+.result-card > svg text {
+  font: 10px sans-serif;
+  fill: #42614a;
+}
+.result-card .result-card-key,
+.result-card .result-card-disclosure {
+  font-size: 12px;
+}
+.result-card footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.result-card button,
+.take-result-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #72886a88;
+  background: #345b46;
+  color: #f1edd8;
+  font-size: 14px;
+  cursor: pointer;
+}
+.result-card button:hover,
+.take-result-card:hover {
+  background: #466d50;
+}
+.result-card button:focus-visible,
+.take-result-card:focus-visible {
+  outline: 2px solid #315b49;
+  outline-offset: 3px;
+}
+.take-result-card {
+  width: 100%;
+  margin-top: 14px;
+}
+.result-card-collection {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.result-card-collection h4 {
+  margin: 0;
+  font:
+    400 23px Georgia,
+    serif;
+}
+.result-card-collection > p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.meeting-result-reader:focus-visible {
+  outline: 2px solid #315b49;
+  outline-offset: 3px;
+}
+.meeting-scene-wrap[data-result-held="true"] .meeting-game-error {
+  right: auto;
+  max-width: min(290px, calc(100% - 40px));
+  bottom: 82px;
+  padding: 9px;
+  line-height: 1.4;
+}
+@media (max-width: 760px) {
+  .interactive-meeting
+    .meeting-place:not(.with-material)
+    .meeting-scene-wrap[data-result-held="true"] {
+    min-height: 410px;
+    height: 410px;
+  }
+  .result-card {
+    padding: 15px;
+  }
+}

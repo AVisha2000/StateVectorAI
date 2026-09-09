@@ -1,0 +1,141 @@
+import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { mockApi } from './fixtures.js'
+import { RESEARCH_WORLD_SNAPSHOT } from '../src/lib/researchWorld.js'
+
+async function enter(page, testInfo) {
+  await page.getByRole('button', { name: 'Quantum computing Steer a quantum state', exact: true }).click()
+  if (testInfo) {
+    await expect(page.getByRole('button', { name: 'Visit Quantum computing island', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Visit Quantum computing island', exact: true }).click()
+    await page.locator('.rw-universe').screenshot({ path: testInfo.outputPath('quantum-world.png') })
+  }
+  await page.getByRole('button', { name: 'Enter quantum island', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Find superposition', exact: true })).toBeVisible()
+}
+
+test.beforeEach(async ({ page }) => { await mockApi(page) })
+
+test('island entry, keyboard steering, note isolation, saving, export and return', async ({ page }, testInfo) => {
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/')
+  await expect(page.locator('.rw-researcher-list button')).toHaveCount(6)
+  await enter(page, testInfo)
+  const flight = page.getByRole('region', { name: 'Quantum flight controls', exact: true })
+  await expect(flight).toBeFocused()
+  await expect(page.getByTestId('quantum-overlap')).toHaveText('50.0%')
+  const canvasBox = await page.locator('.qg-canvas canvas').boundingBox()
+  await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(canvasBox.x + canvasBox.width / 2 + 100, canvasBox.y + canvasBox.height / 2 + 30, { steps: 8 })
+  await page.mouse.up()
+  await expect(flight).toHaveAttribute('data-state', '0.000000,0.000000,1.000000')
+  await flight.focus()
+  await page.keyboard.press('d'); await page.keyboard.press('d'); await page.keyboard.press('d')
+  await expect(flight).toHaveAttribute('data-state', '1.000000,0.000000,0.000000')
+  await expect(page.getByTestId('quantum-overlap')).toHaveText('100.0%')
+  await expect(page.getByRole('list', { name: 'Recorded pulses' }).locator('li')).toHaveCount(3)
+  const note = page.getByLabel('What would you try next?', { exact: true })
+  await note.fill('Try X then Y; wasdqe are notes here.')
+  await note.pressSequentially(' wasdqe')
+  await expect(flight).toHaveAttribute('data-pulse-count', '3')
+  await page.getByRole('button', { name: 'Save this attempt', exact: true }).click()
+  await expect(page.getByText('1 saved', { exact: true })).toBeVisible()
+  await note.fill('A second idea, without changing the saved note.')
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(page.getByTestId('quantum-overlap')).toHaveText('93.3%')
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download notebook', exact: true }).click()
+  const download = await downloadPromise
+  const notebook = JSON.parse(await readFile(await download.path(), 'utf8'))
+  expect(notebook.model).toBe('ideal-bloch-rotations-v1')
+  expect(notebook.current.pulses).toHaveLength(2)
+  expect(notebook.attempts).toHaveLength(1)
+  expect(notebook.attempts[0].pulses).toHaveLength(3)
+  expect(notebook.attempts[0].overlap).toBeCloseTo(1, 12)
+  expect(notebook.attempts[0].note).toBe('Try X then Y; wasdqe are notes here. wasdqe')
+  await page.getByRole('button', { name: 'Back to world', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Enter quantum island', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'Enter quantum island', exact: true }).click()
+  await expect(flight).toHaveAttribute('data-pulse-count', '2')
+  await expect(page.getByText('Your sequence is restored. Keep exploring or replay this route.', { exact: true })).toBeVisible()
+  await expect(note).toHaveValue('A second idea, without changing the saved note.')
+  await expect(page.getByText('1 saved', { exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('quantum-desktop.png') })
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('replay is presentation-only, cancellable, and reduced-motion safe', async ({ page }) => {
+  await page.goto('/'); await enter(page)
+  const flight = page.getByRole('region', { name: 'Quantum flight controls', exact: true })
+  for (let i = 0; i < 8; i++) await page.keyboard.press('w')
+  const finalState = await flight.getAttribute('data-state')
+  await page.getByRole('button', { name: 'Save this attempt', exact: true }).click()
+  await page.getByRole('button', { name: 'Replay', exact: true }).click()
+  await expect(flight).toHaveAttribute('data-replaying', 'true')
+  await expect(page.getByRole('button', { name: 'Apply positive X pulse', exact: true })).toBeDisabled()
+  await expect(page.getByLabel('Quantum target', { exact: true })).toBeDisabled()
+  await flight.press('d')
+  await expect(flight).toHaveAttribute('data-pulse-count', '8')
+  await page.getByRole('button', { name: 'Stop replay', exact: true }).click()
+  await expect(flight).toHaveAttribute('data-replaying', 'false')
+  await expect(page.getByRole('button', { name: 'Apply positive X pulse', exact: true })).toBeEnabled()
+  await expect(flight).toHaveAttribute('data-state', finalState)
+  await page.getByRole('button', { name: 'Replay', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Enter quantum island', exact: true }).click()
+  await expect(flight).toHaveAttribute('data-replaying', 'false')
+  await expect(flight).toHaveAttribute('data-state', finalState)
+  await expect(page.getByText('1 saved', { exact: true })).toBeVisible()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: 'Replay', exact: true }).click()
+  await expect(page.getByText(/Reduced motion: the complete trajectory/)).toBeVisible()
+  await expect(flight).toHaveAttribute('data-replaying', 'false')
+})
+
+test('phone controls and state remain together without horizontal overflow', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/'); await enter(page)
+  const flight = page.getByRole('region', { name: 'Quantum flight controls', exact: true })
+  await flight.evaluate((element) => element.scrollIntoView({ block: 'start' }))
+  await page.getByRole('button', { name: 'Apply positive Y pulse', exact: true }).click()
+  await expect(page.getByTestId('quantum-overlap')).toHaveText('75.0%')
+  const stageBox = await flight.boundingBox()
+  const buttonBox = await page.getByRole('button', { name: 'Apply positive Y pulse', exact: true }).boundingBox()
+  // scrollIntoView rounds fractional CSS pixels to a device-pixel boundary.
+  expect(stageBox.y).toBeGreaterThanOrEqual(-1)
+  expect(stageBox.y + stageBox.height).toBeLessThan(812)
+  expect(buttonBox.y + buttonBox.height).toBeLessThan(812)
+  expect(await page.getByRole('dialog').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('quantum-phone.png') })
+  await page.getByLabel('Quantum target', { exact: true }).selectOption('one')
+  await expect(flight).toHaveAttribute('data-pulse-count', '1')
+  await page.getByRole('button', { name: 'New attempt', exact: true }).click()
+  await expect(flight).toHaveAttribute('data-state', '0.000000,0.000000,1.000000')
+})
+
+test('quantum island stays playable without WebGL and with a live world snapshot', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+      return kind.startsWith('webgl') || kind === 'experimental-webgl' ? null : original.call(this, kind, ...args)
+    }
+  })
+  await page.route('**/api/research-world', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ...RESEARCH_WORLD_SNAPSHOT, mode: 'live' }),
+  }))
+  await page.goto('/')
+  await expect(page.locator('.rw-studio-card')).toHaveCount(4)
+  await expect(page.locator('.rw-researcher-list button')).toHaveCount(6)
+  await enter(page)
+  await expect(page.getByRole('dialog').getByText(/The 3D view is unavailable/)).toBeVisible()
+  await page.getByRole('button', { name: 'Apply positive Y pulse', exact: true }).click()
+  await expect(page.getByTestId('quantum-overlap')).toHaveText('75.0%')
+  await page.getByRole('button', { name: 'Save this attempt', exact: true }).click()
+  await expect(page.getByText('1 saved', { exact: true })).toBeVisible()
+})
